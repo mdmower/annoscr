@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Annoscr
+GenericName=Screenshot Annotator
+Comment=Annotate screenshots with arrows, text, and shapes
+Exec=annoscr %F
+Icon=com.cmphys.Annoscr
+Terminal=false
+Type=Application
+Categories=Graphics;Photography;GTK;
+StartupNotify=true
+MimeType=image/png;image/jpeg;image/webp;image/bmp;image/tiff;
+Keywords=screenshot;annotate;arrow;markup;

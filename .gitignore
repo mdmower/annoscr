@@ -1,0 +1,26 @@
+build/
+node_modules/
+*.tsbuildinfo
+
+# Claude Code context
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# Debian packaging artifacts
+debian/.debhelper/
+debian/files
+debian/*.substvars
+debian/*.log
+debian/annoscr/
+debian/debhelper-build-stamp
+../annoscr_*.deb
+../annoscr_*.buildinfo
+../annoscr_*.changes
+../annoscr_*.dsc
+../annoscr_*.tar.*
+
+# Editor scratch
+.vscode/
+.idea/
+*.swp

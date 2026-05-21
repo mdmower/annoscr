@@ -1,0 +1,6 @@
+annoscr (0.1.0) unstable; urgency=medium
+
+  * Initial scaffolding. Milestone 1: hello-world AdwApplicationWindow,
+    Meson + TypeScript build pipeline, .deb packaging skeleton.
+
+ -- Matt Mower <mdmower@cmphys.com>  Thu, 21 May 2026 12:00:00 +0000

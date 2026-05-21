@@ -1,0 +1,41 @@
+desktop_conf = configuration_data()
+desktop_conf.set('app_id', app_id)
+
+desktop_file = i18n.merge_file(
+  input: configure_file(
+    input: '@0@.desktop.in'.format(app_id),
+    output: '@0@.desktop.tmp'.format(app_id),
+    configuration: desktop_conf,
+  ),
+  output: '@0@.desktop'.format(app_id),
+  type: 'desktop',
+  po_dir: meson.project_source_root() / 'po',
+  install: true,
+  install_dir: get_option('datadir') / 'applications',
+)
+
+metainfo_file = i18n.merge_file(
+  input: '@0@.metainfo.xml.in'.format(app_id),
+  output: '@0@.metainfo.xml'.format(app_id),
+  po_dir: meson.project_source_root() / 'po',
+  install: true,
+  install_dir: get_option('datadir') / 'metainfo',
+)
+
+# Validate desktop file (best-effort; warn only if tool missing).
+desktop_validate = find_program('desktop-file-validate', required: false)
+if desktop_validate.found()
+  test('validate-desktop', desktop_validate, args: [desktop_file])
+endif
+
+# Validate metainfo (best-effort).
+appstreamcli = find_program('appstreamcli', required: false)
+if appstreamcli.found()
+  test('validate-metainfo', appstreamcli,
+    args: ['validate', '--no-net', '--explain', metainfo_file])
+endif
+
+install_data(
+  'icons' / 'hicolor' / 'scalable' / 'apps' / '@0@.svg'.format(app_id),
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',
+)

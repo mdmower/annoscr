@@ -1,0 +1,28 @@
+Source: annoscr
+Section: graphics
+Priority: optional
+Maintainer: Matt Mower <mdmower@cmphys.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ meson (>= 0.59),
+ ninja-build,
+ node-typescript,
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/
+
+Package: annoscr
+Architecture: all
+Depends:
+ ${misc:Depends},
+ gjs,
+ gir1.2-gtk-4.0,
+ gir1.2-adw-1,
+ gir1.2-gdkpixbuf-2.0,
+ gir1.2-pango-1.0,
+Description: Lightweight screenshot annotation tool for GNOME
+ Annoscr lets you annotate screenshots with arrows, text, shapes,
+ highlighter strokes, and numbered stamps. It also supports basic
+ rotation and cropping.
+ .
+ Built with GJS, GTK4, and Libadwaita.

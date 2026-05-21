@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.cmphys.Annoscr</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Annoscr</name>
+  <summary>Annotate screenshots</summary>
+
+  <description>
+    <p>
+      Annoscr is a lightweight screenshot annotation tool for GNOME.
+      Add arrows, text, shapes, highlighter strokes, and numbered stamps
+      to images. Rotate or crop as needed, then export or copy to clipboard.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">com.cmphys.Annoscr.desktop</launchable>
+
+  <provides>
+    <binary>annoscr</binary>
+  </provides>
+
+  <developer id="com.cmphys">
+    <name>Matt Mower</name>
+  </developer>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-05-21">
+      <description>
+        <p>Initial scaffold. Hello-world milestone.</p>
+      </description>
+    </release>
+  </releases>
+</component>
