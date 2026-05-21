@@ -60,7 +60,7 @@ export const AnnoscrWindow = GObject.registerClass(
       this.set_content(toolbar);
 
       this.installDropTarget();
-      this.installPasteShortcut();
+      this.installShortcuts();
     }
 
     private openImageDialog(): void {
@@ -114,15 +114,19 @@ export const AnnoscrWindow = GObject.registerClass(
       (this as any).add_controller(dropTarget);
     }
 
-    private installPasteShortcut(): void {
+    private installShortcuts(): void {
       const controller = new Gtk.ShortcutController();
-      const trigger = Gtk.ShortcutTrigger.parse_string('<Control>v');
-      const action = Gtk.CallbackAction.new(() => {
-        this.pasteFromClipboard();
-        return true;
-      });
-      controller.add_shortcut(new Gtk.Shortcut({ trigger, action }));
+      this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
+      this.bindShortcut(controller, '<Control>z', () => this.canvas.undo());
+      this.bindShortcut(controller, '<Control><Shift>z', () => this.canvas.redo());
+      this.bindShortcut(controller, '<Control>y', () => this.canvas.redo());
       (this as any).add_controller(controller);
+    }
+
+    private bindShortcut(controller: any, accelerator: string, callback: () => void): void {
+      const trigger = Gtk.ShortcutTrigger.parse_string(accelerator);
+      const action = Gtk.CallbackAction.new(() => { callback(); return true; });
+      controller.add_shortcut(new Gtk.Shortcut({ trigger, action }));
     }
 
     private pasteFromClipboard(): void {
