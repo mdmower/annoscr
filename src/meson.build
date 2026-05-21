@@ -2,12 +2,16 @@ ts_sources = files(
   'main.ts',
   'application.ts',
   'window.ts',
+  'canvas_view.ts',
+  'image_loader.ts',
 )
 
 ts_outputs = [
   'main.js',
   'application.js',
   'window.js',
+  'canvas_view.js',
+  'image_loader.js',
 ]
 
 compile_ts = custom_target('compile-ts',
@@ -32,7 +36,7 @@ launcher_conf = configuration_data()
 launcher_conf.set('gjs', gjs.full_path())
 launcher_conf.set('pkgdatadir', pkgdatadir)
 
-configure_file(
+launcher = configure_file(
   input: 'annoscr.in',
   output: 'annoscr',
   configuration: launcher_conf,
@@ -40,3 +44,8 @@ configure_file(
   install_dir: get_option('bindir'),
   install_mode: 'rwxr-xr-x',
 )
+
+# configure_file's install_mode doesn't affect the build-tree copy, so the
+# launcher comes out 0644 there. Mark it executable so `./build/src/annoscr`
+# runs without a manual chmod.
+meson.add_postconf_script(find_program('chmod'), '+x', launcher.full_path())

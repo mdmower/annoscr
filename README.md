@@ -19,13 +19,16 @@ Pre-alpha. Currently at milestone 1 (scaffolding + hello-world window).
 ### System dependencies (Debian 13)
 
 ```sh
-sudo apt install gjs meson ninja-build node-typescript \
+sudo apt install gjs meson ninja-build nodejs npm \
     gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gdkpixbuf-2.0 gir1.2-pango-1.0
 ```
+
+`nodejs` and `npm` can alternatively be installed from <https://nodejs.org/en/download/>.
 
 ### From source
 
 ```sh
+npm install                    # installs TypeScript as a project devDependency
 meson setup build
 meson compile -C build
 ./build/src/annoscr            # run from the build tree
