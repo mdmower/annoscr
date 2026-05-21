@@ -7,6 +7,7 @@ import Adw from 'gi://Adw?version=1';
 
 import { CanvasView } from './canvas_view.js';
 import { loadFromFile, loadFromStream } from './image_loader.js';
+import { ToolId } from './actions.js';
 
 const IMAGE_MIME_TYPES = [
   'image/png',
@@ -17,10 +18,26 @@ const IMAGE_MIME_TYPES = [
   'image/tiff',
 ];
 
+interface ToolDef {
+  id: ToolId;
+  label: string;
+  accelerator: string;
+}
+
+const TOOLS: ToolDef[] = [
+  { id: 'pen',         label: 'Pen',       accelerator: 'p' },
+  { id: 'highlighter', label: 'Highlight', accelerator: 'h' },
+  { id: 'line',        label: 'Line',      accelerator: 'l' },
+  { id: 'arrow',       label: 'Arrow',     accelerator: 'a' },
+  { id: 'rect',        label: 'Rect',      accelerator: 'r' },
+  { id: 'oval',        label: 'Oval',      accelerator: 'o' },
+];
+
 export const AnnoscrWindow = GObject.registerClass(
   class AnnoscrWindow extends Adw.ApplicationWindow {
     private canvas: any;
     private stack: any;
+    private toolButtons: Map<ToolId, any> = new Map();
 
     constructor(app: any) {
       super({
@@ -40,6 +57,9 @@ export const AnnoscrWindow = GObject.registerClass(
       header.pack_start(openButton);
 
       this.canvas = new CanvasView();
+
+      const toolBar = this.buildToolBar();
+      header.set_title_widget(toolBar);
 
       const empty = new Adw.StatusPage({
         icon_name: 'image-x-generic-symbolic',
@@ -120,7 +140,39 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>z', () => this.canvas.undo());
       this.bindShortcut(controller, '<Control><Shift>z', () => this.canvas.redo());
       this.bindShortcut(controller, '<Control>y', () => this.canvas.redo());
+      for (const tool of TOOLS) {
+        this.bindShortcut(controller, tool.accelerator, () => this.selectTool(tool.id));
+      }
       (this as any).add_controller(controller);
+    }
+
+    private buildToolBar(): any {
+      const box = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 0,
+        css_classes: ['linked'],
+      });
+      let group: any = null;
+      for (const tool of TOOLS) {
+        const btn = new Gtk.ToggleButton({
+          label: tool.label,
+          tooltip_text: `${tool.label} (${tool.accelerator.toUpperCase()})`,
+          active: tool.id === this.canvas.getTool(),
+        });
+        if (group) btn.set_group(group); else group = btn;
+        btn.connect('toggled', () => {
+          if (btn.get_active()) this.selectTool(tool.id);
+        });
+        this.toolButtons.set(tool.id, btn);
+        box.append(btn);
+      }
+      return box;
+    }
+
+    private selectTool(id: ToolId): void {
+      this.canvas.setTool(id);
+      const btn = this.toolButtons.get(id);
+      if (btn && !btn.get_active()) btn.set_active(true);
     }
 
     private bindShortcut(controller: any, accelerator: string, callback: () => void): void {

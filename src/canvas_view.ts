@@ -3,7 +3,7 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import cairo from 'gi://cairo?version=1.0';
 
-import { Action, PenAction, DEFAULT_PEN_STYLE } from './actions.js';
+import { Action, LiveStroke, ToolId, createLiveStroke } from './actions.js';
 
 type ImageSurface = any;
 type DisplayMode = 'fit' | 'actual';
@@ -14,6 +14,10 @@ interface Transform {
   offsetY: number;
 }
 
+function isShift(gesture: any): boolean {
+  return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
+}
+
 export const CanvasView = GObject.registerClass(
   class CanvasView extends Gtk.DrawingArea {
     private surface: ImageSurface | null = null;
@@ -21,7 +25,8 @@ export const CanvasView = GObject.registerClass(
 
     private actions: Action[] = [];
     private cursor: number = 0;
-    private liveStroke: PenAction | null = null;
+    private liveStroke: LiveStroke | null = null;
+    private currentToolId: ToolId = 'pen';
 
     private dragStartX: number = 0;
     private dragStartY: number = 0;
@@ -58,6 +63,18 @@ export const CanvasView = GObject.registerClass(
       return this.surface !== null;
     }
 
+    setTool(toolId: ToolId): void {
+      if (this.currentToolId === toolId) return;
+      this.currentToolId = toolId;
+      // Cancel any in-progress stroke so the tool change takes effect immediately.
+      this.liveStroke = null;
+      this.queue_draw();
+    }
+
+    getTool(): ToolId {
+      return this.currentToolId;
+    }
+
     undo(): void {
       if (this.cursor === 0) return;
       this.cursor--;
@@ -85,11 +102,11 @@ export const CanvasView = GObject.registerClass(
         this.dragStartY = y;
         this.onPenDown(x, y);
       });
-      drag.connect('drag-update', (_g: any, dx: number, dy: number) => {
-        this.onPenMove(this.dragStartX + dx, this.dragStartY + dy);
+      drag.connect('drag-update', (g: any, dx: number, dy: number) => {
+        this.onPenMove(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
       });
-      drag.connect('drag-end', (_g: any, dx: number, dy: number) => {
-        this.onPenUp(this.dragStartX + dx, this.dragStartY + dy);
+      drag.connect('drag-end', (g: any, dx: number, dy: number) => {
+        this.onPenUp(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
       });
 
       (this as any).add_controller(drag);
@@ -99,25 +116,23 @@ export const CanvasView = GObject.registerClass(
     private onPenDown(wx: number, wy: number): void {
       if (!this.surface) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      this.liveStroke = new PenAction(DEFAULT_PEN_STYLE);
-      this.liveStroke.addPoint(ix, iy);
+      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy);
       this.queue_draw();
     }
 
-    private onPenMove(wx: number, wy: number): void {
+    private onPenMove(wx: number, wy: number, constrain: boolean): void {
       if (!this.liveStroke) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      this.liveStroke.addPoint(ix, iy);
+      this.liveStroke.extendTo(ix, iy, constrain);
       this.queue_draw();
     }
 
-    private onPenUp(wx: number, wy: number): void {
+    private onPenUp(wx: number, wy: number, constrain: boolean): void {
       if (!this.liveStroke) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      this.liveStroke.addPoint(ix, iy);
-      if (this.liveStroke.pointCount() >= 2) {
-        this.addAction(this.liveStroke);
-      }
+      this.liveStroke.extendTo(ix, iy, constrain);
+      const committed = this.liveStroke.finish();
+      if (committed) this.addAction(committed);
       this.liveStroke = null;
       this.queue_draw();
     }
