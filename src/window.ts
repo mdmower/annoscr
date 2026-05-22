@@ -56,6 +56,7 @@ export const AnnoscrWindow = GObject.registerClass(
     private toolButtons: Map<ToolId, any> = new Map();
     private resizeToolbar: any;
     private resizeButton: any;
+    private statusLabel: any;
     private saveButton: any;
     private copyButton: any;
 
@@ -162,10 +163,47 @@ export const AnnoscrWindow = GObject.registerClass(
       const toolbar = new Adw.ToolbarView();
       toolbar.add_top_bar(header);
       toolbar.set_content(this.stack);
+      toolbar.add_bottom_bar(this.buildStatusBar());
       this.set_content(toolbar);
+
+      this.canvas.setStateChangeHandler(() => this.refreshStatus());
+      this.refreshStatus();
 
       this.installDropTarget();
       this.installShortcuts();
+    }
+
+    private buildStatusBar(): any {
+      const box = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+        margin_start: 12,
+        margin_end: 12,
+        margin_top: 4,
+        margin_bottom: 4,
+      });
+      this.statusLabel = new Gtk.Label({
+        label: '',
+        halign: Gtk.Align.START,
+        hexpand: true,
+        css_classes: ['dim-label', 'caption'],
+      });
+      box.append(this.statusLabel);
+      return box;
+    }
+
+    private refreshStatus(): void {
+      if (!this.statusLabel) return;
+      const img = this.canvas.getImageDimensions();
+      if (!img) {
+        this.statusLabel.set_label('');
+        return;
+      }
+      const base = `${img.w} × ${img.h} px`;
+      const r = this.canvas.getResizeDimensions();
+      // U+2003 EM SPACE on either side of the arrow gives breathing room
+      // without depending on Pango markup or label padding tricks.
+      this.statusLabel.set_label(r ? `${base} → ${r.w} × ${r.h} px` : base);
     }
 
     private openImageDialog(): void {
@@ -227,9 +265,22 @@ export const AnnoscrWindow = GObject.registerClass(
     private installShortcuts(): void {
       const controller = new Gtk.ShortcutController();
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
-      this.bindShortcut(controller, '<Control>z', () => this.canvas.undo());
-      this.bindShortcut(controller, '<Control><Shift>z', () => this.canvas.redo());
-      this.bindShortcut(controller, '<Control>y', () => this.canvas.redo());
+      // Undo/redo are disabled while resize mode is active: a pending region
+      // is transient state that hasn't been committed, and rolling history
+      // out from under it would be confusing (the resize would silently
+      // target whatever surface the undo landed on).
+      this.bindShortcut(controller, '<Control>z', () => {
+        if (this.canvas.getTool() === 'resize') return;
+        this.canvas.undo();
+      });
+      this.bindShortcut(controller, '<Control><Shift>z', () => {
+        if (this.canvas.getTool() === 'resize') return;
+        this.canvas.redo();
+      });
+      this.bindShortcut(controller, '<Control>y', () => {
+        if (this.canvas.getTool() === 'resize') return;
+        this.canvas.redo();
+      });
       this.bindShortcut(controller, '<Control>s', () => {
         if (this.canvas.hasImage()) this.saveImageDialog();
       });
