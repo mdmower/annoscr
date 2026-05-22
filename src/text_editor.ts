@@ -11,23 +11,37 @@ const MARKUP_TAG: Record<TagName, string> = {
   underline: 'u',
 };
 
-export type TextCommitCallback = (markup: string, x: number, y: number) => void;
+const MARKUP_TAG_REVERSE: Record<string, TagName> = {
+  b: 'bold',
+  i: 'italic',
+  u: 'underline',
+};
+
+export interface TextEditorCallbacks {
+  onCommit: (markup: string, x: number, y: number, replaceIndex?: number) => void;
+  onCancel: (replaceIndex?: number) => void;
+}
+
+export interface TextEditorBeginOptions {
+  markup?: string;
+  replaceIndex?: number;
+}
 
 export class TextEditor {
   private readonly frame: any;
   private readonly view: any;
   private readonly buffer: any;
-  private readonly commitCallback: TextCommitCallback;
+  private readonly callbacks: TextEditorCallbacks;
 
   private active: boolean = false;
   private imageX: number = 0;
   private imageY: number = 0;
+  private replaceIndex: number | undefined = undefined;
   // Tags that will be applied to the next characters the user types.
-  // Set is updated on Ctrl+B/I/U; persists across the edit session.
   private pendingTags: Set<TagName> = new Set();
 
-  constructor(commitCallback: TextCommitCallback) {
-    this.commitCallback = commitCallback;
+  constructor(callbacks: TextEditorCallbacks) {
+    this.callbacks = callbacks;
 
     this.view = new Gtk.TextView({
       wrap_mode: Gtk.WrapMode.NONE,
@@ -63,11 +77,16 @@ export class TextEditor {
     return this.active;
   }
 
-  beginAt(imageX: number, imageY: number, widgetX: number, widgetY: number): void {
+  beginAt(imageX: number, imageY: number, widgetX: number, widgetY: number, options?: TextEditorBeginOptions): void {
     this.imageX = imageX;
     this.imageY = imageY;
-    this.buffer.set_text('', -1);
+    this.replaceIndex = options?.replaceIndex;
     this.pendingTags.clear();
+    if (options?.markup) {
+      this.setBufferFromMarkup(options.markup);
+    } else {
+      this.buffer.set_text('', -1);
+    }
     this.active = true;
     // Offset by a few pixels so the frame border/padding doesn't push the
     // visible text cursor too far from where the user clicked.
@@ -82,17 +101,27 @@ export class TextEditor {
     const start = this.buffer.get_start_iter();
     const end = this.buffer.get_end_iter();
     const plainText = this.buffer.get_text(start, end, true);
+    const replaceIndex = this.replaceIndex;
     this.active = false;
     this.frame.set_visible(false);
-    if (plainText.trim().length === 0) return;
+    this.replaceIndex = undefined;
+    if (plainText.trim().length === 0) {
+      // No content — treat like a cancel so any hidden source action becomes
+      // visible again, rather than silently deleting it.
+      this.callbacks.onCancel(replaceIndex);
+      return;
+    }
     const markup = this.bufferToMarkup();
-    this.commitCallback(markup, this.imageX, this.imageY);
+    this.callbacks.onCommit(markup, this.imageX, this.imageY, replaceIndex);
   }
 
   cancel(): void {
     if (!this.active) return;
+    const replaceIndex = this.replaceIndex;
     this.active = false;
     this.frame.set_visible(false);
+    this.replaceIndex = undefined;
+    this.callbacks.onCancel(replaceIndex);
   }
 
   private installTags(): void {
@@ -209,6 +238,103 @@ export class TextEditor {
       result += `</${MARKUP_TAG[openStack.pop()!]}>`;
     }
     return result;
+  }
+
+  // Inverse of bufferToMarkup. We only emit <b>/<i>/<u> and entity escapes,
+  // so a small custom parser is enough. GJS's Pango.AttrIterator.get(type) is
+  // unreliable, so we don't use Pango.parse_markup here.
+  private setBufferFromMarkup(markup: string): void {
+    const { plainText, runs } = parseSimpleMarkup(markup);
+    this.buffer.set_text(plainText, -1);
+    for (const run of runs) {
+      if (run.tags.size === 0) continue;
+      const start = this.buffer.get_iter_at_offset(run.start);
+      const end = this.buffer.get_iter_at_offset(run.end);
+      for (const tag of run.tags) {
+        this.buffer.apply_tag_by_name(tag, start, end);
+      }
+    }
+  }
+}
+
+interface MarkupRun {
+  start: number;
+  end: number;
+  tags: Set<TagName>;
+}
+
+function parseSimpleMarkup(markup: string): { plainText: string; runs: MarkupRun[] } {
+  let plainText = '';
+  const runs: MarkupRun[] = [];
+  const stack: TagName[] = [];
+  let runStart = 0;
+
+  function flushRun(end: number): void {
+    if (end > runStart) {
+      runs.push({ start: runStart, end, tags: new Set(stack) });
+    }
+    runStart = end;
+  }
+
+  let i = 0;
+  while (i < markup.length) {
+    const ch = markup[i];
+    if (ch === '<') {
+      flushRun(plainText.length);
+      const gt = markup.indexOf('>', i);
+      if (gt < 0) break;
+      const inner = markup.slice(i + 1, gt);
+      const closing = inner.startsWith('/');
+      const name = closing ? inner.slice(1) : inner;
+      const tagName = MARKUP_TAG_REVERSE[name];
+      if (tagName) {
+        if (closing) {
+          const idx = stack.lastIndexOf(tagName);
+          if (idx >= 0) stack.splice(idx, 1);
+        } else {
+          stack.push(tagName);
+        }
+      }
+      i = gt + 1;
+    } else if (ch === '&') {
+      const semi = markup.indexOf(';', i);
+      if (semi < 0) {
+        plainText += ch;
+        i++;
+      } else {
+        const entity = markup.slice(i + 1, semi);
+        plainText += decodeEntity(entity);
+        i = semi + 1;
+      }
+    } else {
+      plainText += ch;
+      i++;
+    }
+  }
+  flushRun(plainText.length);
+
+  return { plainText, runs };
+}
+
+function decodeEntity(name: string): string {
+  switch (name) {
+    case 'amp': return '&';
+    case 'lt': return '<';
+    case 'gt': return '>';
+    case 'quot': return '"';
+    case 'apos': return "'";
+    default:
+      // Numeric character references (&#NN; / &#xHH;) are rare in our output
+      // but worth a try; unknown entities collapse to empty.
+      if (name.startsWith('#x') || name.startsWith('#X')) {
+        const code = parseInt(name.slice(2), 16);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : '';
+      }
+      if (name.startsWith('#')) {
+        const code = parseInt(name.slice(1), 10);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : '';
+      }
+      return '';
   }
 }
 

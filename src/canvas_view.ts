@@ -3,7 +3,17 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import cairo from 'gi://cairo?version=1.0';
 
-import { Action, LiveStroke, ToolId, createLiveStroke, isNumberStampAction, makeNumberStampAction } from './actions.js';
+import {
+  Action,
+  Bounds,
+  LiveStroke,
+  ToolId,
+  createLiveStroke,
+  isNumberStampAction,
+  isTextAction,
+  getTextEditState,
+  makeNumberStampAction,
+} from './actions.js';
 
 type ImageSurface = any;
 type DisplayMode = 'fit' | 'actual';
@@ -14,18 +24,35 @@ interface Transform {
   offsetY: number;
 }
 
-export type TextEditRequest = (imageX: number, imageY: number, widgetX: number, widgetY: number) => void;
+export interface TextEditRequestOptions {
+  markup?: string;
+  replaceIndex?: number;
+}
+
+export type TextEditRequest = (
+  imageX: number,
+  imageY: number,
+  widgetX: number,
+  widgetY: number,
+  options?: TextEditRequestOptions,
+) => void;
 
 function isShift(gesture: any): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
 }
 
 function isDragTool(id: ToolId): boolean {
-  return id !== 'text' && id !== 'number';
+  return id !== 'select' && id !== 'text' && id !== 'number';
 }
 
 function cursorForTool(id: ToolId): string {
-  return id === 'text' ? 'text' : 'crosshair';
+  if (id === 'text') return 'text';
+  if (id === 'select') return 'default';
+  return 'crosshair';
+}
+
+function pointInBounds(x: number, y: number, b: Bounds): boolean {
+  return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2;
 }
 
 export const CanvasView = GObject.registerClass(
@@ -41,6 +68,15 @@ export const CanvasView = GObject.registerClass(
     private dragStartX: number = 0;
     private dragStartY: number = 0;
 
+    // Selection state (select tool only).
+    private selectedIndex: number = -1;
+    private moveDx: number = 0;
+    private moveDy: number = 0;
+    private moving: boolean = false;
+    // Index of an action currently being re-edited; hidden from render
+    // (the live editor widget shows in its place).
+    private editingActionIndex: number = -1;
+
     private onTextEditRequest: TextEditRequest | null = null;
 
     constructor() {
@@ -54,6 +90,8 @@ export const CanvasView = GObject.registerClass(
       this.actions = [];
       this.cursor = 0;
       this.liveStroke = null;
+      this.selectedIndex = -1;
+      this.editingActionIndex = -1;
       this.queue_draw();
     }
 
@@ -62,6 +100,8 @@ export const CanvasView = GObject.registerClass(
       this.actions = [];
       this.cursor = 0;
       this.liveStroke = null;
+      this.selectedIndex = -1;
+      this.editingActionIndex = -1;
       this.queue_draw();
     }
 
@@ -78,8 +118,9 @@ export const CanvasView = GObject.registerClass(
     setTool(toolId: ToolId): void {
       if (this.currentToolId === toolId) return;
       this.currentToolId = toolId;
-      // Cancel any in-progress stroke so the tool change takes effect immediately.
       this.liveStroke = null;
+      this.selectedIndex = -1;
+      this.moving = false;
       (this as any).set_cursor_from_name(cursorForTool(toolId));
       this.queue_draw();
     }
@@ -99,9 +140,32 @@ export const CanvasView = GObject.registerClass(
       this.queue_draw();
     }
 
+    replaceAction(index: number, action: Action): void {
+      if (index < 0 || index >= this.cursor) return;
+      this.actions[index] = action;
+      if (this.editingActionIndex === index) this.editingActionIndex = -1;
+      this.queue_draw();
+    }
+
+    clearEditing(): void {
+      this.editingActionIndex = -1;
+      this.queue_draw();
+    }
+
+    deleteSelected(): boolean {
+      if (this.selectedIndex < 0 || this.selectedIndex >= this.cursor) return false;
+      this.actions.splice(this.selectedIndex, 1);
+      this.cursor--;
+      this.selectedIndex = -1;
+      this.queue_draw();
+      return true;
+    }
+
     undo(): void {
       if (this.cursor === 0) return;
       this.cursor--;
+      // If the selected action was the one being hidden by undo, drop selection.
+      if (this.selectedIndex >= this.cursor) this.selectedIndex = -1;
       this.queue_draw();
     }
 
@@ -118,19 +182,23 @@ export const CanvasView = GObject.registerClass(
       drag.connect('drag-begin', (_g: any, x: number, y: number) => {
         this.dragStartX = x;
         this.dragStartY = y;
-        this.onPenDown(x, y);
+        this.onDragBegin(x, y);
       });
       drag.connect('drag-update', (g: any, dx: number, dy: number) => {
-        this.onPenMove(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
+        this.onDragUpdate(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
       });
       drag.connect('drag-end', (g: any, dx: number, dy: number) => {
-        this.onPenUp(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
+        this.onDragEnd(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
       });
       (this as any).add_controller(drag);
 
       const click = new Gtk.GestureClick();
       click.set_button(Gdk.BUTTON_PRIMARY);
-      click.connect('pressed', (_g: any, _n: number, x: number, y: number) => {
+      click.connect('pressed', (_g: any, n_press: number, x: number, y: number) => {
+        if (n_press === 2 && this.currentToolId === 'select') {
+          this.onSelectDoubleClick(x, y);
+          return;
+        }
         this.onCanvasPress(x, y);
       });
       (this as any).add_controller(click);
@@ -138,11 +206,59 @@ export const CanvasView = GObject.registerClass(
       (this as any).set_cursor_from_name(cursorForTool(this.currentToolId));
     }
 
-    private onPenDown(wx: number, wy: number): void {
+    private onDragBegin(wx: number, wy: number): void {
       if (!this.surface) return;
+      if (this.currentToolId === 'select') {
+        const [ix, iy] = this.widgetToImage(wx, wy);
+        this.selectedIndex = this.hitTest(ix, iy);
+        this.moving = false;
+        this.moveDx = 0;
+        this.moveDy = 0;
+        this.queue_draw();
+        return;
+      }
       if (!isDragTool(this.currentToolId)) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       this.liveStroke = createLiveStroke(this.currentToolId, ix, iy);
+      this.queue_draw();
+    }
+
+    private onDragUpdate(wx: number, wy: number, constrain: boolean): void {
+      if (this.currentToolId === 'select') {
+        if (this.selectedIndex < 0) return;
+        const t = this.currentTransform();
+        this.moveDx = (wx - this.dragStartX) / t.scale;
+        this.moveDy = (wy - this.dragStartY) / t.scale;
+        if (!this.moving && Math.hypot(wx - this.dragStartX, wy - this.dragStartY) > 3) {
+          this.moving = true;
+        }
+        if (this.moving) this.queue_draw();
+        return;
+      }
+      if (!this.liveStroke) return;
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      this.liveStroke.extendTo(ix, iy, constrain);
+      this.queue_draw();
+    }
+
+    private onDragEnd(wx: number, wy: number, constrain: boolean): void {
+      if (this.currentToolId === 'select') {
+        if (this.moving && this.selectedIndex >= 0) {
+          const moved = this.actions[this.selectedIndex].translate(this.moveDx, this.moveDy);
+          this.actions[this.selectedIndex] = moved;
+        }
+        this.moving = false;
+        this.moveDx = 0;
+        this.moveDy = 0;
+        this.queue_draw();
+        return;
+      }
+      if (!this.liveStroke) return;
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      this.liveStroke.extendTo(ix, iy, constrain);
+      const committed = this.liveStroke.finish();
+      if (committed) this.addAction(committed);
+      this.liveStroke = null;
       this.queue_draw();
     }
 
@@ -156,6 +272,40 @@ export const CanvasView = GObject.registerClass(
       }
     }
 
+    private onSelectDoubleClick(wx: number, wy: number): void {
+      if (!this.surface) return;
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      const idx = this.hitTest(ix, iy);
+      if (idx < 0) return;
+      const action = this.actions[idx];
+      if (!isTextAction(action)) return;
+      const state = getTextEditState(action);
+      if (!state) return;
+      this.editingActionIndex = idx;
+      this.selectedIndex = -1;
+      this.queue_draw();
+      if (this.onTextEditRequest) {
+        // Re-place the editor at the action's anchor in widget coordinates so
+        // the editor visually replaces the hidden action.
+        const t = this.currentTransform();
+        const wxAnchor = t.offsetX + state.x * t.scale;
+        const wyAnchor = t.offsetY + state.y * t.scale;
+        this.onTextEditRequest(state.x, state.y, wxAnchor, wyAnchor, {
+          markup: state.markup,
+          replaceIndex: idx,
+        });
+      }
+    }
+
+    private hitTest(ix: number, iy: number): number {
+      for (let i = this.cursor - 1; i >= 0; i--) {
+        if (i === this.editingActionIndex) continue;
+        const bounds = this.actions[i].getBounds();
+        if (bounds && pointInBounds(ix, iy, bounds)) return i;
+      }
+      return -1;
+    }
+
     private nextStampNumber(): number {
       let count = 0;
       for (let i = 0; i < this.cursor; i++) {
@@ -164,26 +314,13 @@ export const CanvasView = GObject.registerClass(
       return count + 1;
     }
 
-    private onPenMove(wx: number, wy: number, constrain: boolean): void {
-      if (!this.liveStroke) return;
-      const [ix, iy] = this.widgetToImage(wx, wy);
-      this.liveStroke.extendTo(ix, iy, constrain);
-      this.queue_draw();
-    }
-
-    private onPenUp(wx: number, wy: number, constrain: boolean): void {
-      if (!this.liveStroke) return;
-      const [ix, iy] = this.widgetToImage(wx, wy);
-      this.liveStroke.extendTo(ix, iy, constrain);
-      const committed = this.liveStroke.finish();
-      if (committed) this.addAction(committed);
-      this.liveStroke = null;
-      this.queue_draw();
-    }
-
     private widgetToImage(x: number, y: number): [number, number] {
-      const t = this.computeTransform((this as any).get_width(), (this as any).get_height());
+      const t = this.currentTransform();
       return [(x - t.offsetX) / t.scale, (y - t.offsetY) / t.scale];
+    }
+
+    private currentTransform(): Transform {
+      return this.computeTransform((this as any).get_width(), (this as any).get_height());
     }
 
     private computeTransform(widgetW: number, widgetH: number): Transform {
@@ -224,11 +361,51 @@ export const CanvasView = GObject.registerClass(
       cr.paint();
 
       for (let i = 0; i < this.cursor; i++) {
-        this.actions[i].draw(cr, t.scale);
+        if (i === this.editingActionIndex) continue;
+        if (this.moving && i === this.selectedIndex) {
+          cr.save();
+          cr.translate(this.moveDx, this.moveDy);
+          this.actions[i].draw(cr, t.scale);
+          cr.restore();
+        } else {
+          this.actions[i].draw(cr, t.scale);
+        }
       }
       if (this.liveStroke) this.liveStroke.draw(cr, t.scale);
+
+      if (this.selectedIndex >= 0 && this.selectedIndex < this.cursor) {
+        const action = this.actions[this.selectedIndex];
+        const bounds = action.getBounds();
+        if (bounds) {
+          const offsetX = this.moving ? this.moveDx : 0;
+          const offsetY = this.moving ? this.moveDy : 0;
+          drawSelectionBox(cr, bounds, t.scale, offsetX, offsetY);
+        }
+      }
 
       cr.restore();
     }
   },
 );
+
+function drawSelectionBox(cr: any, bounds: Bounds, scale: number, ox: number, oy: number): void {
+  const pad = 4 / scale;
+  const lineWidth = 1.5 / scale;
+  const dashOn = 6 / scale;
+  const dashOff = 4 / scale;
+
+  cr.save();
+  cr.setSourceRGBA(0.0, 0.6, 1.0, 0.95);
+  cr.setLineWidth(lineWidth);
+  cr.setDash([dashOn, dashOff], 0);
+  cr.setLineCap(cairo.LineCap.BUTT);
+  cr.setLineJoin(cairo.LineJoin.MITER);
+  cr.rectangle(
+    bounds.x1 + ox - pad,
+    bounds.y1 + oy - pad,
+    bounds.x2 - bounds.x1 + 2 * pad,
+    bounds.y2 - bounds.y1 + 2 * pad,
+  );
+  cr.stroke();
+  cr.restore();
+}

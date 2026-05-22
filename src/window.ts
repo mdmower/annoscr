@@ -26,6 +26,7 @@ interface ToolDef {
 }
 
 const TOOLS: ToolDef[] = [
+  { id: 'select',      label: 'Select',    accelerator: 's' },
   { id: 'pen',         label: 'Pen',       accelerator: 'p' },
   { id: 'highlighter', label: 'Highlight', accelerator: 'h' },
   { id: 'text',        label: 'Text',      accelerator: 't' },
@@ -62,13 +63,24 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.canvas = new CanvasView();
 
-      this.editor = new TextEditor((markup: string, ix: number, iy: number) => {
-        this.canvas.addAction(makeTextAction(ix, iy, markup));
+      this.editor = new TextEditor({
+        onCommit: (markup: string, ix: number, iy: number, replaceIndex?: number) => {
+          if (replaceIndex !== undefined) {
+            this.canvas.replaceAction(replaceIndex, makeTextAction(ix, iy, markup));
+          } else {
+            this.canvas.addAction(makeTextAction(ix, iy, markup));
+          }
+        },
+        onCancel: (replaceIndex?: number) => {
+          if (replaceIndex !== undefined) this.canvas.clearEditing();
+        },
       });
-      this.canvas.setTextEditRequestHandler((ix: number, iy: number, wx: number, wy: number) => {
-        // Click on canvas with text tool active: commit any prior edit, then begin a new one.
+      this.canvas.setTextEditRequestHandler((ix: number, iy: number, wx: number, wy: number, options?: any) => {
+        // Click on canvas with text tool active (or double-click with select tool):
+        // commit any prior edit, then begin a new one. Pass-through options
+        // carry markup + replaceIndex for re-edit of an existing TextAction.
         this.editor.commitIfActive();
-        this.editor.beginAt(ix, iy, wx, wy);
+        this.editor.beginAt(ix, iy, wx, wy, options);
       });
 
       const overlay = new Gtk.Overlay();
@@ -159,6 +171,8 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>z', () => this.canvas.undo());
       this.bindShortcut(controller, '<Control><Shift>z', () => this.canvas.redo());
       this.bindShortcut(controller, '<Control>y', () => this.canvas.redo());
+      this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
+      this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
       for (const tool of TOOLS) {
         this.bindShortcut(controller, tool.accelerator, () => this.selectTool(tool.id));
       }

@@ -7,8 +7,17 @@ export interface Style {
   width: number;
 }
 
+export interface Bounds {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
 export interface Action {
   draw(cr: any, scale: number): void;
+  getBounds(): Bounds | null;
+  translate(dx: number, dy: number): Action;
 }
 
 export interface LiveStroke {
@@ -19,7 +28,16 @@ export interface LiveStroke {
   draw(cr: any, scale: number): void;
 }
 
-export type ToolId = 'pen' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'oval' | 'text' | 'number';
+export type ToolId =
+  | 'select'
+  | 'pen'
+  | 'highlighter'
+  | 'line'
+  | 'arrow'
+  | 'rect'
+  | 'oval'
+  | 'text'
+  | 'number';
 
 export interface TextStyle {
   color: [number, number, number, number];
@@ -65,10 +83,11 @@ export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStro
     case 'arrow':       return new ArrowLiveStroke(x, y, ARROW_STYLE);
     case 'rect':        return new RectLiveStroke(x, y, SHAPE_STYLE);
     case 'oval':        return new OvalLiveStroke(x, y, SHAPE_STYLE);
+    case 'select':
     case 'text':
     case 'number':
-      // Click-driven tools don't fit the drag/LiveStroke model. The canvas
-      // guards against this call; the throw is a safety net.
+      // Non-drag tools handled elsewhere; the canvas guards against this call,
+      // the throw is a safety net.
       throw new Error(`${toolId} tool is handled outside createLiveStroke`);
   }
 }
@@ -76,10 +95,15 @@ export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStro
 // ---------- Text ----------
 
 class TextAction implements Action {
+  // Bounds depend on Pango layout measurements which need a Cairo context.
+  // We cache the bounds the first time draw() runs; getBounds before any
+  // paint returns a small fallback around the anchor point.
+  private cachedBounds: Bounds | null = null;
+
   constructor(
-    private readonly x: number,
-    private readonly y: number,
-    private readonly markup: string,
+    public readonly x: number,
+    public readonly y: number,
+    public readonly markup: string,
     private readonly style: TextStyle,
   ) {}
 
@@ -91,15 +115,39 @@ class TextAction implements Action {
     layout.set_font_description(desc);
     layout.set_markup(this.markup, -1);
 
+    const [w, h] = layout.get_pixel_size();
+    this.cachedBounds = { x1: this.x, y1: this.y, x2: this.x + w, y2: this.y + h };
+
     const [r, g, b, a] = this.style.color;
     cr.setSourceRGBA(r, g, b, a);
     cr.moveTo(this.x, this.y);
     PangoCairo.show_layout(cr, layout);
   }
+
+  getBounds(): Bounds | null {
+    if (this.cachedBounds) return this.cachedBounds;
+    // Fallback for the rare "added but never drawn" case — a tiny clickable
+    // area around the anchor so the action isn't entirely un-hittable.
+    const r = this.style.size;
+    return { x1: this.x, y1: this.y, x2: this.x + r, y2: this.y + r };
+  }
+
+  translate(dx: number, dy: number): Action {
+    return new TextAction(this.x + dx, this.y + dy, this.markup, this.style);
+  }
 }
 
 export function makeTextAction(x: number, y: number, markup: string, style: TextStyle = TEXT_STYLE): Action {
   return new TextAction(x, y, markup, style);
+}
+
+export function isTextAction(action: Action): boolean {
+  return action instanceof TextAction;
+}
+
+export function getTextEditState(action: Action): { x: number; y: number; markup: string } | null {
+  if (!(action instanceof TextAction)) return null;
+  return { x: action.x, y: action.y, markup: action.markup };
 }
 
 // ---------- Number stamp ----------
@@ -143,6 +191,15 @@ class NumberStampAction implements Action {
     cr.moveTo(this.x - textW / 2, this.y - textH / 2);
     PangoCairo.show_layout(cr, layout);
   }
+
+  getBounds(): Bounds {
+    const half = this.style.radius + this.style.borderWidth / 2;
+    return { x1: this.x - half, y1: this.y - half, x2: this.x + half, y2: this.y + half };
+  }
+
+  translate(dx: number, dy: number): Action {
+    return new NumberStampAction(this.x + dx, this.y + dy, this.n, this.style);
+  }
 }
 
 export function makeNumberStampAction(x: number, y: number, n: number, style: NumberStampStyle = NUMBER_STAMP_STYLE): Action {
@@ -163,6 +220,23 @@ class StrokeAction implements Action {
     applyStrokeStyle(cr, this.style, cairo.LineCap.ROUND, cairo.LineJoin.ROUND);
     buildSmoothPath(cr, this.points);
     cr.stroke();
+  }
+
+  getBounds(): Bounds {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of this.points) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    const pad = this.style.width / 2;
+    return { x1: minX - pad, y1: minY - pad, x2: maxX + pad, y2: maxY + pad };
+  }
+
+  translate(dx: number, dy: number): Action {
+    const moved: Array<[number, number]> = this.points.map(([x, y]) => [x + dx, y + dy]);
+    return new StrokeAction(moved, this.style);
   }
 }
 
@@ -202,6 +276,14 @@ class LineAction implements Action {
     cr.moveTo(this.x1, this.y1);
     cr.lineTo(this.x2, this.y2);
     cr.stroke();
+  }
+
+  getBounds(): Bounds {
+    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width / 2);
+  }
+
+  translate(dx: number, dy: number): Action {
+    return new LineAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
   }
 }
 
@@ -252,6 +334,15 @@ class ArrowAction implements Action {
     cr.lineTo(this.x2 - headLen * Math.cos(angle + headAngle), this.y2 - headLen * Math.sin(angle + headAngle));
     cr.stroke();
   }
+
+  getBounds(): Bounds {
+    // Pad by the arrowhead length so the head is hittable on either end.
+    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width * 5);
+  }
+
+  translate(dx: number, dy: number): Action {
+    return new ArrowAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -296,6 +387,14 @@ class RectAction implements Action {
     const h = Math.abs(this.y2 - this.y1);
     cr.rectangle(x, y, w, h);
     cr.stroke();
+  }
+
+  getBounds(): Bounds {
+    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width / 2);
+  }
+
+  translate(dx: number, dy: number): Action {
+    return new RectAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
   }
 }
 
@@ -350,6 +449,14 @@ class OvalAction implements Action {
     cr.restore();
     cr.stroke();
   }
+
+  getBounds(): Bounds {
+    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width / 2);
+  }
+
+  translate(dx: number, dy: number): Action {
+    return new OvalAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+  }
 }
 
 class OvalLiveStroke implements LiveStroke {
@@ -388,6 +495,15 @@ function applyStrokeStyle(cr: any, style: Style, cap: number, join: number): voi
 
 function isDegenerate(x1: number, y1: number, x2: number, y2: number): boolean {
   return Math.abs(x2 - x1) < SHAPE_MIN_EXTENT && Math.abs(y2 - y1) < SHAPE_MIN_EXTENT;
+}
+
+function endpointBounds(x1: number, y1: number, x2: number, y2: number, pad: number): Bounds {
+  return {
+    x1: Math.min(x1, x2) - pad,
+    y1: Math.min(y1, y2) - pad,
+    x2: Math.max(x1, x2) + pad,
+    y2: Math.max(y1, y2) + pad,
+  };
 }
 
 // Snap (x2, y2) so the bounding box from (x1, y1) is a square. The side is
