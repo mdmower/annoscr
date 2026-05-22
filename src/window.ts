@@ -54,8 +54,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private stack: any;
     private editor: any; // TextEditor; typed `any` because of the GObject.registerClass dance
     private toolButtons: Map<ToolId, any> = new Map();
-    private cropToolbar: any;
-    private cropButton: any;
+    private resizeToolbar: any;
+    private resizeButton: any;
     private saveButton: any;
     private copyButton: any;
 
@@ -93,13 +93,13 @@ export const AnnoscrWindow = GObject.registerClass(
       header.pack_start(this.copyButton);
 
       // pack_end stacks right-to-left in source order, so to land the buttons
-      // as [Rotate Left][Rotate Right][Crop] left-to-right we add Crop first.
-      this.cropButton = new Gtk.Button({
-        icon_name: 'edit-cut-symbolic',
-        tooltip_text: 'Crop…',
+      // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize first.
+      this.resizeButton = new Gtk.Button({
+        icon_name: 'view-fullscreen-symbolic',
+        tooltip_text: 'Resize canvas…',
       });
-      this.cropButton.connect('clicked', () => this.toggleCropMode());
-      header.pack_end(this.cropButton);
+      this.resizeButton.connect('clicked', () => this.toggleResizeMode());
+      header.pack_end(this.resizeButton);
 
       const rotateRightBtn = new Gtk.Button({
         icon_name: 'object-rotate-right-symbolic',
@@ -140,8 +140,8 @@ export const AnnoscrWindow = GObject.registerClass(
       const overlay = new Gtk.Overlay();
       overlay.set_child(this.canvas);
       overlay.add_overlay(this.editor.getWidget());
-      this.cropToolbar = this.buildCropToolbar();
-      overlay.add_overlay(this.cropToolbar);
+      this.resizeToolbar = this.buildResizeToolbar();
+      overlay.add_overlay(this.resizeToolbar);
 
       const toolBar = this.buildToolBar();
       header.set_title_widget(toolBar);
@@ -205,9 +205,9 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private setImage(surface: any): void {
-      // Discard any in-progress text edit or crop — they belonged to the old image.
+      // Discard any in-progress text edit or resize — they belonged to the old image.
       this.editor.cancel();
-      if (this.canvas.getTool() === 'crop') this.exitCropMode(false);
+      if (this.canvas.getTool() === 'resize') this.exitResizeMode(false);
       this.canvas.setImage(surface);
       this.stack.set_visible_child_name('canvas');
       this.saveButton.set_sensitive(true);
@@ -243,14 +243,14 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
-      // Enter and Escape only do anything when crop mode is active. The text
+      // Enter and Escape only do anything when resize mode is active. The text
       // editor consumes these in its CAPTURE-phase controller before they
       // reach here, so we never conflict during editing.
       this.bindShortcut(controller, 'Return', () => {
-        if (this.canvas.getTool() === 'crop') this.exitCropMode(true);
+        if (this.canvas.getTool() === 'resize') this.exitResizeMode(true);
       });
       this.bindShortcut(controller, 'Escape', () => {
-        if (this.canvas.getTool() === 'crop') this.exitCropMode(false);
+        if (this.canvas.getTool() === 'resize') this.exitResizeMode(false);
       });
       for (const tool of TOOLS) {
         this.bindShortcut(controller, tool.accelerator, () => this.selectTool(tool.id));
@@ -282,12 +282,13 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private selectTool(id: ToolId): void {
-      // Switching to a non-crop tool while in crop mode = "I changed my mind."
-      // Cancel any in-progress region and hide the toolbar inline (calling
-      // exitCropMode here would recurse — it also calls back into setActiveTool).
-      if (this.canvas.getTool() === 'crop' && id !== 'crop') {
-        this.canvas.cancelCrop();
-        this.cropToolbar.set_visible(false);
+      // Switching to a non-resize tool while in resize mode = "I changed my
+      // mind." Cancel any in-progress region and hide the toolbar inline
+      // (calling exitResizeMode here would recurse — it also calls back into
+      // setActiveTool).
+      if (this.canvas.getTool() === 'resize' && id !== 'resize') {
+        this.canvas.cancelResize();
+        this.resizeToolbar.set_visible(false);
       }
       // Commit any in-progress text edit before switching away from the text tool.
       this.editor.commitIfActive();
@@ -300,7 +301,7 @@ export const AnnoscrWindow = GObject.registerClass(
       if (btn && !btn.get_active()) btn.set_active(true);
     }
 
-    private buildCropToolbar(): any {
+    private buildResizeToolbar(): any {
       const box = new Gtk.Box({
         orientation: Gtk.Orientation.HORIZONTAL,
         spacing: 6,
@@ -311,34 +312,34 @@ export const AnnoscrWindow = GObject.registerClass(
         css_classes: ['toolbar', 'osd'],
       });
       const cancelBtn = new Gtk.Button({ label: 'Cancel' });
-      cancelBtn.connect('clicked', () => this.exitCropMode(false));
+      cancelBtn.connect('clicked', () => this.exitResizeMode(false));
       const applyBtn = new Gtk.Button({ label: 'Apply', css_classes: ['suggested-action'] });
-      applyBtn.connect('clicked', () => this.exitCropMode(true));
+      applyBtn.connect('clicked', () => this.exitResizeMode(true));
       box.append(cancelBtn);
       box.append(applyBtn);
       return box;
     }
 
-    private toggleCropMode(): void {
-      if (this.canvas.getTool() === 'crop') {
-        this.exitCropMode(false);
+    private toggleResizeMode(): void {
+      if (this.canvas.getTool() === 'resize') {
+        this.exitResizeMode(false);
       } else {
-        this.enterCropMode();
+        this.enterResizeMode();
       }
     }
 
-    private enterCropMode(): void {
+    private enterResizeMode(): void {
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
-      this.canvas.setTool('crop');
-      this.cropToolbar.set_visible(true);
+      this.canvas.setTool('resize');
+      this.resizeToolbar.set_visible(true);
     }
 
-    private exitCropMode(apply: boolean): void {
-      if (this.canvas.getTool() !== 'crop') return;
-      if (apply) this.canvas.applyCrop();
-      else this.canvas.cancelCrop();
-      this.cropToolbar.set_visible(false);
+    private exitResizeMode(apply: boolean): void {
+      if (this.canvas.getTool() !== 'resize') return;
+      if (apply) this.canvas.applyResize();
+      else this.canvas.cancelResize();
+      this.resizeToolbar.set_visible(false);
       this.setActiveTool('select');
     }
 

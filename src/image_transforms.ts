@@ -23,10 +23,13 @@ export function rotateSurface(src: any, direction: RotateDirection): any {
   return dst;
 }
 
-// Cuts a rectangular region (x, y, w, h) out of the source and returns it as
-// a new surface. Caller is responsible for clipping (x, y, w, h) to the
-// source bounds.
-export function cropSurface(src: any, x: number, y: number, w: number, h: number): any {
+// Returns a fresh surface of size (w × h), with the source blitted in at
+// offset (-x, -y) in destination coords. Equivalent to "what does the source
+// look like when the canvas origin moves to (x, y) and the canvas size is
+// (w, h)". The region may extend outside the source bounds in any direction;
+// Cairo clips the blit automatically, and the new ARGB32 surface is zeroed
+// (fully transparent) — that's the fill for areas beyond the source.
+export function resizeSurface(src: any, x: number, y: number, w: number, h: number): any {
   const dst = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
   const cr = new cairo.Context(dst);
   cr.setSourceSurface(src, -x, -y);

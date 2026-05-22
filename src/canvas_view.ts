@@ -14,11 +14,11 @@ import {
   getTextEditState,
   makeNumberStampAction,
 } from './actions.js';
-import { cropSurface, rotateSurface } from './image_transforms.js';
+import { resizeSurface, rotateSurface } from './image_transforms.js';
 import { renderToSurface } from './exporter.js';
 import type { RotateDirection } from './actions.js';
 
-export interface CropRect {
+export interface ResizeRect {
   x: number;
   y: number;
   w: number;
@@ -53,7 +53,7 @@ function isShift(gesture: any): boolean {
 }
 
 function isDragTool(id: ToolId): boolean {
-  return id !== 'select' && id !== 'text' && id !== 'number' && id !== 'crop';
+  return id !== 'select' && id !== 'text' && id !== 'number' && id !== 'resize';
 }
 
 function cursorForTool(id: ToolId): string {
@@ -62,12 +62,12 @@ function cursorForTool(id: ToolId): string {
   return 'crosshair';
 }
 
-function clipCropRegion(r: { x1: number; y1: number; x2: number; y2: number }, imgW: number, imgH: number): CropRect | null {
-  const minX = Math.max(0, Math.min(r.x1, r.x2));
-  const maxX = Math.min(imgW, Math.max(r.x1, r.x2));
-  const minY = Math.max(0, Math.min(r.y1, r.y2));
-  const maxY = Math.min(imgH, Math.max(r.y1, r.y2));
-  if (maxX <= minX || maxY <= minY) return null;
+function normalizeRegion(r: { x1: number; y1: number; x2: number; y2: number }): ResizeRect | null {
+  const minX = Math.min(r.x1, r.x2);
+  const maxX = Math.max(r.x1, r.x2);
+  const minY = Math.min(r.y1, r.y2);
+  const maxY = Math.max(r.y1, r.y2);
+  if (maxX - minX < 1 || maxY - minY < 1) return null;
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
@@ -87,7 +87,7 @@ export const CanvasView = GObject.registerClass(
     // Immutable snapshot history. Each state is {surface, actions}; modifying
     // operations produce a new state and push it. Untouched actions and the
     // surface are shared by reference across states. Capped at HISTORY_CAP to
-    // bound memory when rotate/crop allocate new surfaces.
+    // bound memory when rotate/resize allocate new surfaces.
     private history: CanvasState[] = [{ surface: null, actions: [] }];
     private historyCursor: number = 0;
 
@@ -108,9 +108,9 @@ export const CanvasView = GObject.registerClass(
     // (the live editor widget shows in its place).
     private editingActionIndex: number = -1;
 
-    // Raw crop region while in crop mode (image-space coords; not clipped
-    // to image bounds until apply).
-    private cropRegion: { x1: number; y1: number; x2: number; y2: number } | null = null;
+    // Raw resize region while in resize mode (image-space coords; may extend
+    // outside current image bounds in any direction).
+    private resizeRegion: { x1: number; y1: number; x2: number; y2: number } | null = null;
 
     private onTextEditRequest: TextEditRequest | null = null;
 
@@ -145,7 +145,7 @@ export const CanvasView = GObject.registerClass(
       this.moving = false;
       this.moveDx = 0;
       this.moveDy = 0;
-      this.cropRegion = null;
+      this.resizeRegion = null;
     }
 
     setImage(surface: ImageSurface): void {
@@ -186,7 +186,7 @@ export const CanvasView = GObject.registerClass(
       this.liveStroke = null;
       this.selectedIndex = -1;
       this.moving = false;
-      if (toolId !== 'crop') this.cropRegion = null;
+      if (toolId !== 'resize') this.resizeRegion = null;
       (this as any).set_cursor_from_name(cursorForTool(toolId));
       this.queue_draw();
     }
@@ -236,25 +236,28 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Returns the clipped crop region if one is defined and non-degenerate.
-    getCropRect(): CropRect | null {
-      const s = this.state.surface;
-      if (!this.cropRegion || !s) return null;
-      return clipCropRegion(this.cropRegion, s.getWidth(), s.getHeight());
+    // Returns the resize region normalized (positive w/h) if defined and
+    // non-degenerate. May extend outside the current image bounds — that
+    // means "the new canvas pads beyond the current image."
+    getResizeRect(): ResizeRect | null {
+      if (!this.resizeRegion || !this.state.surface) return null;
+      return normalizeRegion(this.resizeRegion);
     }
 
-    // Apply the current crop region: replace surface with the cropped piece
-    // and translate every action by (-cropX, -cropY). Returns true if a crop
-    // was applied; false if there was nothing to crop.
-    applyCrop(): boolean {
-      const rect = this.getCropRect();
+    // Apply the current resize region: replace surface with one sized to the
+    // new region (transparent fill where the new region extends beyond the
+    // current image), and translate every action by (-newX, -newY) so their
+    // positions follow the canvas origin. Returns true if a resize was
+    // applied; false if there was nothing to apply.
+    applyResize(): boolean {
+      const rect = this.getResizeRect();
       const s = this.state.surface;
       if (!rect || !s) return false;
       this.pushState({
-        surface: cropSurface(s, rect.x, rect.y, rect.w, rect.h),
+        surface: resizeSurface(s, rect.x, rect.y, rect.w, rect.h),
         actions: this.state.actions.map(a => a.translate(-rect.x, -rect.y)),
       });
-      this.cropRegion = null;
+      this.resizeRegion = null;
       this.liveStroke = null;
       this.selectedIndex = -1;
       this.editingActionIndex = -1;
@@ -262,8 +265,8 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    cancelCrop(): void {
-      this.cropRegion = null;
+    cancelResize(): void {
+      this.resizeRegion = null;
       this.queue_draw();
     }
 
@@ -340,9 +343,9 @@ export const CanvasView = GObject.registerClass(
         this.queue_draw();
         return;
       }
-      if (this.currentToolId === 'crop') {
+      if (this.currentToolId === 'resize') {
         const [ix, iy] = this.widgetToImage(wx, wy);
-        this.cropRegion = { x1: ix, y1: iy, x2: ix, y2: iy };
+        this.resizeRegion = { x1: ix, y1: iy, x2: ix, y2: iy };
         this.queue_draw();
         return;
       }
@@ -364,11 +367,11 @@ export const CanvasView = GObject.registerClass(
         if (this.moving) this.queue_draw();
         return;
       }
-      if (this.currentToolId === 'crop') {
-        if (!this.cropRegion) return;
+      if (this.currentToolId === 'resize') {
+        if (!this.resizeRegion) return;
         const [ix, iy] = this.widgetToImage(wx, wy);
-        this.cropRegion.x2 = ix;
-        this.cropRegion.y2 = iy;
+        this.resizeRegion.x2 = ix;
+        this.resizeRegion.y2 = iy;
         this.queue_draw();
         return;
       }
@@ -397,13 +400,13 @@ export const CanvasView = GObject.registerClass(
         this.queue_draw();
         return;
       }
-      if (this.currentToolId === 'crop') {
-        if (!this.cropRegion) return;
+      if (this.currentToolId === 'resize') {
+        if (!this.resizeRegion) return;
         const [ix, iy] = this.widgetToImage(wx, wy);
-        this.cropRegion.x2 = ix;
-        this.cropRegion.y2 = iy;
+        this.resizeRegion.x2 = ix;
+        this.resizeRegion.y2 = iy;
         // Drop the region if it collapsed to nothing (clicked without dragging).
-        if (this.getCropRect() === null) this.cropRegion = null;
+        if (this.getResizeRect() === null) this.resizeRegion = null;
         this.queue_draw();
         return;
       }
@@ -480,20 +483,49 @@ export const CanvasView = GObject.registerClass(
       return this.computeTransform((this as any).get_width(), (this as any).get_height());
     }
 
+    // The "displayed area" in image-space. Normally just (0, 0, imgW, imgH);
+    // during resize mode, the union of image bounds and every action's bounds
+    // (plus a small margin) so orphan annotations are visible and reachable
+    // for rescue. The display transform fits this rectangle into the widget.
+    private displayedArea(): { x: number; y: number; w: number; h: number } {
+      const s = this.state.surface;
+      const imgW = s ? s.getWidth() : 0;
+      const imgH = s ? s.getHeight() : 0;
+      if (this.currentToolId !== 'resize') return { x: 0, y: 0, w: imgW, h: imgH };
+
+      let minX = 0, minY = 0, maxX = imgW, maxY = imgH;
+      for (const action of this.state.actions) {
+        const b = action.getBounds();
+        if (!b) continue;
+        if (b.x1 < minX) minX = b.x1;
+        if (b.y1 < minY) minY = b.y1;
+        if (b.x2 > maxX) maxX = b.x2;
+        if (b.y2 > maxY) maxY = b.y2;
+      }
+      const margin = Math.max(20, Math.min(imgW, imgH) * 0.05);
+      return {
+        x: minX - margin,
+        y: minY - margin,
+        w: (maxX - minX) + 2 * margin,
+        h: (maxY - minY) + 2 * margin,
+      };
+    }
+
     private computeTransform(widgetW: number, widgetH: number): Transform {
       const s = this.state.surface;
       if (!s) return { scale: 1, offsetX: 0, offsetY: 0 };
-      const imgW = s.getWidth();
-      const imgH = s.getHeight();
+      const area = this.displayedArea();
       const scale = this.mode === 'actual'
         ? 1
-        : Math.min(widgetW / imgW, widgetH / imgH, 1);
-      const drawW = imgW * scale;
-      const drawH = imgH * scale;
+        : Math.min(widgetW / area.w, widgetH / area.h, 1);
+      const drawW = area.w * scale;
+      const drawH = area.h * scale;
+      // Image-space (area.x, area.y) lands at the centered top-left of the
+      // displayed area. Image-space (0, 0) lands at offsetX, offsetY.
       return {
         scale,
-        offsetX: Math.floor((widgetW - drawW) / 2),
-        offsetY: Math.floor((widgetH - drawH) / 2),
+        offsetX: Math.floor((widgetW - drawW) / 2 - area.x * scale),
+        offsetY: Math.floor((widgetH - drawH) / 2 - area.y * scale),
       };
     }
 
@@ -541,9 +573,9 @@ export const CanvasView = GObject.registerClass(
         }
       }
 
-      if (this.currentToolId === 'crop') {
-        const clipped = this.getCropRect();
-        drawCropOverlay(cr, imgW, imgH, clipped, t.scale);
+      if (this.currentToolId === 'resize') {
+        const region = this.getResizeRect();
+        drawResizeOverlay(cr, imgW, imgH, region, t.scale);
       }
 
       cr.restore();
@@ -551,18 +583,20 @@ export const CanvasView = GObject.registerClass(
   },
 );
 
-function drawCropOverlay(cr: any, imgW: number, imgH: number, rect: CropRect | null, scale: number): void {
+function drawResizeOverlay(cr: any, imgW: number, imgH: number, rect: ResizeRect | null, scale: number): void {
   cr.save();
 
-  // Dim everything in image bounds, "punching out" the crop region via
-  // EVEN_ODD fill so the kept area shows through clearly.
+  // Dim the parts of the *current image* that fall outside the new region —
+  // visually signals what will be dropped. Areas where the new region extends
+  // beyond the current image stay as canvas background (no dim), which is
+  // what transparent fill will look like after apply.
   cr.setSourceRGBA(0, 0, 0, 0.5);
   cr.rectangle(0, 0, imgW, imgH);
   if (rect) cr.rectangle(rect.x, rect.y, rect.w, rect.h);
   cr.setFillRule(cairo.FillRule.EVEN_ODD);
   cr.fill();
 
-  // Dashed border around the kept region.
+  // Dashed border around the new region (may extend outside the image).
   if (rect) {
     cr.setSourceRGBA(1, 1, 1, 0.95);
     cr.setLineWidth(1.5 / scale);
