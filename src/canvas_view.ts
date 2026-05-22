@@ -74,13 +74,24 @@ function pointInBounds(x: number, y: number, b: Bounds): boolean {
   return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2;
 }
 
+interface CanvasState {
+  surface: ImageSurface | null;
+  actions: ReadonlyArray<Action>;
+}
+
+const HISTORY_CAP = 50;
+
 export const CanvasView = GObject.registerClass(
   class CanvasView extends Gtk.DrawingArea {
-    private surface: ImageSurface | null = null;
+    // Immutable snapshot history. Each state is {surface, actions}; modifying
+    // operations produce a new state and push it. Untouched actions and the
+    // surface are shared by reference across states. Capped at HISTORY_CAP to
+    // bound memory when rotate/crop allocate new surfaces.
+    private history: CanvasState[] = [{ surface: null, actions: [] }];
+    private historyCursor: number = 0;
+
     private mode: DisplayMode = 'fit';
 
-    private actions: Action[] = [];
-    private cursor: number = 0;
     private liveStroke: LiveStroke | null = null;
     private currentToolId: ToolId = 'pen';
 
@@ -108,23 +119,45 @@ export const CanvasView = GObject.registerClass(
       this.installPointer();
     }
 
-    setImage(surface: ImageSurface): void {
-      this.surface = surface;
-      this.actions = [];
-      this.cursor = 0;
+    private get state(): CanvasState {
+      return this.history[this.historyCursor];
+    }
+
+    private pushState(next: CanvasState): void {
+      // Truncate any redo entries past the cursor before pushing.
+      if (this.historyCursor < this.history.length - 1) {
+        this.history.length = this.historyCursor + 1;
+      }
+      this.history.push(next);
+      this.historyCursor++;
+      if (this.history.length > HISTORY_CAP) {
+        const excess = this.history.length - HISTORY_CAP;
+        this.history.splice(0, excess);
+        this.historyCursor -= excess;
+      }
+    }
+
+    private resetTransientState(): void {
       this.liveStroke = null;
       this.selectedIndex = -1;
       this.editingActionIndex = -1;
+      this.moving = false;
+      this.moveDx = 0;
+      this.moveDy = 0;
+      this.cropRegion = null;
+    }
+
+    setImage(surface: ImageSurface): void {
+      this.history = [{ surface, actions: [] }];
+      this.historyCursor = 0;
+      this.resetTransientState();
       this.queue_draw();
     }
 
     clearImage(): void {
-      this.surface = null;
-      this.actions = [];
-      this.cursor = 0;
-      this.liveStroke = null;
-      this.selectedIndex = -1;
-      this.editingActionIndex = -1;
+      this.history = [{ surface: null, actions: [] }];
+      this.historyCursor = 0;
+      this.resetTransientState();
       this.queue_draw();
     }
 
@@ -135,7 +168,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     hasImage(): boolean {
-      return this.surface !== null;
+      return this.state.surface !== null;
     }
 
     setTool(toolId: ToolId): void {
@@ -158,15 +191,20 @@ export const CanvasView = GObject.registerClass(
     }
 
     addAction(action: Action): void {
-      this.actions.length = this.cursor;
-      this.actions.push(action);
-      this.cursor++;
+      this.pushState({
+        surface: this.state.surface,
+        actions: [...this.state.actions, action],
+      });
       this.queue_draw();
     }
 
     replaceAction(index: number, action: Action): void {
-      if (index < 0 || index >= this.cursor) return;
-      this.actions[index] = action;
+      const cur = this.state.actions;
+      if (index < 0 || index >= cur.length) return;
+      this.pushState({
+        surface: this.state.surface,
+        actions: cur.map((a, i) => (i === index ? action : a)),
+      });
       if (this.editingActionIndex === index) this.editingActionIndex = -1;
       this.queue_draw();
     }
@@ -177,9 +215,13 @@ export const CanvasView = GObject.registerClass(
     }
 
     deleteSelected(): boolean {
-      if (this.selectedIndex < 0 || this.selectedIndex >= this.cursor) return false;
-      this.actions.splice(this.selectedIndex, 1);
-      this.cursor--;
+      const cur = this.state.actions;
+      if (this.selectedIndex < 0 || this.selectedIndex >= cur.length) return false;
+      const removeAt = this.selectedIndex;
+      this.pushState({
+        surface: this.state.surface,
+        actions: cur.filter((_, i) => i !== removeAt),
+      });
       this.selectedIndex = -1;
       this.queue_draw();
       return true;
@@ -187,8 +229,9 @@ export const CanvasView = GObject.registerClass(
 
     // Returns the clipped crop region if one is defined and non-degenerate.
     getCropRect(): CropRect | null {
-      if (!this.cropRegion || !this.surface) return null;
-      return clipCropRegion(this.cropRegion, this.surface.getWidth(), this.surface.getHeight());
+      const s = this.state.surface;
+      if (!this.cropRegion || !s) return null;
+      return clipCropRegion(this.cropRegion, s.getWidth(), s.getHeight());
     }
 
     // Apply the current crop region: replace surface with the cropped piece
@@ -196,9 +239,12 @@ export const CanvasView = GObject.registerClass(
     // was applied; false if there was nothing to crop.
     applyCrop(): boolean {
       const rect = this.getCropRect();
-      if (!rect || !this.surface) return false;
-      this.surface = cropSurface(this.surface, rect.x, rect.y, rect.w, rect.h);
-      this.actions = this.actions.map(a => a.translate(-rect.x, -rect.y));
+      const s = this.state.surface;
+      if (!rect || !s) return false;
+      this.pushState({
+        surface: cropSurface(s, rect.x, rect.y, rect.w, rect.h),
+        actions: this.state.actions.map(a => a.translate(-rect.x, -rect.y)),
+      });
       this.cropRegion = null;
       this.liveStroke = null;
       this.selectedIndex = -1;
@@ -213,17 +259,16 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Rotate the source surface and every action together (positions follow
-    // the image; text and number-stamp content rotates too). The undo cursor
-    // is preserved, but rotation is not Ctrl+Z reversible — same limitation
-    // as delete/move/edit until we land a real modification-undo model.
+    // the image; text and number-stamp content rotates too).
     rotate(direction: RotateDirection): void {
-      if (!this.surface) return;
-      const oldW = this.surface.getWidth();
-      const oldH = this.surface.getHeight();
-      this.surface = rotateSurface(this.surface, direction);
-      // Transform every action — including those in the redo history beyond
-      // the cursor — so undo/redo across a rotation stays coherent.
-      this.actions = this.actions.map(a => a.rotateOnImage(direction, oldW, oldH));
+      const s = this.state.surface;
+      if (!s) return;
+      const oldW = s.getWidth();
+      const oldH = s.getHeight();
+      this.pushState({
+        surface: rotateSurface(s, direction),
+        actions: this.state.actions.map(a => a.rotateOnImage(direction, oldW, oldH)),
+      });
       this.liveStroke = null;
       this.selectedIndex = -1;
       this.editingActionIndex = -1;
@@ -231,16 +276,16 @@ export const CanvasView = GObject.registerClass(
     }
 
     undo(): void {
-      if (this.cursor === 0) return;
-      this.cursor--;
-      // If the selected action was the one being hidden by undo, drop selection.
-      if (this.selectedIndex >= this.cursor) this.selectedIndex = -1;
+      if (this.historyCursor === 0) return;
+      this.historyCursor--;
+      this.resetTransientState();
       this.queue_draw();
     }
 
     redo(): void {
-      if (this.cursor === this.actions.length) return;
-      this.cursor++;
+      if (this.historyCursor >= this.history.length - 1) return;
+      this.historyCursor++;
+      this.resetTransientState();
       this.queue_draw();
     }
 
@@ -276,7 +321,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     private onDragBegin(wx: number, wy: number): void {
-      if (!this.surface) return;
+      if (!this.state.surface) return;
       if (this.currentToolId === 'select') {
         const [ix, iy] = this.widgetToImage(wx, wy);
         this.selectedIndex = this.hitTest(ix, iy);
@@ -327,8 +372,15 @@ export const CanvasView = GObject.registerClass(
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
         if (this.moving && this.selectedIndex >= 0) {
-          const moved = this.actions[this.selectedIndex].translate(this.moveDx, this.moveDy);
-          this.actions[this.selectedIndex] = moved;
+          const cur = this.state.actions;
+          const i = this.selectedIndex;
+          const dx = this.moveDx;
+          const dy = this.moveDy;
+          const moved = cur[i].translate(dx, dy);
+          this.pushState({
+            surface: this.state.surface,
+            actions: cur.map((a, j) => (j === i ? moved : a)),
+          });
         }
         this.moving = false;
         this.moveDx = 0;
@@ -356,7 +408,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     private onCanvasPress(wx: number, wy: number): void {
-      if (!this.surface) return;
+      if (!this.state.surface) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       if (this.currentToolId === 'text') {
         if (this.onTextEditRequest) this.onTextEditRequest(ix, iy, wx, wy);
@@ -366,11 +418,11 @@ export const CanvasView = GObject.registerClass(
     }
 
     private onSelectDoubleClick(wx: number, wy: number): void {
-      if (!this.surface) return;
+      if (!this.state.surface) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       const idx = this.hitTest(ix, iy);
       if (idx < 0) return;
-      const action = this.actions[idx];
+      const action = this.state.actions[idx];
       if (!isTextAction(action)) return;
       const state = getTextEditState(action);
       if (!state) return;
@@ -392,18 +444,20 @@ export const CanvasView = GObject.registerClass(
     }
 
     private hitTest(ix: number, iy: number): number {
-      for (let i = this.cursor - 1; i >= 0; i--) {
+      const acts = this.state.actions;
+      for (let i = acts.length - 1; i >= 0; i--) {
         if (i === this.editingActionIndex) continue;
-        const bounds = this.actions[i].getBounds();
+        const bounds = acts[i].getBounds();
         if (bounds && pointInBounds(ix, iy, bounds)) return i;
       }
       return -1;
     }
 
     private nextStampNumber(): number {
+      const acts = this.state.actions;
       let count = 0;
-      for (let i = 0; i < this.cursor; i++) {
-        if (isNumberStampAction(this.actions[i])) count++;
+      for (let i = 0; i < acts.length; i++) {
+        if (isNumberStampAction(acts[i])) count++;
       }
       return count + 1;
     }
@@ -418,9 +472,10 @@ export const CanvasView = GObject.registerClass(
     }
 
     private computeTransform(widgetW: number, widgetH: number): Transform {
-      if (!this.surface) return { scale: 1, offsetX: 0, offsetY: 0 };
-      const imgW = this.surface.getWidth();
-      const imgH = this.surface.getHeight();
+      const s = this.state.surface;
+      if (!s) return { scale: 1, offsetX: 0, offsetY: 0 };
+      const imgW = s.getWidth();
+      const imgH = s.getHeight();
       const scale = this.mode === 'actual'
         ? 1
         : Math.min(widgetW / imgW, widgetH / imgH, 1);
@@ -437,7 +492,7 @@ export const CanvasView = GObject.registerClass(
       cr.setSourceRGB(0.12, 0.12, 0.12);
       cr.paint();
 
-      const s = this.surface;
+      const s = this.state.surface;
       if (!s) return;
 
       const imgW = s.getWidth();
@@ -454,22 +509,22 @@ export const CanvasView = GObject.registerClass(
       cr.getSource().setFilter(t.scale === 1 ? cairo.Filter.NEAREST : cairo.Filter.BILINEAR);
       cr.paint();
 
-      for (let i = 0; i < this.cursor; i++) {
+      const acts = this.state.actions;
+      for (let i = 0; i < acts.length; i++) {
         if (i === this.editingActionIndex) continue;
         if (this.moving && i === this.selectedIndex) {
           cr.save();
           cr.translate(this.moveDx, this.moveDy);
-          this.actions[i].draw(cr, t.scale);
+          acts[i].draw(cr, t.scale);
           cr.restore();
         } else {
-          this.actions[i].draw(cr, t.scale);
+          acts[i].draw(cr, t.scale);
         }
       }
       if (this.liveStroke) this.liveStroke.draw(cr, t.scale);
 
-      if (this.selectedIndex >= 0 && this.selectedIndex < this.cursor) {
-        const action = this.actions[this.selectedIndex];
-        const bounds = action.getBounds();
+      if (this.selectedIndex >= 0 && this.selectedIndex < acts.length) {
+        const bounds = acts[this.selectedIndex].getBounds();
         if (bounds) {
           const offsetX = this.moving ? this.moveDx : 0;
           const offsetY = this.moving ? this.moveDy : 0;
