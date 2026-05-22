@@ -3,7 +3,7 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import cairo from 'gi://cairo?version=1.0';
 
-import { Action, LiveStroke, ToolId, createLiveStroke } from './actions.js';
+import { Action, LiveStroke, ToolId, createLiveStroke, isNumberStampAction, makeNumberStampAction } from './actions.js';
 
 type ImageSurface = any;
 type DisplayMode = 'fit' | 'actual';
@@ -18,6 +18,10 @@ export type TextEditRequest = (imageX: number, imageY: number, widgetX: number, 
 
 function isShift(gesture: any): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
+}
+
+function isDragTool(id: ToolId): boolean {
+  return id !== 'text' && id !== 'number';
 }
 
 function cursorForTool(id: ToolId): string {
@@ -136,7 +140,7 @@ export const CanvasView = GObject.registerClass(
 
     private onPenDown(wx: number, wy: number): void {
       if (!this.surface) return;
-      if (this.currentToolId === 'text') return;
+      if (!isDragTool(this.currentToolId)) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       this.liveStroke = createLiveStroke(this.currentToolId, ix, iy);
       this.queue_draw();
@@ -144,10 +148,20 @@ export const CanvasView = GObject.registerClass(
 
     private onCanvasPress(wx: number, wy: number): void {
       if (!this.surface) return;
-      if (this.currentToolId !== 'text') return;
-      if (!this.onTextEditRequest) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      this.onTextEditRequest(ix, iy, wx, wy);
+      if (this.currentToolId === 'text') {
+        if (this.onTextEditRequest) this.onTextEditRequest(ix, iy, wx, wy);
+      } else if (this.currentToolId === 'number') {
+        this.addAction(makeNumberStampAction(ix, iy, this.nextStampNumber()));
+      }
+    }
+
+    private nextStampNumber(): number {
+      let count = 0;
+      for (let i = 0; i < this.cursor; i++) {
+        if (isNumberStampAction(this.actions[i])) count++;
+      }
+      return count + 1;
     }
 
     private onPenMove(wx: number, wy: number, constrain: boolean): void {

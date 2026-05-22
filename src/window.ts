@@ -29,6 +29,7 @@ const TOOLS: ToolDef[] = [
   { id: 'pen',         label: 'Pen',       accelerator: 'p' },
   { id: 'highlighter', label: 'Highlight', accelerator: 'h' },
   { id: 'text',        label: 'Text',      accelerator: 't' },
+  { id: 'number',      label: 'Number',    accelerator: 'n' },
   { id: 'line',        label: 'Line',      accelerator: 'l' },
   { id: 'arrow',       label: 'Arrow',     accelerator: 'a' },
   { id: 'rect',        label: 'Rect',      accelerator: 'r' },

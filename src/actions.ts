@@ -19,12 +19,22 @@ export interface LiveStroke {
   draw(cr: any, scale: number): void;
 }
 
-export type ToolId = 'pen' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'oval' | 'text';
+export type ToolId = 'pen' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'oval' | 'text' | 'number';
 
 export interface TextStyle {
   color: [number, number, number, number];
   size: number;       // image-space pixels (font height)
   fontDesc: string;   // Pango font description string
+}
+
+export interface NumberStampStyle {
+  radius: number;     // image-space pixels
+  fillColor: [number, number, number, number];
+  borderColor: [number, number, number, number];
+  borderWidth: number;
+  textColor: [number, number, number, number];
+  fontDesc: string;
+  fontSize: number;   // image-space pixels
 }
 
 const RED: Style['color'] = [0.85, 0.18, 0.18, 1.0];
@@ -35,6 +45,15 @@ export const LINE_STYLE: Style = { color: RED, width: 3 };
 export const ARROW_STYLE: Style = { color: RED, width: 3 };
 export const SHAPE_STYLE: Style = { color: RED, width: 3 };
 export const TEXT_STYLE: TextStyle = { color: RED, size: 24, fontDesc: 'Sans Bold' };
+export const NUMBER_STAMP_STYLE: NumberStampStyle = {
+  radius: 16,
+  fillColor: RED,
+  borderColor: [1, 1, 1, 1],
+  borderWidth: 2,
+  textColor: [1, 1, 1, 1],
+  fontDesc: 'Sans Bold',
+  fontSize: 16,
+};
 
 const SHAPE_MIN_EXTENT = 2;
 
@@ -47,9 +66,10 @@ export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStro
     case 'rect':        return new RectLiveStroke(x, y, SHAPE_STYLE);
     case 'oval':        return new OvalLiveStroke(x, y, SHAPE_STYLE);
     case 'text':
-      // Text is click-driven and doesn't fit the drag/LiveStroke model.
-      // The canvas guards against this call; the throw is a safety net.
-      throw new Error('text tool is handled outside createLiveStroke');
+    case 'number':
+      // Click-driven tools don't fit the drag/LiveStroke model. The canvas
+      // guards against this call; the throw is a safety net.
+      throw new Error(`${toolId} tool is handled outside createLiveStroke`);
   }
 }
 
@@ -80,6 +100,57 @@ class TextAction implements Action {
 
 export function makeTextAction(x: number, y: number, markup: string, style: TextStyle = TEXT_STYLE): Action {
   return new TextAction(x, y, markup, style);
+}
+
+// ---------- Number stamp ----------
+
+class NumberStampAction implements Action {
+  constructor(
+    private readonly x: number,
+    private readonly y: number,
+    private readonly n: number,
+    private readonly style: NumberStampStyle,
+  ) {}
+
+  draw(cr: any, _scale: number): void {
+    const s = this.style;
+
+    // newSubPath so the arc isn't connected by a line segment to whatever
+    // current point a previous action left behind (e.g. PangoCairo.show_layout
+    // leaves the current point at the end of rendered text).
+    cr.newSubPath();
+    cr.arc(this.x, this.y, s.radius, 0, 2 * Math.PI);
+    const [fr, fg, fb, fa] = s.fillColor;
+    cr.setSourceRGBA(fr, fg, fb, fa);
+    cr.fillPreserve();
+
+    cr.setLineWidth(s.borderWidth);
+    cr.setLineCap(cairo.LineCap.BUTT);
+    cr.setLineJoin(cairo.LineJoin.MITER);
+    const [br, bg, bb, ba] = s.borderColor;
+    cr.setSourceRGBA(br, bg, bb, ba);
+    cr.stroke();
+
+    const layout = PangoCairo.create_layout(cr);
+    const desc = Pango.FontDescription.from_string(s.fontDesc);
+    desc.set_absolute_size(s.fontSize * Pango.SCALE);
+    layout.set_font_description(desc);
+    layout.set_text(String(this.n), -1);
+    const [textW, textH] = layout.get_pixel_size();
+
+    const [tr, tg, tb, ta] = s.textColor;
+    cr.setSourceRGBA(tr, tg, tb, ta);
+    cr.moveTo(this.x - textW / 2, this.y - textH / 2);
+    PangoCairo.show_layout(cr, layout);
+  }
+}
+
+export function makeNumberStampAction(x: number, y: number, n: number, style: NumberStampStyle = NUMBER_STAMP_STYLE): Action {
+  return new NumberStampAction(x, y, n, style);
+}
+
+export function isNumberStampAction(action: Action): boolean {
+  return action instanceof NumberStampAction;
 }
 
 // ---------- Pen / Highlighter (multi-point stroke) ----------
