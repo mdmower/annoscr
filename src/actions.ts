@@ -14,10 +14,34 @@ export interface Bounds {
   y2: number;
 }
 
+export type RotateDirection = 'cw' | 'ccw';
+
 export interface Action {
   draw(cr: any, scale: number): void;
   getBounds(): Bounds | null;
   translate(dx: number, dy: number): Action;
+  // Transform this action so it rotates with the source image. `oldW`/`oldH`
+  // are the source image dimensions BEFORE the rotation; the action's stored
+  // coords are interpreted in the old image's coordinate space.
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
+}
+
+// 90° image rotation in image-space coords. Derived by composing Cairo's
+// rotate + post-translate-to-positive-quadrant transformation.
+function rotatePoint(x: number, y: number, direction: RotateDirection, oldW: number, oldH: number): [number, number] {
+  return direction === 'cw' ? [oldH - y, x] : [y, oldW - x];
+}
+
+// 90° AABB of a rotated text run anchored at (x, y) with original layout
+// dimensions w × h and `rotation` quarter-turns CW (0..3).
+function textBounds(x: number, y: number, w: number, h: number, rotation: number): Bounds {
+  switch (((rotation % 4) + 4) % 4) {
+    case 0: return { x1: x,     y1: y,     x2: x + w, y2: y + h };
+    case 1: return { x1: x - h, y1: y,     x2: x,     y2: y + w };
+    case 2: return { x1: x - w, y1: y - h, x2: x,     y2: y     };
+    case 3: return { x1: x,     y1: y - w, x2: x + h, y2: y     };
+    default: return { x1: x, y1: y, x2: x, y2: y };
+  }
 }
 
 export interface LiveStroke {
@@ -104,6 +128,7 @@ class TextAction implements Action {
     public readonly x: number,
     public readonly y: number,
     public readonly markup: string,
+    public readonly rotation: number,        // 0..3 quarter-turns CW
     private readonly style: TextStyle,
   ) {}
 
@@ -116,12 +141,16 @@ class TextAction implements Action {
     layout.set_markup(this.markup, -1);
 
     const [w, h] = layout.get_pixel_size();
-    this.cachedBounds = { x1: this.x, y1: this.y, x2: this.x + w, y2: this.y + h };
+    this.cachedBounds = textBounds(this.x, this.y, w, h, this.rotation);
 
     const [r, g, b, a] = this.style.color;
     cr.setSourceRGBA(r, g, b, a);
-    cr.moveTo(this.x, this.y);
+    cr.save();
+    cr.translate(this.x, this.y);
+    if (this.rotation !== 0) cr.rotate((this.rotation * Math.PI) / 2);
+    cr.moveTo(0, 0);
     PangoCairo.show_layout(cr, layout);
+    cr.restore();
   }
 
   getBounds(): Bounds | null {
@@ -133,21 +162,33 @@ class TextAction implements Action {
   }
 
   translate(dx: number, dy: number): Action {
-    return new TextAction(this.x + dx, this.y + dy, this.markup, this.style);
+    return new TextAction(this.x + dx, this.y + dy, this.markup, this.rotation, this.style);
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const [nx, ny] = rotatePoint(this.x, this.y, direction, oldW, oldH);
+    const dr = direction === 'cw' ? 1 : 3;
+    return new TextAction(nx, ny, this.markup, (this.rotation + dr) % 4, this.style);
   }
 }
 
-export function makeTextAction(x: number, y: number, markup: string, style: TextStyle = TEXT_STYLE): Action {
-  return new TextAction(x, y, markup, style);
+export function makeTextAction(
+  x: number,
+  y: number,
+  markup: string,
+  rotation: number = 0,
+  style: TextStyle = TEXT_STYLE,
+): Action {
+  return new TextAction(x, y, markup, ((rotation % 4) + 4) % 4, style);
 }
 
 export function isTextAction(action: Action): boolean {
   return action instanceof TextAction;
 }
 
-export function getTextEditState(action: Action): { x: number; y: number; markup: string } | null {
+export function getTextEditState(action: Action): { x: number; y: number; markup: string; rotation: number } | null {
   if (!(action instanceof TextAction)) return null;
-  return { x: action.x, y: action.y, markup: action.markup };
+  return { x: action.x, y: action.y, markup: action.markup, rotation: action.rotation };
 }
 
 // ---------- Number stamp ----------
@@ -157,6 +198,7 @@ class NumberStampAction implements Action {
     private readonly x: number,
     private readonly y: number,
     private readonly n: number,
+    private readonly rotation: number,           // 0..3 quarter-turns CW (affects the digit only)
     private readonly style: NumberStampStyle,
   ) {}
 
@@ -188,22 +230,39 @@ class NumberStampAction implements Action {
 
     const [tr, tg, tb, ta] = s.textColor;
     cr.setSourceRGBA(tr, tg, tb, ta);
-    cr.moveTo(this.x - textW / 2, this.y - textH / 2);
+    cr.save();
+    cr.translate(this.x, this.y);
+    if (this.rotation !== 0) cr.rotate((this.rotation * Math.PI) / 2);
+    cr.moveTo(-textW / 2, -textH / 2);
     PangoCairo.show_layout(cr, layout);
+    cr.restore();
   }
 
   getBounds(): Bounds {
+    // Circle bounds — rotation of the digit doesn't change the AABB.
     const half = this.style.radius + this.style.borderWidth / 2;
     return { x1: this.x - half, y1: this.y - half, x2: this.x + half, y2: this.y + half };
   }
 
   translate(dx: number, dy: number): Action {
-    return new NumberStampAction(this.x + dx, this.y + dy, this.n, this.style);
+    return new NumberStampAction(this.x + dx, this.y + dy, this.n, this.rotation, this.style);
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const [nx, ny] = rotatePoint(this.x, this.y, direction, oldW, oldH);
+    const dr = direction === 'cw' ? 1 : 3;
+    return new NumberStampAction(nx, ny, this.n, (this.rotation + dr) % 4, this.style);
   }
 }
 
-export function makeNumberStampAction(x: number, y: number, n: number, style: NumberStampStyle = NUMBER_STAMP_STYLE): Action {
-  return new NumberStampAction(x, y, n, style);
+export function makeNumberStampAction(
+  x: number,
+  y: number,
+  n: number,
+  rotation: number = 0,
+  style: NumberStampStyle = NUMBER_STAMP_STYLE,
+): Action {
+  return new NumberStampAction(x, y, n, ((rotation % 4) + 4) % 4, style);
 }
 
 export function isNumberStampAction(action: Action): boolean {
@@ -236,6 +295,11 @@ class StrokeAction implements Action {
 
   translate(dx: number, dy: number): Action {
     const moved: Array<[number, number]> = this.points.map(([x, y]) => [x + dx, y + dy]);
+    return new StrokeAction(moved, this.style);
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const moved: Array<[number, number]> = this.points.map(([x, y]) => rotatePoint(x, y, direction, oldW, oldH));
     return new StrokeAction(moved, this.style);
   }
 }
@@ -284,6 +348,12 @@ class LineAction implements Action {
 
   translate(dx: number, dy: number): Action {
     return new LineAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
+    const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
+    return new LineAction(nx1, ny1, nx2, ny2, this.style);
   }
 }
 
@@ -343,6 +413,12 @@ class ArrowAction implements Action {
   translate(dx: number, dy: number): Action {
     return new ArrowAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
   }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
+    const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
+    return new ArrowAction(nx1, ny1, nx2, ny2, this.style);
+  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -395,6 +471,12 @@ class RectAction implements Action {
 
   translate(dx: number, dy: number): Action {
     return new RectAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
+    const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
+    return new RectAction(nx1, ny1, nx2, ny2, this.style);
   }
 }
 
@@ -456,6 +538,12 @@ class OvalAction implements Action {
 
   translate(dx: number, dy: number): Action {
     return new OvalAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
+    const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
+    return new OvalAction(nx1, ny1, nx2, ny2, this.style);
   }
 }
 

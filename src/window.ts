@@ -61,14 +61,30 @@ export const AnnoscrWindow = GObject.registerClass(
       openButton.connect('clicked', () => this.openImageDialog());
       header.pack_start(openButton);
 
+      // pack_end stacks right-to-left in source order, so to land the buttons
+      // as [Rotate Left][Rotate Right] left-to-right we add Right first.
+      const rotateRightBtn = new Gtk.Button({
+        icon_name: 'object-rotate-right-symbolic',
+        tooltip_text: 'Rotate right (90°)',
+      });
+      rotateRightBtn.connect('clicked', () => this.canvas.rotate('cw'));
+      header.pack_end(rotateRightBtn);
+
+      const rotateLeftBtn = new Gtk.Button({
+        icon_name: 'object-rotate-left-symbolic',
+        tooltip_text: 'Rotate left (90°)',
+      });
+      rotateLeftBtn.connect('clicked', () => this.canvas.rotate('ccw'));
+      header.pack_end(rotateLeftBtn);
+
       this.canvas = new CanvasView();
 
       this.editor = new TextEditor({
-        onCommit: (markup: string, ix: number, iy: number, replaceIndex?: number) => {
+        onCommit: (markup: string, ix: number, iy: number, rotation: number, replaceIndex?: number) => {
           if (replaceIndex !== undefined) {
-            this.canvas.replaceAction(replaceIndex, makeTextAction(ix, iy, markup));
+            this.canvas.replaceAction(replaceIndex, makeTextAction(ix, iy, markup, rotation));
           } else {
-            this.canvas.addAction(makeTextAction(ix, iy, markup));
+            this.canvas.addAction(makeTextAction(ix, iy, markup, rotation));
           }
         },
         onCancel: (replaceIndex?: number) => {

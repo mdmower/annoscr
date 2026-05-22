@@ -14,6 +14,8 @@ import {
   getTextEditState,
   makeNumberStampAction,
 } from './actions.js';
+import { rotateSurface } from './image_transforms.js';
+import type { RotateDirection } from './actions.js';
 
 type ImageSurface = any;
 type DisplayMode = 'fit' | 'actual';
@@ -27,6 +29,7 @@ interface Transform {
 export interface TextEditRequestOptions {
   markup?: string;
   replaceIndex?: number;
+  rotation?: number;
 }
 
 export type TextEditRequest = (
@@ -161,6 +164,24 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
+    // Rotate the source surface and every action together (positions follow
+    // the image; text and number-stamp content rotates too). The undo cursor
+    // is preserved, but rotation is not Ctrl+Z reversible — same limitation
+    // as delete/move/edit until we land a real modification-undo model.
+    rotate(direction: RotateDirection): void {
+      if (!this.surface) return;
+      const oldW = this.surface.getWidth();
+      const oldH = this.surface.getHeight();
+      this.surface = rotateSurface(this.surface, direction);
+      // Transform every action — including those in the redo history beyond
+      // the cursor — so undo/redo across a rotation stays coherent.
+      this.actions = this.actions.map(a => a.rotateOnImage(direction, oldW, oldH));
+      this.liveStroke = null;
+      this.selectedIndex = -1;
+      this.editingActionIndex = -1;
+      this.queue_draw();
+    }
+
     undo(): void {
       if (this.cursor === 0) return;
       this.cursor--;
@@ -293,6 +314,7 @@ export const CanvasView = GObject.registerClass(
         this.onTextEditRequest(state.x, state.y, wxAnchor, wyAnchor, {
           markup: state.markup,
           replaceIndex: idx,
+          rotation: state.rotation,
         });
       }
     }

@@ -18,13 +18,14 @@ const MARKUP_TAG_REVERSE: Record<string, TagName> = {
 };
 
 export interface TextEditorCallbacks {
-  onCommit: (markup: string, x: number, y: number, replaceIndex?: number) => void;
+  onCommit: (markup: string, x: number, y: number, rotation: number, replaceIndex?: number) => void;
   onCancel: (replaceIndex?: number) => void;
 }
 
 export interface TextEditorBeginOptions {
   markup?: string;
   replaceIndex?: number;
+  rotation?: number;     // 0..3 quarter-turns CW (carried through commit unchanged)
 }
 
 export class TextEditor {
@@ -36,6 +37,7 @@ export class TextEditor {
   private active: boolean = false;
   private imageX: number = 0;
   private imageY: number = 0;
+  private rotation: number = 0;
   private replaceIndex: number | undefined = undefined;
   // Tags that will be applied to the next characters the user types.
   private pendingTags: Set<TagName> = new Set();
@@ -80,6 +82,7 @@ export class TextEditor {
   beginAt(imageX: number, imageY: number, widgetX: number, widgetY: number, options?: TextEditorBeginOptions): void {
     this.imageX = imageX;
     this.imageY = imageY;
+    this.rotation = options?.rotation ?? 0;
     this.replaceIndex = options?.replaceIndex;
     this.pendingTags.clear();
     if (options?.markup) {
@@ -102,9 +105,11 @@ export class TextEditor {
     const end = this.buffer.get_end_iter();
     const plainText = this.buffer.get_text(start, end, true);
     const replaceIndex = this.replaceIndex;
+    const rotation = this.rotation;
     this.active = false;
     this.frame.set_visible(false);
     this.replaceIndex = undefined;
+    this.rotation = 0;
     if (plainText.trim().length === 0) {
       // No content — treat like a cancel so any hidden source action becomes
       // visible again, rather than silently deleting it.
@@ -112,7 +117,7 @@ export class TextEditor {
       return;
     }
     const markup = this.bufferToMarkup();
-    this.callbacks.onCommit(markup, this.imageX, this.imageY, replaceIndex);
+    this.callbacks.onCommit(markup, this.imageX, this.imageY, rotation, replaceIndex);
   }
 
   cancel(): void {
@@ -121,6 +126,7 @@ export class TextEditor {
     this.active = false;
     this.frame.set_visible(false);
     this.replaceIndex = undefined;
+    this.rotation = 0;
     this.callbacks.onCancel(replaceIndex);
   }
 

@@ -6,6 +6,7 @@ ts_sources = files(
   'image_loader.ts',
   'actions.ts',
   'text_editor.ts',
+  'image_transforms.ts',
 )
 
 ts_outputs = [
@@ -16,6 +17,7 @@ ts_outputs = [
   'image_loader.js',
   'actions.js',
   'text_editor.js',
+  'image_transforms.js',
 ]
 
 compile_ts = custom_target('compile-ts',
