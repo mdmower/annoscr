@@ -1,4 +1,6 @@
 import cairo from 'gi://cairo?version=1.0';
+import Pango from 'gi://Pango?version=1.0';
+import PangoCairo from 'gi://PangoCairo?version=1.0';
 
 export interface Style {
   color: [number, number, number, number];
@@ -17,7 +19,13 @@ export interface LiveStroke {
   draw(cr: any, scale: number): void;
 }
 
-export type ToolId = 'pen' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'oval';
+export type ToolId = 'pen' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'oval' | 'text';
+
+export interface TextStyle {
+  color: [number, number, number, number];
+  size: number;       // image-space pixels (font height)
+  fontDesc: string;   // Pango font description string
+}
 
 const RED: Style['color'] = [0.85, 0.18, 0.18, 1.0];
 
@@ -26,6 +34,7 @@ export const HIGHLIGHTER_STYLE: Style = { color: [1.0, 0.92, 0.10, 0.35], width:
 export const LINE_STYLE: Style = { color: RED, width: 3 };
 export const ARROW_STYLE: Style = { color: RED, width: 3 };
 export const SHAPE_STYLE: Style = { color: RED, width: 3 };
+export const TEXT_STYLE: TextStyle = { color: RED, size: 24, fontDesc: 'Sans Bold' };
 
 const SHAPE_MIN_EXTENT = 2;
 
@@ -37,7 +46,40 @@ export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStro
     case 'arrow':       return new ArrowLiveStroke(x, y, ARROW_STYLE);
     case 'rect':        return new RectLiveStroke(x, y, SHAPE_STYLE);
     case 'oval':        return new OvalLiveStroke(x, y, SHAPE_STYLE);
+    case 'text':
+      // Text is click-driven and doesn't fit the drag/LiveStroke model.
+      // The canvas guards against this call; the throw is a safety net.
+      throw new Error('text tool is handled outside createLiveStroke');
   }
+}
+
+// ---------- Text ----------
+
+class TextAction implements Action {
+  constructor(
+    private readonly x: number,
+    private readonly y: number,
+    private readonly markup: string,
+    private readonly style: TextStyle,
+  ) {}
+
+  draw(cr: any, _scale: number): void {
+    if (!this.markup) return;
+    const layout = PangoCairo.create_layout(cr);
+    const desc = Pango.FontDescription.from_string(this.style.fontDesc);
+    desc.set_absolute_size(this.style.size * Pango.SCALE);
+    layout.set_font_description(desc);
+    layout.set_markup(this.markup, -1);
+
+    const [r, g, b, a] = this.style.color;
+    cr.setSourceRGBA(r, g, b, a);
+    cr.moveTo(this.x, this.y);
+    PangoCairo.show_layout(cr, layout);
+  }
+}
+
+export function makeTextAction(x: number, y: number, markup: string, style: TextStyle = TEXT_STYLE): Action {
+  return new TextAction(x, y, markup, style);
 }
 
 // ---------- Pen / Highlighter (multi-point stroke) ----------

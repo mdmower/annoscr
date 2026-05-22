@@ -7,7 +7,8 @@ import Adw from 'gi://Adw?version=1';
 
 import { CanvasView } from './canvas_view.js';
 import { loadFromFile, loadFromStream } from './image_loader.js';
-import { ToolId } from './actions.js';
+import { ToolId, makeTextAction } from './actions.js';
+import { TextEditor } from './text_editor.js';
 
 const IMAGE_MIME_TYPES = [
   'image/png',
@@ -27,6 +28,7 @@ interface ToolDef {
 const TOOLS: ToolDef[] = [
   { id: 'pen',         label: 'Pen',       accelerator: 'p' },
   { id: 'highlighter', label: 'Highlight', accelerator: 'h' },
+  { id: 'text',        label: 'Text',      accelerator: 't' },
   { id: 'line',        label: 'Line',      accelerator: 'l' },
   { id: 'arrow',       label: 'Arrow',     accelerator: 'a' },
   { id: 'rect',        label: 'Rect',      accelerator: 'r' },
@@ -37,6 +39,7 @@ export const AnnoscrWindow = GObject.registerClass(
   class AnnoscrWindow extends Adw.ApplicationWindow {
     private canvas: any;
     private stack: any;
+    private editor: any; // TextEditor; typed `any` because of the GObject.registerClass dance
     private toolButtons: Map<ToolId, any> = new Map();
 
     constructor(app: any) {
@@ -58,6 +61,19 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.canvas = new CanvasView();
 
+      this.editor = new TextEditor((markup: string, ix: number, iy: number) => {
+        this.canvas.addAction(makeTextAction(ix, iy, markup));
+      });
+      this.canvas.setTextEditRequestHandler((ix: number, iy: number, wx: number, wy: number) => {
+        // Click on canvas with text tool active: commit any prior edit, then begin a new one.
+        this.editor.commitIfActive();
+        this.editor.beginAt(ix, iy, wx, wy);
+      });
+
+      const overlay = new Gtk.Overlay();
+      overlay.set_child(this.canvas);
+      overlay.add_overlay(this.editor.getWidget());
+
       const toolBar = this.buildToolBar();
       header.set_title_widget(toolBar);
 
@@ -71,7 +87,7 @@ export const AnnoscrWindow = GObject.registerClass(
         transition_type: Gtk.StackTransitionType.CROSSFADE,
       });
       this.stack.add_named(empty, 'empty');
-      this.stack.add_named(this.canvas, 'canvas');
+      this.stack.add_named(overlay, 'canvas');
       this.stack.set_visible_child_name('empty');
 
       const toolbar = new Adw.ToolbarView();
@@ -120,6 +136,8 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private setImage(surface: any): void {
+      // Discard any in-progress text edit — it belonged to the old image.
+      this.editor.cancel();
       this.canvas.setImage(surface);
       this.stack.set_visible_child_name('canvas');
     }
@@ -170,6 +188,8 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private selectTool(id: ToolId): void {
+      // Commit any in-progress text edit before switching away from the text tool.
+      this.editor.commitIfActive();
       this.canvas.setTool(id);
       const btn = this.toolButtons.get(id);
       if (btn && !btn.get_active()) btn.set_active(true);

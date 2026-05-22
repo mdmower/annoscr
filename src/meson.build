@@ -5,6 +5,7 @@ ts_sources = files(
   'canvas_view.ts',
   'image_loader.ts',
   'actions.ts',
+  'text_editor.ts',
 )
 
 ts_outputs = [
@@ -14,6 +15,7 @@ ts_outputs = [
   'canvas_view.js',
   'image_loader.js',
   'actions.js',
+  'text_editor.js',
 ]
 
 compile_ts = custom_target('compile-ts',

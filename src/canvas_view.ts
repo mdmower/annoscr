@@ -14,8 +14,14 @@ interface Transform {
   offsetY: number;
 }
 
+export type TextEditRequest = (imageX: number, imageY: number, widgetX: number, widgetY: number) => void;
+
 function isShift(gesture: any): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
+}
+
+function cursorForTool(id: ToolId): string {
+  return id === 'text' ? 'text' : 'crosshair';
 }
 
 export const CanvasView = GObject.registerClass(
@@ -30,6 +36,8 @@ export const CanvasView = GObject.registerClass(
 
     private dragStartX: number = 0;
     private dragStartY: number = 0;
+
+    private onTextEditRequest: TextEditRequest | null = null;
 
     constructor() {
       super({ hexpand: true, vexpand: true });
@@ -68,11 +76,23 @@ export const CanvasView = GObject.registerClass(
       this.currentToolId = toolId;
       // Cancel any in-progress stroke so the tool change takes effect immediately.
       this.liveStroke = null;
+      (this as any).set_cursor_from_name(cursorForTool(toolId));
       this.queue_draw();
     }
 
     getTool(): ToolId {
       return this.currentToolId;
+    }
+
+    setTextEditRequestHandler(handler: TextEditRequest | null): void {
+      this.onTextEditRequest = handler;
+    }
+
+    addAction(action: Action): void {
+      this.actions.length = this.cursor;
+      this.actions.push(action);
+      this.cursor++;
+      this.queue_draw();
     }
 
     undo(): void {
@@ -85,12 +105,6 @@ export const CanvasView = GObject.registerClass(
       if (this.cursor === this.actions.length) return;
       this.cursor++;
       this.queue_draw();
-    }
-
-    private addAction(action: Action): void {
-      this.actions.length = this.cursor;
-      this.actions.push(action);
-      this.cursor++;
     }
 
     private installPointer(): void {
@@ -108,16 +122,32 @@ export const CanvasView = GObject.registerClass(
       drag.connect('drag-end', (g: any, dx: number, dy: number) => {
         this.onPenUp(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
       });
-
       (this as any).add_controller(drag);
-      (this as any).set_cursor_from_name('crosshair');
+
+      const click = new Gtk.GestureClick();
+      click.set_button(Gdk.BUTTON_PRIMARY);
+      click.connect('pressed', (_g: any, _n: number, x: number, y: number) => {
+        this.onCanvasPress(x, y);
+      });
+      (this as any).add_controller(click);
+
+      (this as any).set_cursor_from_name(cursorForTool(this.currentToolId));
     }
 
     private onPenDown(wx: number, wy: number): void {
       if (!this.surface) return;
+      if (this.currentToolId === 'text') return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       this.liveStroke = createLiveStroke(this.currentToolId, ix, iy);
       this.queue_draw();
+    }
+
+    private onCanvasPress(wx: number, wy: number): void {
+      if (!this.surface) return;
+      if (this.currentToolId !== 'text') return;
+      if (!this.onTextEditRequest) return;
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      this.onTextEditRequest(ix, iy, wx, wy);
     }
 
     private onPenMove(wx: number, wy: number, constrain: boolean): void {
