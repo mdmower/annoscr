@@ -57,6 +57,9 @@ export const AnnoscrWindow = GObject.registerClass(
     private resizeToolbar: any;
     private resizeButton: any;
     private statusLabel: any;
+    // Set true just before we explicitly call close() after the user has
+    // chosen Discard, so the close-request handler doesn't re-prompt.
+    private skipCloseConfirm: boolean = false;
     private saveButton: any;
     private copyButton: any;
 
@@ -171,6 +174,18 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.installDropTarget();
       this.installShortcuts();
+      this.installCloseGuard();
+    }
+
+    private installCloseGuard(): void {
+      (this as any).connect('close-request', () => {
+        if (this.skipCloseConfirm || !this.canvas.isDirty()) return false;
+        this.confirmDiscard('Closing the window', () => {
+          this.skipCloseConfirm = true;
+          this.close();
+        });
+        return true; // block the default close until the user responds
+      });
     }
 
     private buildStatusBar(): any {
@@ -206,7 +221,34 @@ export const AnnoscrWindow = GObject.registerClass(
       this.statusLabel.set_label(r ? `${base} → ${r.w} × ${r.h} px` : base);
     }
 
+    // Show a destructive-action confirmation if the canvas has unsaved
+    // annotations. `onProceed` runs only when the user explicitly discards,
+    // or immediately if the canvas is already clean.
+    private confirmDiscard(action: string, onProceed: () => void): void {
+      if (!this.canvas.isDirty()) {
+        onProceed();
+        return;
+      }
+      const dialog = new Adw.AlertDialog({
+        heading: 'Discard changes?',
+        body: `${action} will replace your current work. Save (Ctrl+S) or copy (Ctrl+C) first if you want to keep it.`,
+      });
+      dialog.add_response('cancel', 'Cancel');
+      dialog.add_response('discard', 'Discard');
+      dialog.set_response_appearance('discard', Adw.ResponseAppearance.DESTRUCTIVE);
+      dialog.set_default_response('cancel');
+      dialog.set_close_response('cancel');
+      dialog.connect('response', (_d: any, response: string) => {
+        if (response === 'discard') onProceed();
+      });
+      dialog.present(this);
+    }
+
     private openImageDialog(): void {
+      this.confirmDiscard('Opening a new image', () => this.openImageDialogUnchecked());
+    }
+
+    private openImageDialogUnchecked(): void {
       const dialog = new Gtk.FileDialog({ title: 'Open image', modal: true });
 
       const filter = new Gtk.FileFilter({ name: 'Images' });
@@ -256,7 +298,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: any, file: any) => {
         if (!file) return false;
-        this.loadFile(file);
+        this.confirmDiscard('Loading the dropped image', () => this.loadFile(file));
         return true;
       });
       (this as any).add_controller(dropTarget);
@@ -454,6 +496,7 @@ export const AnnoscrWindow = GObject.registerClass(
 
         try {
           saveSurface(surface, path, format);
+          this.canvas.markClean();
         } catch (e) {
           logError(e, 'saveSurface failed');
         }
@@ -467,12 +510,17 @@ export const AnnoscrWindow = GObject.registerClass(
       if (!surface) return;
       try {
         copySurfaceToClipboard(this.get_clipboard(), surface);
+        this.canvas.markClean();
       } catch (e) {
         logError(e, 'copySurfaceToClipboard failed');
       }
     }
 
     private pasteFromClipboard(): void {
+      this.confirmDiscard('Pasting a new image', () => this.pasteFromClipboardUnchecked());
+    }
+
+    private pasteFromClipboardUnchecked(): void {
       const clipboard = this.get_clipboard();
       clipboard.read_async(IMAGE_MIME_TYPES, GLib.PRIORITY_DEFAULT, null, (_src: any, result: any) => {
         let stream: any = null;

@@ -161,6 +161,13 @@ export const CanvasView = GObject.registerClass(
     private onTextEditRequest: TextEditRequest | null = null;
     private onStateChange: (() => void) | null = null;
 
+    // Reference-equality marker for "clean": the canvas state that matches
+    // the most recent save / copy / fresh-image-load. If the current state
+    // is the same object, nothing has been modified since. Stays valid
+    // across undo/redo because those just move the historyCursor — the
+    // underlying state object in `history[i]` doesn't change.
+    private cleanStateRef: CanvasState | null = null;
+
     constructor() {
       super({ hexpand: true, vexpand: true });
       this.set_draw_func(this.onDraw.bind(this));
@@ -200,6 +207,7 @@ export const CanvasView = GObject.registerClass(
     setImage(surface: ImageSurface): void {
       this.history = [{ surface, actions: [] }];
       this.historyCursor = 0;
+      this.cleanStateRef = this.history[0];
       this.resetTransientState();
       this.queue_draw();
       this.notifyStateChange();
@@ -208,8 +216,24 @@ export const CanvasView = GObject.registerClass(
     clearImage(): void {
       this.history = [{ surface: null, actions: [] }];
       this.historyCursor = 0;
+      this.cleanStateRef = this.history[0];
       this.resetTransientState();
       this.queue_draw();
+      this.notifyStateChange();
+    }
+
+    // True when the current state has been modified since the last save,
+    // copy, or fresh image load. Undo to the clean point restores it to
+    // false (same state object).
+    isDirty(): boolean {
+      if (!this.cleanStateRef) return this.state.actions.length > 0;
+      return this.state !== this.cleanStateRef;
+    }
+
+    // Pin the current state as the new "clean" reference. Call after a
+    // successful save or clipboard copy.
+    markClean(): void {
+      this.cleanStateRef = this.state;
       this.notifyStateChange();
     }
 
