@@ -61,7 +61,8 @@ export type ToolId =
   | 'rect'
   | 'oval'
   | 'text'
-  | 'number';
+  | 'number'
+  | 'crop';
 
 export interface TextStyle {
   color: [number, number, number, number];
@@ -110,8 +111,9 @@ export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStro
     case 'select':
     case 'text':
     case 'number':
-      // Non-drag tools handled elsewhere; the canvas guards against this call,
-      // the throw is a safety net.
+    case 'crop':
+      // Non-drag-stroke tools handled elsewhere; the canvas guards against
+      // this call, the throw is a safety net.
       throw new Error(`${toolId} tool is handled outside createLiveStroke`);
   }
 }

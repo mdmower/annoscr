@@ -14,8 +14,15 @@ import {
   getTextEditState,
   makeNumberStampAction,
 } from './actions.js';
-import { rotateSurface } from './image_transforms.js';
+import { cropSurface, rotateSurface } from './image_transforms.js';
 import type { RotateDirection } from './actions.js';
+
+export interface CropRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 type ImageSurface = any;
 type DisplayMode = 'fit' | 'actual';
@@ -45,13 +52,22 @@ function isShift(gesture: any): boolean {
 }
 
 function isDragTool(id: ToolId): boolean {
-  return id !== 'select' && id !== 'text' && id !== 'number';
+  return id !== 'select' && id !== 'text' && id !== 'number' && id !== 'crop';
 }
 
 function cursorForTool(id: ToolId): string {
   if (id === 'text') return 'text';
   if (id === 'select') return 'default';
   return 'crosshair';
+}
+
+function clipCropRegion(r: { x1: number; y1: number; x2: number; y2: number }, imgW: number, imgH: number): CropRect | null {
+  const minX = Math.max(0, Math.min(r.x1, r.x2));
+  const maxX = Math.min(imgW, Math.max(r.x1, r.x2));
+  const minY = Math.max(0, Math.min(r.y1, r.y2));
+  const maxY = Math.min(imgH, Math.max(r.y1, r.y2));
+  if (maxX <= minX || maxY <= minY) return null;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 function pointInBounds(x: number, y: number, b: Bounds): boolean {
@@ -79,6 +95,10 @@ export const CanvasView = GObject.registerClass(
     // Index of an action currently being re-edited; hidden from render
     // (the live editor widget shows in its place).
     private editingActionIndex: number = -1;
+
+    // Raw crop region while in crop mode (image-space coords; not clipped
+    // to image bounds until apply).
+    private cropRegion: { x1: number; y1: number; x2: number; y2: number } | null = null;
 
     private onTextEditRequest: TextEditRequest | null = null;
 
@@ -124,6 +144,7 @@ export const CanvasView = GObject.registerClass(
       this.liveStroke = null;
       this.selectedIndex = -1;
       this.moving = false;
+      if (toolId !== 'crop') this.cropRegion = null;
       (this as any).set_cursor_from_name(cursorForTool(toolId));
       this.queue_draw();
     }
@@ -162,6 +183,33 @@ export const CanvasView = GObject.registerClass(
       this.selectedIndex = -1;
       this.queue_draw();
       return true;
+    }
+
+    // Returns the clipped crop region if one is defined and non-degenerate.
+    getCropRect(): CropRect | null {
+      if (!this.cropRegion || !this.surface) return null;
+      return clipCropRegion(this.cropRegion, this.surface.getWidth(), this.surface.getHeight());
+    }
+
+    // Apply the current crop region: replace surface with the cropped piece
+    // and translate every action by (-cropX, -cropY). Returns true if a crop
+    // was applied; false if there was nothing to crop.
+    applyCrop(): boolean {
+      const rect = this.getCropRect();
+      if (!rect || !this.surface) return false;
+      this.surface = cropSurface(this.surface, rect.x, rect.y, rect.w, rect.h);
+      this.actions = this.actions.map(a => a.translate(-rect.x, -rect.y));
+      this.cropRegion = null;
+      this.liveStroke = null;
+      this.selectedIndex = -1;
+      this.editingActionIndex = -1;
+      this.queue_draw();
+      return true;
+    }
+
+    cancelCrop(): void {
+      this.cropRegion = null;
+      this.queue_draw();
     }
 
     // Rotate the source surface and every action together (positions follow
@@ -238,6 +286,12 @@ export const CanvasView = GObject.registerClass(
         this.queue_draw();
         return;
       }
+      if (this.currentToolId === 'crop') {
+        const [ix, iy] = this.widgetToImage(wx, wy);
+        this.cropRegion = { x1: ix, y1: iy, x2: ix, y2: iy };
+        this.queue_draw();
+        return;
+      }
       if (!isDragTool(this.currentToolId)) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       this.liveStroke = createLiveStroke(this.currentToolId, ix, iy);
@@ -256,6 +310,14 @@ export const CanvasView = GObject.registerClass(
         if (this.moving) this.queue_draw();
         return;
       }
+      if (this.currentToolId === 'crop') {
+        if (!this.cropRegion) return;
+        const [ix, iy] = this.widgetToImage(wx, wy);
+        this.cropRegion.x2 = ix;
+        this.cropRegion.y2 = iy;
+        this.queue_draw();
+        return;
+      }
       if (!this.liveStroke) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       this.liveStroke.extendTo(ix, iy, constrain);
@@ -271,6 +333,16 @@ export const CanvasView = GObject.registerClass(
         this.moving = false;
         this.moveDx = 0;
         this.moveDy = 0;
+        this.queue_draw();
+        return;
+      }
+      if (this.currentToolId === 'crop') {
+        if (!this.cropRegion) return;
+        const [ix, iy] = this.widgetToImage(wx, wy);
+        this.cropRegion.x2 = ix;
+        this.cropRegion.y2 = iy;
+        // Drop the region if it collapsed to nothing (clicked without dragging).
+        if (this.getCropRect() === null) this.cropRegion = null;
         this.queue_draw();
         return;
       }
@@ -405,10 +477,40 @@ export const CanvasView = GObject.registerClass(
         }
       }
 
+      if (this.currentToolId === 'crop') {
+        const clipped = this.getCropRect();
+        drawCropOverlay(cr, imgW, imgH, clipped, t.scale);
+      }
+
       cr.restore();
     }
   },
 );
+
+function drawCropOverlay(cr: any, imgW: number, imgH: number, rect: CropRect | null, scale: number): void {
+  cr.save();
+
+  // Dim everything in image bounds, "punching out" the crop region via
+  // EVEN_ODD fill so the kept area shows through clearly.
+  cr.setSourceRGBA(0, 0, 0, 0.5);
+  cr.rectangle(0, 0, imgW, imgH);
+  if (rect) cr.rectangle(rect.x, rect.y, rect.w, rect.h);
+  cr.setFillRule(cairo.FillRule.EVEN_ODD);
+  cr.fill();
+
+  // Dashed border around the kept region.
+  if (rect) {
+    cr.setSourceRGBA(1, 1, 1, 0.95);
+    cr.setLineWidth(1.5 / scale);
+    cr.setDash([6 / scale, 4 / scale], 0);
+    cr.setLineCap(cairo.LineCap.BUTT);
+    cr.setLineJoin(cairo.LineJoin.MITER);
+    cr.rectangle(rect.x, rect.y, rect.w, rect.h);
+    cr.stroke();
+  }
+
+  cr.restore();
+}
 
 function drawSelectionBox(cr: any, bounds: Bounds, scale: number, ox: number, oy: number): void {
   const pad = 4 / scale;
