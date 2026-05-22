@@ -15,6 +15,7 @@ import {
   makeNumberStampAction,
 } from './actions.js';
 import { cropSurface, rotateSurface } from './image_transforms.js';
+import { renderToSurface } from './exporter.js';
 import type { RotateDirection } from './actions.js';
 
 export interface CropRect {
@@ -169,6 +170,14 @@ export const CanvasView = GObject.registerClass(
 
     hasImage(): boolean {
       return this.state.surface !== null;
+    }
+
+    // Composite current image + all visible actions to a fresh ARGB32 surface
+    // at the source image's native resolution. Returns null if no image.
+    exportSnapshot(): any | null {
+      const s = this.state.surface;
+      if (!s) return null;
+      return renderToSurface(s, this.state.actions);
     }
 
     setTool(toolId: ToolId): void {

@@ -5,10 +5,21 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 
+import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
+
 import { CanvasView } from './canvas_view.js';
-import { loadFromFile, loadFromStream } from './image_loader.js';
+import { loadFromFile, loadFromPixbuf } from './image_loader.js';
 import { ToolId, makeTextAction } from './actions.js';
 import { TextEditor } from './text_editor.js';
+import {
+  FORMATS,
+  ImageFormat,
+  copySurfaceToClipboard,
+  defaultSaveFilename,
+  defaultSaveFolderPath,
+  formatFromPath,
+  saveSurface,
+} from './exporter.js';
 
 const IMAGE_MIME_TYPES = [
   'image/png',
@@ -45,6 +56,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private toolButtons: Map<ToolId, any> = new Map();
     private cropToolbar: any;
     private cropButton: any;
+    private saveButton: any;
+    private copyButton: any;
 
     constructor(app: any) {
       super({
@@ -62,6 +75,22 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       openButton.connect('clicked', () => this.openImageDialog());
       header.pack_start(openButton);
+
+      this.saveButton = new Gtk.Button({
+        icon_name: 'document-save-symbolic',
+        tooltip_text: 'Save image… (Ctrl+S)',
+        sensitive: false,
+      });
+      this.saveButton.connect('clicked', () => this.saveImageDialog());
+      header.pack_start(this.saveButton);
+
+      this.copyButton = new Gtk.Button({
+        icon_name: 'edit-copy-symbolic',
+        tooltip_text: 'Copy image to clipboard (Ctrl+C)',
+        sensitive: false,
+      });
+      this.copyButton.connect('clicked', () => this.copyImageToClipboard());
+      header.pack_start(this.copyButton);
 
       // pack_end stacks right-to-left in source order, so to land the buttons
       // as [Rotate Left][Rotate Right][Crop] left-to-right we add Crop first.
@@ -181,6 +210,8 @@ export const AnnoscrWindow = GObject.registerClass(
       if (this.canvas.getTool() === 'crop') this.exitCropMode(false);
       this.canvas.setImage(surface);
       this.stack.set_visible_child_name('canvas');
+      this.saveButton.set_sensitive(true);
+      this.copyButton.set_sensitive(true);
     }
 
     private installDropTarget(): void {
@@ -199,6 +230,17 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>z', () => this.canvas.undo());
       this.bindShortcut(controller, '<Control><Shift>z', () => this.canvas.redo());
       this.bindShortcut(controller, '<Control>y', () => this.canvas.redo());
+      this.bindShortcut(controller, '<Control>s', () => {
+        if (this.canvas.hasImage()) this.saveImageDialog();
+      });
+      // Ctrl+C must not steal the editor's text-copy shortcut when the editor
+      // is open. The TextView's built-in handler normally consumes the event
+      // before it bubbles here; this is a belt-and-suspenders gate.
+      this.bindShortcut(controller, '<Control>c', () => {
+        if (this.editor.isActive()) return false;
+        if (this.canvas.hasImage()) this.copyImageToClipboard();
+        return true;
+      });
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
       // Enter and Escape only do anything when crop mode is active. The text
@@ -300,10 +342,82 @@ export const AnnoscrWindow = GObject.registerClass(
       this.setActiveTool('select');
     }
 
-    private bindShortcut(controller: any, accelerator: string, callback: () => void): void {
+    private bindShortcut(controller: any, accelerator: string, callback: () => boolean | void): void {
       const trigger = Gtk.ShortcutTrigger.parse_string(accelerator);
-      const action = Gtk.CallbackAction.new(() => { callback(); return true; });
+      const action = Gtk.CallbackAction.new(() => {
+        // Returning false from the callback means "not handled" — lets the
+        // event keep propagating to other controllers (e.g. an editor's
+        // built-in shortcuts). Any non-false return value handles the event.
+        const result = callback();
+        return result !== false;
+      });
       controller.add_shortcut(new Gtk.Shortcut({ trigger, action }));
+    }
+
+    private saveImageDialog(): void {
+      if (!this.canvas.hasImage()) return;
+      this.editor.commitIfActive();
+
+      const dialog = new Gtk.FileDialog({ title: 'Save image', modal: true });
+      dialog.set_initial_name(defaultSaveFilename());
+      dialog.set_initial_folder(Gio.File.new_for_path(defaultSaveFolderPath()));
+
+      // Single combined filter — extension in the filename decides the format.
+      // Two separate filters would mislead the user: Gtk.FileDialog doesn't
+      // report which one was active, so a dropdown pick can't drive format.
+      const filter = new Gtk.FileFilter({ name: 'Image (PNG, JPEG)' });
+      for (const key of Object.keys(FORMATS) as ImageFormat[]) {
+        const f = FORMATS[key];
+        filter.add_mime_type(f.mime);
+        for (const p of f.patterns) filter.add_pattern(p);
+      }
+      const filters = new Gio.ListStore({ item_type: Gtk.FileFilter.$gtype });
+      filters.append(filter);
+      dialog.set_filters(filters);
+      dialog.set_default_filter(filter);
+
+      dialog.save(this, null, (_src: any, result: any) => {
+        let file: any;
+        try {
+          file = dialog.save_finish(result);
+        } catch (e: any) {
+          // User cancelled or dismissed.
+          if (!(e instanceof Gtk.DialogError) && !`${e}`.includes('Dismissed')) {
+            logError(e, 'save_finish failed');
+          }
+          return;
+        }
+        if (!file) return;
+
+        const surface = this.canvas.exportSnapshot();
+        if (!surface) return;
+
+        let path = file.get_path();
+        const format = formatFromPath(path);
+        // If the user typed a name without an extension, append the canonical
+        // one for the format their filter implied (PNG by default).
+        const lower = path.toLowerCase();
+        const hasKnownExt = lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+        if (!hasKnownExt) path = path + FORMATS[format].ext;
+
+        try {
+          saveSurface(surface, path, format);
+        } catch (e) {
+          logError(e, 'saveSurface failed');
+        }
+      });
+    }
+
+    private copyImageToClipboard(): void {
+      if (!this.canvas.hasImage()) return;
+      this.editor.commitIfActive();
+      const surface = this.canvas.exportSnapshot();
+      if (!surface) return;
+      try {
+        copySurfaceToClipboard(this.get_clipboard(), surface);
+      } catch (e) {
+        logError(e, 'copySurfaceToClipboard failed');
+      }
     }
 
     private pasteFromClipboard(): void {
@@ -316,11 +430,19 @@ export const AnnoscrWindow = GObject.registerClass(
           this.pasteUriList(clipboard);
           return;
         }
-        try {
-          this.setImage(loadFromStream(stream));
-        } catch (e) {
-          logError(e, 'paste (image bytes) failed');
-        }
+        // Decoding must be async: the local clipboard delivers bytes via a
+        // pipe pumped by the main loop. A synchronous Pixbuf.new_from_stream
+        // would block the loop waiting for bytes that never arrive — the
+        // classic same-process clipboard deadlock.
+        GdkPixbuf.Pixbuf.new_from_stream_async(stream, null, (_pbSrc: any, pbResult: any) => {
+          try {
+            const pixbuf = GdkPixbuf.Pixbuf.new_from_stream_finish(pbResult);
+            stream.close(null);
+            if (pixbuf) this.setImage(loadFromPixbuf(pixbuf));
+          } catch (e) {
+            logError(e, 'paste (image bytes) failed');
+          }
+        });
       });
     }
 
