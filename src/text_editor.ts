@@ -2,6 +2,53 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Pango from 'gi://Pango?version=1.0';
 
+// Background tint on the live TextView/Frame so the canvas image shows
+// through. Applied once at the display level — collision with other
+// widgets is fine since the CSS class is editor-specific.
+const EDITOR_CSS = `
+  .annoscr-editor-frame {
+    background-color: rgba(255, 255, 255, 0.3);
+  }
+  .annoscr-editor-view, .annoscr-editor-view text {
+    background-color: transparent;
+  }
+  .annoscr-editor-view {
+    caret-color: #333;
+  }
+  .annoscr-format-btn {
+    color: #333;
+  }
+  .annoscr-format-btn:checked {
+    color: #111;
+  }
+`;
+
+let editorCssInstalled = false;
+function installEditorCss(): void {
+  if (editorCssInstalled) return;
+  const display = Gdk.Display.get_default();
+  if (!display) return;
+  const provider = new Gtk.CssProvider();
+  provider.load_from_string(EDITOR_CSS);
+  // Gtk.StyleContext is wholly deprecated in 4.10+ but display-level CSS
+  // providers have no replacement; the deprecation note itself says
+  // "otherwise, there is no replacement." Same situation as the cairo
+  // pixel-data accessors in exporter.ts / image_loader.ts.
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  Gtk.StyleContext.add_provider_for_display(
+    display,
+    provider,
+    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+  );
+  editorCssInstalled = true;
+}
+
+export interface TextEditorStyle {
+  color: [number, number, number, number];
+  fontDesc: string;
+  size: number; // image-space pixels (font height)
+}
+
 const TAG_NAMES = ['bold', 'italic', 'underline'] as const;
 type TagName = (typeof TAG_NAMES)[number];
 
@@ -26,6 +73,10 @@ export interface TextEditorBeginOptions {
   markup?: string;
   replaceIndex?: number;
   rotation?: number; // 0..3 quarter-turns CW (carried through commit unchanged)
+  // Visual style for the editor preview. Should match what the editor will
+  // commit (font + color from the same source the canvas will render with),
+  // so the live TextView visually previews placement and sizing.
+  style?: TextEditorStyle;
 }
 
 export class TextEditor {
@@ -34,6 +85,14 @@ export class TextEditor {
   private readonly buffer: Gtk.TextBuffer;
   private readonly callbacks: TextEditorCallbacks;
   private readonly buttons: Record<TagName, Gtk.ToggleButton>;
+  // Held as a field so beginAt can measure its height when computing the
+  // vertical offset between the frame's top and the TextView's first line.
+  private toolbar!: Gtk.Box;
+  // Buffer-wide style tag (font + foreground color). Properties are updated
+  // on each beginAt to reflect the active style; applied to the full buffer
+  // after set_text/setBufferFromMarkup and to each insert range so newly
+  // typed text inherits the same baseline. B/I/U tags layer on top.
+  private baseTag!: Gtk.TextTag;
 
   private active: boolean = false;
   private imageX: number = 0;
@@ -49,6 +108,8 @@ export class TextEditor {
   constructor(callbacks: TextEditorCallbacks) {
     this.callbacks = callbacks;
 
+    installEditorCss();
+
     this.view = new Gtk.TextView({
       wrap_mode: Gtk.WrapMode.NONE,
       accepts_tab: false,
@@ -56,16 +117,17 @@ export class TextEditor {
       vexpand: false,
       top_margin: 4,
       bottom_margin: 4,
-      left_margin: 4,
-      right_margin: 4,
+      left_margin: 8,
+      right_margin: 8,
     });
+    this.view.add_css_class('annoscr-editor-view');
     this.view.set_size_request(80, -1);
 
     this.buffer = this.view.get_buffer();
     this.installTags();
     this.installPendingTagsApplier();
 
-    const toolbar = new Gtk.Box({
+    this.toolbar = new Gtk.Box({
       orientation: Gtk.Orientation.HORIZONTAL,
       spacing: 2,
       margin_top: 2,
@@ -82,12 +144,12 @@ export class TextEditor {
         'underline'
       ),
     };
-    toolbar.append(this.buttons.bold);
-    toolbar.append(this.buttons.italic);
-    toolbar.append(this.buttons.underline);
+    this.toolbar.append(this.buttons.bold);
+    this.toolbar.append(this.buttons.italic);
+    this.toolbar.append(this.buttons.underline);
 
     const container = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL});
-    container.append(toolbar);
+    container.append(this.toolbar);
     container.append(new Gtk.Separator({orientation: Gtk.Orientation.HORIZONTAL}));
     container.append(this.view);
 
@@ -97,6 +159,7 @@ export class TextEditor {
       valign: Gtk.Align.START,
       visible: false,
     });
+    this.frame.add_css_class('annoscr-editor-frame');
 
     this.installKeyHandler();
     this.installSelectionWatcher();
@@ -111,6 +174,7 @@ export class TextEditor {
       has_frame: false,
       can_focus: false,
     });
+    btn.add_css_class('annoscr-format-btn');
     btn.connect('toggled', () => {
       if (this.updatingButtons) return;
       this.toggleTag(tag);
@@ -138,16 +202,24 @@ export class TextEditor {
     this.rotation = options?.rotation ?? 0;
     this.replaceIndex = options?.replaceIndex;
     this.pendingTags.clear();
+    if (options?.style) this.updateBaseTag(options.style);
     if (options?.markup) {
       this.setBufferFromMarkup(options.markup);
     } else {
       this.buffer.set_text('', -1);
     }
+    this.applyBaseTagToBuffer();
     this.active = true;
-    // Offset by a few pixels so the frame border/padding doesn't push the
-    // visible text cursor too far from where the user clicked.
-    this.frame.set_margin_start(Math.max(0, Math.floor(widgetX) - 6));
-    this.frame.set_margin_top(Math.max(0, Math.floor(widgetY) - 6));
+    // Align the editor so the TextView's first line lands on the click point.
+    // The toolbar's natural height + separator + textview top_margin already
+    // matches the frame's intrinsic top inset on Debian 13 GNOME; left_margin
+    // alone matches the left inset. If a different theme drifts these, add a
+    // FRAME_INSET fudge factor here.
+    const [, toolbarH] = this.toolbar.measure(Gtk.Orientation.VERTICAL, -1);
+    const offsetTop = toolbarH + 1 + 4; // separator + view top_margin
+    const offsetLeft = 8; // view left_margin
+    this.frame.set_margin_start(Math.max(0, Math.floor(widgetX) - offsetLeft));
+    this.frame.set_margin_top(Math.max(0, Math.floor(widgetY) - offsetTop));
     this.frame.set_visible(true);
     this.view.grab_focus();
     this.syncButtonStates();
@@ -186,9 +258,32 @@ export class TextEditor {
 
   private installTags(): void {
     const table = this.buffer.get_tag_table();
+    // Base tag added first so its priority is below B/I/U; later-added tags
+    // win on conflicting properties (e.g. italic overrides base style).
+    this.baseTag = new Gtk.TextTag({name: 'base'});
+    table.add(this.baseTag);
     table.add(new Gtk.TextTag({name: 'bold', weight: Pango.Weight.BOLD}));
     table.add(new Gtk.TextTag({name: 'italic', style: Pango.Style.ITALIC}));
     table.add(new Gtk.TextTag({name: 'underline', underline: Pango.Underline.SINGLE}));
+  }
+
+  private updateBaseTag(style: TextEditorStyle): void {
+    const desc = Pango.FontDescription.from_string(style.fontDesc);
+    desc.set_absolute_size(style.size * Pango.SCALE);
+    this.baseTag.set_property('font-desc', desc);
+
+    const rgba = new Gdk.RGBA();
+    rgba.red = style.color[0];
+    rgba.green = style.color[1];
+    rgba.blue = style.color[2];
+    rgba.alpha = style.color[3];
+    this.baseTag.set_property('foreground-rgba', rgba);
+  }
+
+  private applyBaseTagToBuffer(): void {
+    const start = this.buffer.get_start_iter();
+    const end = this.buffer.get_end_iter();
+    this.buffer.apply_tag(this.baseTag, start, end);
   }
 
   private installPendingTagsApplier(): void {
@@ -196,11 +291,14 @@ export class TextEditor {
     // to point AFTER the inserted text. Connecting via _after gives us that
     // post-insert iter so we can apply pending tags to the just-inserted range.
     this.buffer.connect_after('insert-text', (buf, locationIter, text, _len) => {
-      if (this.pendingTags.size === 0) return;
       const endOffset = locationIter.get_offset();
       const startOffset = endOffset - [...text].length;
       const start = buf.get_iter_at_offset(startOffset);
       const end = buf.get_iter_at_offset(endOffset);
+      // Base tag always wraps newly-typed text so it inherits the editor's
+      // font + color (TextBuffer's left-side tag-inheritance isn't reliable
+      // at offset 0 or after explicit removals).
+      buf.apply_tag(this.baseTag, start, end);
       for (const tag of this.pendingTags) {
         buf.apply_tag_by_name(tag, start, end);
       }

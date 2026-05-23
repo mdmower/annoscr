@@ -14,6 +14,7 @@ import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {
   ColorRGBA,
   StampVariant,
+  TEXT_STYLE,
   ToolId,
   WIDTH_MAX,
   WIDTH_MIN,
@@ -175,7 +176,12 @@ export const AnnoscrWindow = GObject.registerClass(
           // commit any prior edit, then begin a new one. Pass-through options
           // carry markup + replaceIndex for re-edit of an existing TextAction.
           this.editor.commitIfActive();
-          this.editor.beginAt(ix, iy, wx, wy, options);
+          // Editor preview uses the same color/font the commit will use, so
+          // placement and sizing reflect the final TextAction. Font + size
+          // come from TEXT_STYLE until M17 adds user-editable pickers.
+          const color = this.textColorFor(options?.replaceIndex);
+          const style = {color, fontDesc: TEXT_STYLE.fontDesc, size: TEXT_STYLE.size};
+          this.editor.beginAt(ix, iy, wx, wy, {...options, style});
         }
       );
 
