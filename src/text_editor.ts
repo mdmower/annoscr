@@ -29,9 +29,9 @@ export interface TextEditorBeginOptions {
 }
 
 export class TextEditor {
-  private readonly frame: any;
-  private readonly view: any;
-  private readonly buffer: any;
+  private readonly frame: Gtk.Frame;
+  private readonly view: Gtk.TextView;
+  private readonly buffer: Gtk.TextBuffer;
   private readonly callbacks: TextEditorCallbacks;
 
   private active: boolean = false;
@@ -71,7 +71,7 @@ export class TextEditor {
     this.installKeyHandler();
   }
 
-  getWidget(): any {
+  getWidget(): Gtk.Frame {
     return this.frame;
   }
 
@@ -141,7 +141,7 @@ export class TextEditor {
     // `insert-text` default handler does the insert and revalidates the iter
     // to point AFTER the inserted text. Connecting via _after gives us that
     // post-insert iter so we can apply pending tags to the just-inserted range.
-    this.buffer.connect_after('insert-text', (buf: any, locationIter: any, text: string, _len: number) => {
+    this.buffer.connect_after('insert-text', (buf, locationIter, text, _len) => {
       if (this.pendingTags.size === 0) return;
       const endOffset = locationIter.get_offset();
       const startOffset = endOffset - [...text].length;
@@ -158,7 +158,7 @@ export class TextEditor {
     // CAPTURE phase so we see Enter/Escape/Ctrl-shortcuts before the TextView's
     // default key handler (which would otherwise insert newline on Enter).
     key.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
-    key.connect('key-pressed', (_k: any, keyval: number, _keycode: number, state: number) => {
+    key.connect('key-pressed', (_k, keyval, _keycode, state) => {
       return this.onKeyPressed(keyval, state);
     });
     this.view.add_controller(key);
@@ -212,9 +212,9 @@ export class TextEditor {
   private bufferToMarkup(): string {
     const start = this.buffer.get_start_iter();
     const end = this.buffer.get_end_iter();
+    const openStack: TagName[] = [];
 
     let result = '';
-    let openStack: TagName[] = [];
     let prev: Set<TagName> = new Set();
 
     const iter = start.copy();
@@ -351,7 +351,7 @@ function keyToTag(keyval: number): TagName | null {
   return null;
 }
 
-function activeTagSet(iter: any): Set<TagName> {
+function activeTagSet(iter: Gtk.TextIter): Set<TagName> {
   const set = new Set<TagName>();
   for (const tag of iter.get_tags()) {
     const name = tag.name as TagName;
@@ -360,7 +360,7 @@ function activeTagSet(iter: any): Set<TagName> {
   return set;
 }
 
-function allCharsHaveTag(start: any, end: any, tagName: TagName): boolean {
+function allCharsHaveTag(start: Gtk.TextIter, end: Gtk.TextIter, tagName: TagName): boolean {
   const iter = start.copy();
   while (!iter.equal(end)) {
     if (!activeTagSet(iter).has(tagName)) return false;

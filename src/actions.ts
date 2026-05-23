@@ -1,6 +1,7 @@
-import cairo from 'gi://cairo?version=1.0';
+import cairo from 'cairo';
 import Pango from 'gi://Pango?version=1.0';
 import PangoCairo from 'gi://PangoCairo?version=1.0';
+import type Cairo from 'cairo';
 
 export interface Style {
   color: [number, number, number, number];
@@ -17,7 +18,7 @@ export interface Bounds {
 export type RotateDirection = 'cw' | 'ccw';
 
 export interface Action {
-  draw(cr: any, scale: number): void;
+  draw(cr: Cairo.Context, scale: number): void;
   getBounds(): Bounds | null;
   translate(dx: number, dy: number): Action;
   // Transform this action so it rotates with the source image. `oldW`/`oldH`
@@ -49,7 +50,7 @@ export interface LiveStroke {
   // tools to snap rect/oval to a square/circle.
   extendTo(x: number, y: number, constrain: boolean): void;
   finish(): Action | null;
-  draw(cr: any, scale: number): void;
+  draw(cr: Cairo.Context, scale: number): void;
 }
 
 export type ToolId =
@@ -100,24 +101,6 @@ export const NUMBER_STAMP_STYLE: NumberStampStyle = {
 
 const SHAPE_MIN_EXTENT = 2;
 
-export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStroke {
-  switch (toolId) {
-    case 'pen':         return new StrokeLiveStroke(x, y, PEN_STYLE);
-    case 'highlighter': return new StrokeLiveStroke(x, y, HIGHLIGHTER_STYLE);
-    case 'line':        return new LineLiveStroke(x, y, LINE_STYLE);
-    case 'arrow':       return new ArrowLiveStroke(x, y, ARROW_STYLE);
-    case 'rect':        return new RectLiveStroke(x, y, SHAPE_STYLE);
-    case 'oval':        return new OvalLiveStroke(x, y, SHAPE_STYLE);
-    case 'select':
-    case 'text':
-    case 'number':
-    case 'resize':
-      // Non-drag-stroke tools handled elsewhere; the canvas guards against
-      // this call, the throw is a safety net.
-      throw new Error(`${toolId} tool is handled outside createLiveStroke`);
-  }
-}
-
 // ---------- Text ----------
 
 class TextAction implements Action {
@@ -134,7 +117,7 @@ class TextAction implements Action {
     private readonly style: TextStyle,
   ) {}
 
-  draw(cr: any, _scale: number): void {
+  draw(cr: Cairo.Context, _scale: number): void {
     if (!this.markup) return;
     const layout = PangoCairo.create_layout(cr);
     const desc = Pango.FontDescription.from_string(this.style.fontDesc);
@@ -204,7 +187,7 @@ class NumberStampAction implements Action {
     private readonly style: NumberStampStyle,
   ) {}
 
-  draw(cr: any, _scale: number): void {
+  draw(cr: Cairo.Context, _scale: number): void {
     const s = this.style;
 
     // newSubPath so the arc isn't connected by a line segment to whatever
@@ -276,7 +259,7 @@ export function isNumberStampAction(action: Action): boolean {
 class StrokeAction implements Action {
   constructor(private readonly points: ReadonlyArray<[number, number]>, private readonly style: Style) {}
 
-  draw(cr: any, _scale: number): void {
+  draw(cr: Cairo.Context, _scale: number): void {
     if (this.points.length < 2) return;
     applyStrokeStyle(cr, this.style, cairo.LineCap.ROUND, cairo.LineJoin.ROUND);
     buildSmoothPath(cr, this.points);
@@ -322,7 +305,7 @@ class StrokeLiveStroke implements LiveStroke {
     return new StrokeAction(this.points, this.style);
   }
 
-  draw(cr: any, scale: number): void {
+  draw(cr: Cairo.Context, scale: number): void {
     if (this.points.length < 2) return;
     new StrokeAction(this.points, this.style).draw(cr, scale);
   }
@@ -337,7 +320,7 @@ class LineAction implements Action {
     private readonly style: Style,
   ) {}
 
-  draw(cr: any, _scale: number): void {
+  draw(cr: Cairo.Context, _scale: number): void {
     applyStrokeStyle(cr, this.style, cairo.LineCap.ROUND, cairo.LineJoin.ROUND);
     cr.moveTo(this.x1, this.y1);
     cr.lineTo(this.x2, this.y2);
@@ -378,7 +361,7 @@ class LineLiveStroke implements LiveStroke {
     return new LineAction(this.x1, this.y1, this.endX, this.endY, this.style);
   }
 
-  draw(cr: any, scale: number): void {
+  draw(cr: Cairo.Context, scale: number): void {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
     new LineAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
   }
@@ -393,7 +376,7 @@ class ArrowAction implements Action {
     private readonly style: Style,
   ) {}
 
-  draw(cr: any, _scale: number): void {
+  draw(cr: Cairo.Context, _scale: number): void {
     applyStrokeStyle(cr, this.style, cairo.LineCap.ROUND, cairo.LineJoin.ROUND);
     cr.moveTo(this.x1, this.y1);
     cr.lineTo(this.x2, this.y2);
@@ -442,7 +425,7 @@ class ArrowLiveStroke implements LiveStroke {
     return new ArrowAction(this.x1, this.y1, this.endX, this.endY, this.style);
   }
 
-  draw(cr: any, scale: number): void {
+  draw(cr: Cairo.Context, scale: number): void {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
     new ArrowAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
   }
@@ -457,7 +440,7 @@ class RectAction implements Action {
     private readonly style: Style,
   ) {}
 
-  draw(cr: any, _scale: number): void {
+  draw(cr: Cairo.Context, _scale: number): void {
     applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
     const x = Math.min(this.x1, this.x2);
     const y = Math.min(this.y1, this.y2);
@@ -500,7 +483,7 @@ class RectLiveStroke implements LiveStroke {
     return new RectAction(this.x1, this.y1, this.endX, this.endY, this.style);
   }
 
-  draw(cr: any, scale: number): void {
+  draw(cr: Cairo.Context, scale: number): void {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
     new RectAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
   }
@@ -515,7 +498,7 @@ class OvalAction implements Action {
     private readonly style: Style,
   ) {}
 
-  draw(cr: any, _scale: number): void {
+  draw(cr: Cairo.Context, _scale: number): void {
     applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
     const cx = (this.x1 + this.x2) / 2;
     const cy = (this.y1 + this.y2) / 2;
@@ -567,15 +550,34 @@ class OvalLiveStroke implements LiveStroke {
     return new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style);
   }
 
-  draw(cr: any, scale: number): void {
+  draw(cr: Cairo.Context, scale: number): void {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
     new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
   }
 }
 
+export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStroke {
+  switch (toolId) {
+    case 'pen':         return new StrokeLiveStroke(x, y, PEN_STYLE);
+    case 'highlighter': return new StrokeLiveStroke(x, y, HIGHLIGHTER_STYLE);
+    case 'line':        return new LineLiveStroke(x, y, LINE_STYLE);
+    case 'arrow':       return new ArrowLiveStroke(x, y, ARROW_STYLE);
+    case 'rect':        return new RectLiveStroke(x, y, SHAPE_STYLE);
+    case 'oval':        return new OvalLiveStroke(x, y, SHAPE_STYLE);
+    case 'select':
+    case 'text':
+    case 'number':
+    case 'resize':
+    default:
+      // Non-drag-stroke tools handled elsewhere; the canvas guards against
+      // this call, the throw is a safety net.
+      throw new Error(`${toolId} tool is handled outside createLiveStroke`);
+  }
+}
+
 // ---------- helpers ----------
 
-function applyStrokeStyle(cr: any, style: Style, cap: number, join: number): void {
+function applyStrokeStyle(cr: Cairo.Context, style: Style, cap: number, join: number): void {
   const [r, g, b, a] = style.color;
   cr.setSourceRGBA(r, g, b, a);
   cr.setLineWidth(style.width);
@@ -612,7 +614,7 @@ function constrainSquare(x1: number, y1: number, x2: number, y2: number): [numbe
 // Connects each adjacent pair of points with a quadratic that passes through
 // their midpoint, using the raw sample as the control. Smooths sparse pointer
 // samples into a continuous curve without losing fidelity.
-function buildSmoothPath(cr: any, pts: ReadonlyArray<[number, number]>): void {
+function buildSmoothPath(cr: Cairo.Context, pts: ReadonlyArray<[number, number]>): void {
   if (pts.length === 2) {
     cr.moveTo(pts[0][0], pts[0][1]);
     cr.lineTo(pts[1][0], pts[1][1]);

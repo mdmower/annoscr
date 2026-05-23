@@ -1,21 +1,25 @@
-// Loose module declarations for `gi://` imports.
-// Replace with proper `@girs/*` typings once vendored under `typings/`.
+import "@girs/glib-2.0";
+import "@girs/gobject-2.0";
+import "@girs/gio-2.0";
+import "@girs/gdk-4.0";
+import "@girs/gtk-4.0";
+import "@girs/adw-1";
+import "@girs/gdkpixbuf-2.0";
+import "@girs/pango-1.0";
+import "@girs/pangocairo-1.0";
 
-declare module 'gi://GLib?version=2.0' { const m: any; export default m; }
-declare module 'gi://GObject?version=2.0' { const m: any; export default m; }
-declare module 'gi://Gio?version=2.0' { const m: any; export default m; }
-declare module 'gi://Gdk?version=4.0' { const m: any; export default m; }
-declare module 'gi://Gtk?version=4.0' { const m: any; export default m; }
-declare module 'gi://Adw?version=1' { const m: any; export default m; }
-declare module 'gi://GdkPixbuf?version=2.0' { const m: any; export default m; }
-declare module 'gi://Pango?version=1.0' { const m: any; export default m; }
-declare module 'gi://PangoCairo?version=1.0' { const m: any; export default m; }
-declare module 'gi://cairo?version=1.0' { const m: any; export default m; }
+import type Cairo from "cairo";
 
-// GJS top-level globals.
-declare const ARGV: string[];
-declare const imports: any;
-declare function print(...args: unknown[]): void;
-declare function printerr(...args: unknown[]): void;
-declare function log(...args: unknown[]): void;
-declare function logError(e: unknown, prefix?: string): void;
+// @girs/gjs declares `class Pattern extends Cairo.Pattern {}` inside a
+// non-exported `declare namespace giCairo`, so external module augmentation
+// can't merge methods into the class. Pattern methods that GJS exposes at
+// runtime but @girs omits from the class shell live here; callers cast with
+// `as unknown as CairoPatternExt` at the use site.
+export interface CairoPatternExt {
+  setExtend(extend: Cairo.Extend): void;
+  getExtend(): Cairo.Extend;
+  setFilter(filter: Cairo.Filter): void;
+  getFilter(): Cairo.Filter;
+  setMatrix(matrix: object): void;
+  getMatrix(): object;
+}

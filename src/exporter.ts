@@ -1,6 +1,7 @@
 import GLib from 'gi://GLib?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
-import cairo from 'gi://cairo?version=1.0';
+import cairo from 'cairo';
+import type Cairo from 'cairo';
 
 import type { Action } from './actions.js';
 
@@ -26,7 +27,7 @@ export function formatFromPath(path: string): ImageFormat {
 
 // Composite source image + every action onto a fresh ARGB32 surface at the
 // source image's native resolution. This is what gets saved or copied.
-export function renderToSurface(srcSurface: any, actions: ReadonlyArray<Action>): any {
+export function renderToSurface(srcSurface: Cairo.ImageSurface, actions: ReadonlyArray<Action>): Cairo.ImageSurface {
   const w = srcSurface.getWidth();
   const h = srcSurface.getHeight();
   const out = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
@@ -40,7 +41,7 @@ export function renderToSurface(srcSurface: any, actions: ReadonlyArray<Action>)
   return out;
 }
 
-export function saveSurface(surface: any, path: string, format: ImageFormat): void {
+export function saveSurface(surface: Cairo.ImageSurface, path: string, format: ImageFormat): void {
   if (format === 'png') {
     surface.writeToPNG(path);
     return;
@@ -56,8 +57,9 @@ export function saveSurface(surface: any, path: string, format: ImageFormat): vo
   cr.setSourceSurface(surface, 0, 0);
   cr.paint();
   opaque.flush();
+  // TODO: @deprecated — since 4.12: Use Gdk.Texture and subclasses instead cairo surfaces and pixbufs
   const pixbuf = Gdk.pixbuf_get_from_surface(opaque, 0, 0, w, h);
-  pixbuf.savev(path, 'jpeg', ['quality'], ['90']);
+  pixbuf?.savev(path, 'jpeg', ['quality'], ['90']);
 }
 
 // Put pre-encoded PNG bytes on the clipboard as image/png. Pre-encoding (vs.
@@ -65,10 +67,12 @@ export function saveSurface(surface: any, path: string, format: ImageFormat): vo
 // deadlock when this same process pastes the clipboard back: the synchronous
 // PNG serializer and the synchronous stream reader both run on the main loop
 // and stall each other.
-export function copySurfaceToClipboard(clipboard: any, surface: any): void {
+export function copySurfaceToClipboard(clipboard: Gdk.Clipboard, surface: Cairo.ImageSurface): void {
   const w = surface.getWidth();
   const h = surface.getHeight();
+  // TODO: @deprecated — since 4.12: Use Gdk.Texture and subclasses instead cairo surfaces and pixbufs
   const pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, w, h);
+  if (!pixbuf) return;
   const texture = Gdk.Texture.new_for_pixbuf(pixbuf);
   const bytes = texture.save_to_png_bytes();
   const provider = Gdk.ContentProvider.new_for_bytes('image/png', bytes);

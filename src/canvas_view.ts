@@ -1,7 +1,9 @@
 import GObject from 'gi://GObject?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
-import cairo from 'gi://cairo?version=1.0';
+import cairo from 'cairo';
+import type Cairo from 'cairo';
+import type { CairoPatternExt } from './globals.js';
 
 import {
   Action,
@@ -25,7 +27,6 @@ export interface ResizeRect {
   h: number;
 }
 
-type ImageSurface = any;
 type DisplayMode = 'fit' | 'actual';
 
 interface Transform {
@@ -48,7 +49,7 @@ export type TextEditRequest = (
   options?: TextEditRequestOptions,
 ) => void;
 
-function isShift(gesture: any): boolean {
+function isShift(gesture: Gtk.GestureDrag): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
 }
 
@@ -76,7 +77,7 @@ function pointInBounds(x: number, y: number, b: Bounds): boolean {
 }
 
 interface CanvasState {
-  surface: ImageSurface | null;
+  surface: Cairo.ImageSurface | null;
   actions: ReadonlyArray<Action>;
 }
 
@@ -90,8 +91,8 @@ const HANDLE_HIT_PX = 8;
 // zoomed out — same convention as Photoshop / GIMP.
 const CHECKER_CELL = 8;
 
-let CHECKER_PATTERN: any = null;
-function getCheckerPattern(): any {
+let CHECKER_PATTERN: Cairo.SurfacePattern | null = null;
+function getCheckerPattern(): Cairo.SurfacePattern {
   if (CHECKER_PATTERN) return CHECKER_PATTERN;
   const size = CHECKER_CELL * 2;
   const surf = new cairo.ImageSurface(cairo.Format.ARGB32, size, size);
@@ -103,8 +104,9 @@ function getCheckerPattern(): any {
   cr.rectangle(CHECKER_CELL, CHECKER_CELL, CHECKER_CELL, CHECKER_CELL);
   cr.fill();
   const p = new cairo.SurfacePattern(surf);
-  p.setExtend(cairo.Extend.REPEAT);
-  p.setFilter(cairo.Filter.NEAREST);
+  const px = p as unknown as CairoPatternExt;
+  px.setExtend(cairo.Extend.REPEAT);
+  px.setFilter(cairo.Filter.NEAREST);
   CHECKER_PATTERN = p;
   return p;
 }
@@ -121,11 +123,14 @@ function cursorForResizeGrab(grab: ResizeGrab): string {
     // start a fresh region — same gesture, same cursor.
     case 'inside':
     case 'outside':       return 'crosshair';
+    default:
+      throw new Error('Unrecognized resize grab');
   }
 }
 
 export const CanvasView = GObject.registerClass(
-  class CanvasView extends Gtk.DrawingArea {
+  { GTypeName: 'CanvasView' },
+  class extends Gtk.DrawingArea {
     // Immutable snapshot history. Each state is {surface, actions}; modifying
     // operations produce a new state and push it. Untouched actions and the
     // surface are shared by reference across states. Capped at HISTORY_CAP to
@@ -204,7 +209,7 @@ export const CanvasView = GObject.registerClass(
       this.resizeGrab = null;
     }
 
-    setImage(surface: ImageSurface): void {
+    setImage(surface: Cairo.ImageSurface): void {
       this.history = [{ surface, actions: [] }];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
@@ -249,7 +254,7 @@ export const CanvasView = GObject.registerClass(
 
     // Composite current image + all visible actions to a fresh ARGB32 surface
     // at the source image's native resolution. Returns null if no image.
-    exportSnapshot(): any | null {
+    exportSnapshot(): Cairo.ImageSurface | null {
       const s = this.state.surface;
       if (!s) return null;
       return renderToSurface(s, this.state.actions);
@@ -270,7 +275,7 @@ export const CanvasView = GObject.registerClass(
         this.resizeRegion = null;
       }
       this.resizeGrab = null;
-      (this as any).set_cursor_from_name(cursorForTool(toolId));
+      this.set_cursor_from_name(cursorForTool(toolId));
       this.queue_draw();
       this.notifyStateChange();
     }
@@ -414,37 +419,37 @@ export const CanvasView = GObject.registerClass(
 
     private installPointer(): void {
       const motion = new Gtk.EventControllerMotion();
-      motion.connect('motion', (_c: any, x: number, y: number) => this.onPointerMotion(x, y));
-      (this as any).add_controller(motion);
+      motion.connect('motion', (_c, x, y) => this.onPointerMotion(x, y));
+      this.add_controller(motion);
 
       const drag = new Gtk.GestureDrag();
       drag.set_button(Gdk.BUTTON_PRIMARY);
 
-      drag.connect('drag-begin', (_g: any, x: number, y: number) => {
+      drag.connect('drag-begin', (_g, x, y) => {
         this.dragStartX = x;
         this.dragStartY = y;
         this.onDragBegin(x, y);
       });
-      drag.connect('drag-update', (g: any, dx: number, dy: number) => {
+      drag.connect('drag-update', (g, dx, dy) => {
         this.onDragUpdate(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
       });
-      drag.connect('drag-end', (g: any, dx: number, dy: number) => {
+      drag.connect('drag-end', (g, dx, dy) => {
         this.onDragEnd(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
       });
-      (this as any).add_controller(drag);
+      this.add_controller(drag);
 
       const click = new Gtk.GestureClick();
       click.set_button(Gdk.BUTTON_PRIMARY);
-      click.connect('pressed', (_g: any, n_press: number, x: number, y: number) => {
+      click.connect('pressed', (_g, n_press, x, y) => {
         if (n_press === 2 && this.currentToolId === 'select') {
           this.onSelectDoubleClick(x, y);
           return;
         }
         this.onCanvasPress(x, y);
       });
-      (this as any).add_controller(click);
+      this.add_controller(click);
 
-      (this as any).set_cursor_from_name(cursorForTool(this.currentToolId));
+      this.set_cursor_from_name(cursorForTool(this.currentToolId));
     }
 
     // Update cursor while hovering in resize mode so edge/corner handles
@@ -457,7 +462,7 @@ export const CanvasView = GObject.registerClass(
       const t = this.currentTransform();
       const tol = HANDLE_HIT_PX / t.scale;
       const grab = this.hitTestResizeRegion(ix, iy, tol);
-      (this as any).set_cursor_from_name(cursorForResizeGrab(grab));
+      this.set_cursor_from_name(cursorForResizeGrab(grab));
     }
 
     private onDragBegin(wx: number, wy: number): void {
@@ -626,6 +631,7 @@ export const CanvasView = GObject.registerClass(
     // Classify (ix, iy) relative to the current resize region. Edges and
     // corners get a tolerance band so the user doesn't have to land exactly
     // on a 1-pixel-wide line. `tol` is in image-space pixels.
+    // eslint-disable-next-line complexity
     private hitTestResizeRegion(ix: number, iy: number, tol: number): ResizeGrab {
       const r = this.getResizeRect();
       if (!r) return 'outside';
@@ -665,7 +671,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     private currentTransform(): Transform {
-      return this.computeTransform((this as any).get_width(), (this as any).get_height());
+      return this.computeTransform(this.get_width(), this.get_height());
     }
 
     // The "displayed area" in image-space. Normally just (0, 0, imgW, imgH);
@@ -714,7 +720,7 @@ export const CanvasView = GObject.registerClass(
       };
     }
 
-    private onDraw(_widget: any, cr: any, widgetW: number, widgetH: number): void {
+    private onDraw(_widget: Gtk.DrawingArea, cr: Cairo.Context, widgetW: number, widgetH: number): void {
       cr.setSourceRGB(0.12, 0.12, 0.12);
       cr.paint();
 
@@ -739,7 +745,7 @@ export const CanvasView = GObject.registerClass(
       cr.fill();
 
       cr.setSourceSurface(s, 0, 0);
-      cr.getSource().setFilter(t.scale === 1 ? cairo.Filter.NEAREST : cairo.Filter.BILINEAR);
+      (cr.getSource() as unknown as CairoPatternExt).setFilter(t.scale === 1 ? cairo.Filter.NEAREST : cairo.Filter.BILINEAR);
       cr.paint();
 
       const acts = this.state.actions;
@@ -785,7 +791,7 @@ export const CanvasView = GObject.registerClass(
   },
 );
 
-function drawResizeOverlay(cr: any, imgW: number, imgH: number, rect: ResizeRect | null, scale: number): void {
+function drawResizeOverlay(cr: Cairo.Context, imgW: number, imgH: number, rect: ResizeRect | null, scale: number): void {
   cr.save();
 
   // Dim the parts of the *current image* that fall outside the new region —
@@ -812,7 +818,7 @@ function drawResizeOverlay(cr: any, imgW: number, imgH: number, rect: ResizeRect
   cr.restore();
 }
 
-function drawSelectionBox(cr: any, bounds: Bounds, scale: number, ox: number, oy: number): void {
+function drawSelectionBox(cr: Cairo.Context, bounds: Bounds, scale: number, ox: number, oy: number): void {
   const pad = 4 / scale;
   const lineWidth = 1.5 / scale;
   const dashOn = 6 / scale;

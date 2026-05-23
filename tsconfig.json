@@ -15,5 +15,5 @@
     "sourceMap": false,
     "removeComments": false
   },
-  "include": ["src/**/*.ts", "typings/**/*.d.ts"]
+  "include": ["src/**/*.ts"]
 }

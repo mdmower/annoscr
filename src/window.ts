@@ -4,13 +4,14 @@ import Gio from 'gi://Gio?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
-
 import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
+import type Cairo from 'cairo';
 
+import { AnnoscrApplication } from './application.js';
 import { CanvasView } from './canvas_view.js';
 import { loadFromFile, loadFromPixbuf } from './image_loader.js';
 import { ToolId, makeTextAction } from './actions.js';
-import { TextEditor } from './text_editor.js';
+import { TextEditor, TextEditorBeginOptions } from './text_editor.js';
 import {
   FORMATS,
   ImageFormat,
@@ -49,21 +50,22 @@ const TOOLS: ToolDef[] = [
 ];
 
 export const AnnoscrWindow = GObject.registerClass(
-  class AnnoscrWindow extends Adw.ApplicationWindow {
-    private canvas: any;
-    private stack: any;
-    private editor: any; // TextEditor; typed `any` because of the GObject.registerClass dance
-    private toolButtons: Map<ToolId, any> = new Map();
-    private resizeToolbar: any;
-    private resizeButton: any;
-    private statusLabel: any;
+  { GTypeName: 'AnnoscrWindow' },
+  class extends Adw.ApplicationWindow {
+    private canvas: InstanceType<typeof CanvasView>;
+    private stack: Gtk.Stack;
+    private editor: InstanceType<typeof TextEditor>;
+    private toolButtons: Map<ToolId, Gtk.ToggleButton> = new Map();
+    private resizeToolbar: Gtk.Box;
+    private resizeButton: Gtk.Button;
+    private statusLabel: Gtk.Label = new Gtk.Label();
     // Set true just before we explicitly call close() after the user has
     // chosen Discard, so the close-request handler doesn't re-prompt.
     private skipCloseConfirm: boolean = false;
-    private saveButton: any;
-    private copyButton: any;
+    private saveButton: Gtk.Button;
+    private copyButton: Gtk.Button;
 
-    constructor(app: any) {
+    constructor(app: InstanceType<typeof AnnoscrApplication>) {
       super({
         application: app,
         title: 'Annoscr',
@@ -133,7 +135,7 @@ export const AnnoscrWindow = GObject.registerClass(
           if (replaceIndex !== undefined) this.canvas.clearEditing();
         },
       });
-      this.canvas.setTextEditRequestHandler((ix: number, iy: number, wx: number, wy: number, options?: any) => {
+      this.canvas.setTextEditRequestHandler((ix: number, iy: number, wx: number, wy: number, options?: TextEditorBeginOptions) => {
         // Click on canvas with text tool active (or double-click with select tool):
         // commit any prior edit, then begin a new one. Pass-through options
         // carry markup + replaceIndex for re-edit of an existing TextAction.
@@ -178,7 +180,7 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private installCloseGuard(): void {
-      (this as any).connect('close-request', () => {
+      this.connect('close-request', () => {
         if (this.skipCloseConfirm || !this.canvas.isDirty()) return false;
         this.confirmDiscard('Closing the window', () => {
           this.skipCloseConfirm = true;
@@ -188,7 +190,7 @@ export const AnnoscrWindow = GObject.registerClass(
       });
     }
 
-    private buildStatusBar(): any {
+    private buildStatusBar(): Gtk.Box {
       const box = new Gtk.Box({
         orientation: Gtk.Orientation.HORIZONTAL,
         spacing: 6,
@@ -218,7 +220,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const r = this.canvas.getResizeDimensions();
       // U+2003 EM SPACE on either side of the arrow gives breathing room
       // without depending on Pango markup or label padding tricks.
-      this.statusLabel.set_label(r ? `${base} → ${r.w} × ${r.h} px` : base);
+      this.statusLabel.set_label(r ? `${base}\u2003→\u2003${r.w} \u00d7 ${r.h} px` : base);
     }
 
     // Show a destructive-action confirmation if the canvas has unsaved
@@ -238,7 +240,7 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.set_response_appearance('discard', Adw.ResponseAppearance.DESTRUCTIVE);
       dialog.set_default_response('cancel');
       dialog.set_close_response('cancel');
-      dialog.connect('response', (_d: any, response: string) => {
+      dialog.connect('response', (_d, response) => {
         if (response === 'discard') onProceed();
       });
       dialog.present(this);
@@ -263,28 +265,28 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.set_filters(filters);
       dialog.set_default_filter(filter);
 
-      dialog.open(this, null, (_src: any, result: any) => {
+      dialog.open(this, null, (_src, result) => {
         try {
           const file = dialog.open_finish(result);
           if (file) this.loadFile(file);
-        } catch (e: any) {
+        } catch (e) {
           // Cancellation surfaces as a Gtk DialogError; ignore those and log the rest.
-          if (!(e instanceof Gtk.DialogError) && !`${e}`.includes('Dismissed')) {
-            logError(e, 'open_finish failed');
+          if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+            console.error('open_finish failed', e);
           }
         }
       });
     }
 
-    private loadFile(file: any): void {
+    private loadFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
       } catch (e) {
-        logError(e, 'loadFile failed');
+        console.error('loadFile failed', e);
       }
     }
 
-    private setImage(surface: any): void {
+    private setImage(surface: Cairo.ImageSurface): void {
       // Discard any in-progress text edit or resize — they belonged to the old image.
       this.editor.cancel();
       if (this.canvas.getTool() === 'resize') this.exitResizeMode(false);
@@ -296,12 +298,12 @@ export const AnnoscrWindow = GObject.registerClass(
 
     private installDropTarget(): void {
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
-      dropTarget.connect('drop', (_target: any, file: any) => {
+      dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
         if (!file) return false;
         this.confirmDiscard('Loading the dropped image', () => this.loadFile(file));
         return true;
       });
-      (this as any).add_controller(dropTarget);
+      this.add_controller(dropTarget);
     }
 
     private installShortcuts(): void {
@@ -348,16 +350,16 @@ export const AnnoscrWindow = GObject.registerClass(
       for (const tool of TOOLS) {
         this.bindShortcut(controller, tool.accelerator, () => this.selectTool(tool.id));
       }
-      (this as any).add_controller(controller);
+      this.add_controller(controller);
     }
 
-    private buildToolBar(): any {
+    private buildToolBar(): Gtk.Box {
       const box = new Gtk.Box({
         orientation: Gtk.Orientation.HORIZONTAL,
         spacing: 0,
         css_classes: ['linked'],
       });
-      let group: any = null;
+      let group: Gtk.ToggleButton | null = null;
       for (const tool of TOOLS) {
         const btn = new Gtk.ToggleButton({
           label: tool.label,
@@ -394,7 +396,7 @@ export const AnnoscrWindow = GObject.registerClass(
       if (btn && !btn.get_active()) btn.set_active(true);
     }
 
-    private buildResizeToolbar(): any {
+    private buildResizeToolbar(): Gtk.Box {
       const box = new Gtk.Box({
         orientation: Gtk.Orientation.HORIZONTAL,
         spacing: 6,
@@ -436,7 +438,7 @@ export const AnnoscrWindow = GObject.registerClass(
       this.setActiveTool('select');
     }
 
-    private bindShortcut(controller: any, accelerator: string, callback: () => boolean | void): void {
+    private bindShortcut(controller: Gtk.ShortcutController, accelerator: string, callback: () => boolean | void): void {
       const trigger = Gtk.ShortcutTrigger.parse_string(accelerator);
       const action = Gtk.CallbackAction.new(() => {
         // Returning false from the callback means "not handled" — lets the
@@ -470,14 +472,14 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.set_filters(filters);
       dialog.set_default_filter(filter);
 
-      dialog.save(this, null, (_src: any, result: any) => {
-        let file: any;
+      dialog.save(this, null, (_src, result) => {
+        let file: Gio.File;
         try {
           file = dialog.save_finish(result);
-        } catch (e: any) {
+        } catch (e) {
           // User cancelled or dismissed.
-          if (!(e instanceof Gtk.DialogError) && !`${e}`.includes('Dismissed')) {
-            logError(e, 'save_finish failed');
+          if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+            console.error('save_finish failed', e);
           }
           return;
         }
@@ -487,6 +489,8 @@ export const AnnoscrWindow = GObject.registerClass(
         if (!surface) return;
 
         let path = file.get_path();
+        if (!path) return;
+
         const format = formatFromPath(path);
         // If the user typed a name without an extension, append the canonical
         // one for the format their filter implied (PNG by default).
@@ -498,7 +502,7 @@ export const AnnoscrWindow = GObject.registerClass(
           saveSurface(surface, path, format);
           this.canvas.markClean();
         } catch (e) {
-          logError(e, 'saveSurface failed');
+          console.error('saveSurface failed', e);
         }
       });
     }
@@ -512,7 +516,7 @@ export const AnnoscrWindow = GObject.registerClass(
         copySurfaceToClipboard(this.get_clipboard(), surface);
         this.canvas.markClean();
       } catch (e) {
-        logError(e, 'copySurfaceToClipboard failed');
+        console.error('copySurfaceToClipboard failed', e);
       }
     }
 
@@ -522,46 +526,48 @@ export const AnnoscrWindow = GObject.registerClass(
 
     private pasteFromClipboardUnchecked(): void {
       const clipboard = this.get_clipboard();
-      clipboard.read_async(IMAGE_MIME_TYPES, GLib.PRIORITY_DEFAULT, null, (_src: any, result: any) => {
-        let stream: any = null;
+      clipboard.read_async(IMAGE_MIME_TYPES, GLib.PRIORITY_DEFAULT, null, (_src, result) => {
+        let stream: Gio.InputStream  | null = null;
         try {
           [stream] = clipboard.read_finish(result);
         } catch {
           this.pasteUriList(clipboard);
-          return;
         }
+        if (!stream) return;
+
         // Decoding must be async: the local clipboard delivers bytes via a
         // pipe pumped by the main loop. A synchronous Pixbuf.new_from_stream
         // would block the loop waiting for bytes that never arrive — the
         // classic same-process clipboard deadlock.
-        GdkPixbuf.Pixbuf.new_from_stream_async(stream, null, (_pbSrc: any, pbResult: any) => {
+        GdkPixbuf.Pixbuf.new_from_stream_async(stream, null, (_pbSrc, pbResult) => {
           try {
             const pixbuf = GdkPixbuf.Pixbuf.new_from_stream_finish(pbResult);
             stream.close(null);
             if (pixbuf) this.setImage(loadFromPixbuf(pixbuf));
           } catch (e) {
-            logError(e, 'paste (image bytes) failed');
+            console.error('paste (image bytes) failed', e);
           }
         });
       });
     }
 
-    private pasteUriList(clipboard: any): void {
+    private pasteUriList(clipboard: Gdk.Clipboard): void {
       const mimes: string[] = clipboard.get_formats()?.get_mime_types() ?? [];
       if (!mimes.includes('text/uri-list')) {
-        log(`paste: nothing usable on clipboard (formats: ${mimes.join(', ') || 'none'})`);
+        console.log(`paste: nothing usable on clipboard (formats: ${mimes.join(', ') || 'none'})`);
         return;
       }
-      clipboard.read_async(['text/uri-list'], GLib.PRIORITY_DEFAULT, null, (_src: any, result: any) => {
+      clipboard.read_async(['text/uri-list'], GLib.PRIORITY_DEFAULT, null, (_src, result) => {
         try {
           const [stream] = clipboard.read_finish(result);
+          if (!stream) throw new Error('clipboard read failed');
           const bytes = stream.read_bytes(64 * 1024, null);
           stream.close(null);
           const text = new TextDecoder().decode(bytes.toArray());
           const uri = text.split(/\r?\n/).find(line => line && !line.startsWith('#'))?.trim();
           if (uri) this.loadFile(Gio.File.new_for_uri(uri));
         } catch (e) {
-          logError(e, 'paste (uri-list) failed');
+          console.error('paste (uri-list) failed', e);
         }
       });
     }

@@ -1,11 +1,13 @@
-import cairo from 'gi://cairo?version=1.0';
+import cairo from 'cairo';
+import type Cairo from 'cairo';
+import type { CairoPatternExt } from './globals.js';
 
 export type RotateDirection = 'cw' | 'ccw';
 
 // Rotates a Cairo.ImageSurface by 90° in the given direction and returns a
 // fresh surface with swapped dimensions. Pixel-exact (no resampling): the
 // 90° transform aligns the source grid with the destination grid.
-export function rotateSurface(src: any, direction: RotateDirection): any {
+export function rotateSurface(src: Cairo.ImageSurface, direction: RotateDirection): Cairo.ImageSurface {
   const w = src.getWidth();
   const h = src.getHeight();
   const dst = new cairo.ImageSurface(cairo.Format.ARGB32, h, w);
@@ -18,7 +20,7 @@ export function rotateSurface(src: any, direction: RotateDirection): any {
     cr.rotate(-Math.PI / 2);
   }
   cr.setSourceSurface(src, 0, 0);
-  cr.getSource().setFilter(cairo.Filter.NEAREST);
+  (cr.getSource() as unknown as CairoPatternExt).setFilter(cairo.Filter.NEAREST);
   cr.paint();
   return dst;
 }
@@ -29,11 +31,11 @@ export function rotateSurface(src: any, direction: RotateDirection): any {
 // (w, h)". The region may extend outside the source bounds in any direction;
 // Cairo clips the blit automatically, and the new ARGB32 surface is zeroed
 // (fully transparent) — that's the fill for areas beyond the source.
-export function resizeSurface(src: any, x: number, y: number, w: number, h: number): any {
+export function resizeSurface(src: Cairo.ImageSurface, x: number, y: number, w: number, h: number): Cairo.ImageSurface {
   const dst = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
   const cr = new cairo.Context(dst);
   cr.setSourceSurface(src, -x, -y);
-  cr.getSource().setFilter(cairo.Filter.NEAREST);
+  (cr.getSource() as unknown as CairoPatternExt).setFilter(cairo.Filter.NEAREST);
   cr.paint();
   return dst;
 }

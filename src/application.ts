@@ -5,7 +5,8 @@ import Adw from 'gi://Adw?version=1';
 import { AnnoscrWindow } from './window.js';
 
 export const AnnoscrApplication = GObject.registerClass(
-  class AnnoscrApplication extends Adw.Application {
+  { GTypeName: 'AnnoscrApplication' },
+  class extends Adw.Application {
     constructor() {
       super({
         application_id: 'com.cmphys.Annoscr',
