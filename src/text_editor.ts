@@ -33,6 +33,7 @@ export class TextEditor {
   private readonly view: Gtk.TextView;
   private readonly buffer: Gtk.TextBuffer;
   private readonly callbacks: TextEditorCallbacks;
+  private readonly buttons: Record<TagName, Gtk.ToggleButton>;
 
   private active: boolean = false;
   private imageX: number = 0;
@@ -41,6 +42,9 @@ export class TextEditor {
   private replaceIndex: number | undefined = undefined;
   // Tags that will be applied to the next characters the user types.
   private pendingTags: Set<TagName> = new Set();
+  // Guard so the programmatic set_active() in syncButtonStates doesn't
+  // re-enter through the buttons' 'toggled' signal.
+  private updatingButtons: boolean = false;
 
   constructor(callbacks: TextEditorCallbacks) {
     this.callbacks = callbacks;
@@ -61,14 +65,57 @@ export class TextEditor {
     this.installTags();
     this.installPendingTagsApplier();
 
+    const toolbar = new Gtk.Box({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      spacing: 2,
+      margin_top: 2,
+      margin_bottom: 2,
+      margin_start: 2,
+      margin_end: 2,
+    });
+    this.buttons = {
+      bold: this.makeFormatButton('format-text-bold-symbolic', 'Bold (Ctrl+B)', 'bold'),
+      italic: this.makeFormatButton('format-text-italic-symbolic', 'Italic (Ctrl+I)', 'italic'),
+      underline: this.makeFormatButton(
+        'format-text-underline-symbolic',
+        'Underline (Ctrl+U)',
+        'underline'
+      ),
+    };
+    toolbar.append(this.buttons.bold);
+    toolbar.append(this.buttons.italic);
+    toolbar.append(this.buttons.underline);
+
+    const container = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL});
+    container.append(toolbar);
+    container.append(new Gtk.Separator({orientation: Gtk.Orientation.HORIZONTAL}));
+    container.append(this.view);
+
     this.frame = new Gtk.Frame({
-      child: this.view,
+      child: container,
       halign: Gtk.Align.START,
       valign: Gtk.Align.START,
       visible: false,
     });
 
     this.installKeyHandler();
+    this.installSelectionWatcher();
+  }
+
+  private makeFormatButton(iconName: string, tooltip: string, tag: TagName): Gtk.ToggleButton {
+    // can_focus: false so clicking the button doesn't steal keyboard focus
+    // from the TextView — the user keeps typing into the buffer immediately.
+    const btn = new Gtk.ToggleButton({
+      icon_name: iconName,
+      tooltip_text: tooltip,
+      has_frame: false,
+      can_focus: false,
+    });
+    btn.connect('toggled', () => {
+      if (this.updatingButtons) return;
+      this.toggleTag(tag);
+    });
+    return btn;
   }
 
   getWidget(): Gtk.Frame {
@@ -103,6 +150,7 @@ export class TextEditor {
     this.frame.set_margin_top(Math.max(0, Math.floor(widgetY) - 6));
     this.frame.set_visible(true);
     this.view.grab_focus();
+    this.syncButtonStates();
   }
 
   commitIfActive(): void {
@@ -210,6 +258,38 @@ export class TextEditor {
       if (this.pendingTags.has(tag)) this.pendingTags.delete(tag);
       else this.pendingTags.add(tag);
     }
+    this.syncButtonStates();
+  }
+
+  // Watch buffer marks so the B/I/U buttons reflect "what would I see if I
+  // toggled now" after the cursor or selection moves. Only the named insert
+  // and selection_bound marks signal real cursor/selection changes;
+  // anonymous marks fire too and we ignore them.
+  private installSelectionWatcher(): void {
+    this.buffer.connect('mark-set', (_buf, _iter, mark) => {
+      const name = mark.get_name();
+      if (name === 'insert' || name === 'selection_bound') {
+        this.syncButtonStates();
+      }
+    });
+  }
+
+  private syncButtonStates(): void {
+    this.updatingButtons = true;
+    for (const tag of TAG_NAMES) {
+      this.buttons[tag].set_active(this.isTagActiveForButton(tag));
+    }
+    this.updatingButtons = false;
+  }
+
+  // What the button should show:
+  //   - with selection: pressed iff every selected char has the tag (matches
+  //     toggleTag's "all-or-nothing" branch — pressing removes, otherwise applies)
+  //   - no selection: pressed iff the tag is pending (will apply to next type)
+  private isTagActiveForButton(tag: TagName): boolean {
+    const [hasSel, start, end] = this.buffer.get_selection_bounds();
+    if (hasSel) return allCharsHaveTag(start, end, tag);
+    return this.pendingTags.has(tag);
   }
 
   // Walk the buffer character-by-character. When the active tag set changes,
