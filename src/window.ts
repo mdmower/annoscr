@@ -5,12 +5,21 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
+import cairo from 'cairo';
 import type Cairo from 'cairo';
 
 import { AnnoscrApplication } from './application.js';
 import { CanvasView } from './canvas_view.js';
 import { loadFromFile, loadFromPixbuf } from './image_loader.js';
-import { ColorRGBA, ToolId, defaultColorForTool, makeTextAction } from './actions.js';
+import {
+  ColorRGBA,
+  ToolId,
+  WIDTH_MAX,
+  WIDTH_MIN,
+  defaultColorForTool,
+  defaultWidthForTool,
+  makeTextAction,
+} from './actions.js';
 import { TextEditor, TextEditorBeginOptions } from './text_editor.js';
 import {
   FORMATS,
@@ -66,8 +75,11 @@ export const AnnoscrWindow = GObject.registerClass(
     private copyButton: Gtk.Button;
     // Assigned inside buildStyleBar(), which the constructor calls.
     private colorButton!: Gtk.ColorDialogButton;
-    // Guard against the programmatic set_rgba() we do in refreshStylePicker
-    // firing notify::rgba and looping back into the change handler.
+    private widthScale!: Gtk.Scale;
+    private widthPreview!: Gtk.DrawingArea;
+    // Guard against the programmatic set_rgba() / set_value() we do in
+    // refreshStylePicker firing change signals and looping back into the
+    // user-edit handlers.
     private updatingPicker: boolean = false;
 
     constructor(app: InstanceType<typeof AnnoscrApplication>) {
@@ -222,13 +234,63 @@ export const AnnoscrWindow = GObject.registerClass(
         margin_top: 4,
         margin_bottom: 4,
       });
-      const label = new Gtk.Label({ label: 'Color', css_classes: ['caption'] });
+
+      const colorLabel = new Gtk.Label({ label: 'Color', css_classes: ['caption'] });
       const dialog = new Gtk.ColorDialog({ with_alpha: true });
       this.colorButton = new Gtk.ColorDialogButton({ dialog });
       this.colorButton.connect('notify::rgba', () => this.onColorPicked());
-      box.append(label);
+      box.append(colorLabel);
       box.append(this.colorButton);
+
+      // Visual gap between the two style controls.
+      box.append(new Gtk.Separator({ orientation: Gtk.Orientation.VERTICAL, margin_start: 8, margin_end: 8 }));
+
+      const widthLabel = new Gtk.Label({ label: 'Width', css_classes: ['caption'] });
+      this.widthScale = new Gtk.Scale({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        adjustment: new Gtk.Adjustment({
+          lower: WIDTH_MIN,
+          upper: WIDTH_MAX,
+          step_increment: 1,
+          page_increment: 5,
+        }),
+        digits: 0,
+        draw_value: true,
+        value_pos: Gtk.PositionType.RIGHT,
+        width_request: 160,
+      });
+      this.widthScale.connect('value-changed', () => this.onWidthPicked());
+      // Preview area: draws a horizontal stroke of the current width in
+      // image-space pixels (≡ widget pixels at 1:1). Width clamps to the
+      // preview height so very fat strokes don't overflow.
+      this.widthPreview = new Gtk.DrawingArea({
+        width_request: 56,
+        height_request: WIDTH_MAX + 4,
+        valign: Gtk.Align.CENTER,
+      });
+      this.widthPreview.set_draw_func((_w, cr, w, h) => this.drawWidthPreview(cr, w, h));
+
+      box.append(widthLabel);
+      box.append(this.widthScale);
+      box.append(this.widthPreview);
+
       return box;
+    }
+
+    private drawWidthPreview(cr: Cairo.Context, w: number, h: number): void {
+      const color = this.styleTargetColor();
+      const width = this.styleTargetWidth();
+      if (color === null || width === null) return;
+      // Cap visible thickness to the preview height so the full slider range
+      // still fits visually; the slider's numeric readout carries the exact
+      // value when the bar saturates.
+      const drawWidth = Math.min(width, h - 2);
+      cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
+      cr.setLineWidth(drawWidth);
+      cr.setLineCap(cairo.LineCap.ROUND);
+      cr.moveTo(8, h / 2);
+      cr.lineTo(w - 8, h / 2);
+      cr.stroke();
     }
 
     // Sync the color picker with whatever color the active context expects:
@@ -239,13 +301,18 @@ export const AnnoscrWindow = GObject.registerClass(
     //     meaningful
     private refreshStylePicker(): void {
       if (!this.colorButton) return;
-      const target = this.styleTargetColor();
-      this.colorButton.set_sensitive(target !== null);
-      if (target !== null) {
-        this.updatingPicker = true;
-        this.colorButton.set_rgba(colorToRgba(target));
-        this.updatingPicker = false;
-      }
+      this.updatingPicker = true;
+
+      const color = this.styleTargetColor();
+      this.colorButton.set_sensitive(color !== null);
+      if (color !== null) this.colorButton.set_rgba(colorToRgba(color));
+
+      const width = this.styleTargetWidth();
+      this.widthScale.set_sensitive(width !== null);
+      if (width !== null) this.widthScale.set_value(width);
+
+      this.updatingPicker = false;
+      this.widthPreview.queue_draw();
     }
 
     // The color that the picker should currently display, or null when the
@@ -259,6 +326,15 @@ export const AnnoscrWindow = GObject.registerClass(
       return this.canvas.getToolColor(tool);
     }
 
+    private styleTargetWidth(): number | null {
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        const sel = this.canvas.getSelectedAction();
+        return sel ? sel.getWidth() : null;
+      }
+      return this.canvas.getToolWidth(tool);
+    }
+
     private onColorPicked(): void {
       if (this.updatingPicker || !this.colorButton) return;
       const color = rgbaToColor(this.colorButton.get_rgba());
@@ -268,9 +344,25 @@ export const AnnoscrWindow = GObject.registerClass(
         // or its color isn't editable (refreshStylePicker will have already
         // disabled the picker in that case, but guard anyway).
         this.canvas.replaceSelectedColor(color);
-        return;
+      } else {
+        this.canvas.setToolColor(tool, color);
       }
-      this.canvas.setToolColor(tool, color);
+      this.widthPreview.queue_draw();
+    }
+
+    private onWidthPicked(): void {
+      if (this.updatingPicker || !this.widthScale) return;
+      const width = Math.round(this.widthScale.get_value());
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        // In select mode, recolor → resize in-place; same select-edit shape.
+        // pushState coalesces by `width:${i}` so a drag is one history entry,
+        // not one per slider tick (see pushState in canvas_view.ts).
+        this.canvas.replaceSelectedWidth(width);
+      } else if (defaultWidthForTool(tool) !== null) {
+        this.canvas.setToolWidth(tool, width);
+      }
+      this.widthPreview.queue_draw();
     }
 
     private buildStatusBar(): Gtk.Box {

@@ -13,6 +13,7 @@ import {
   ToolId,
   createLiveStroke,
   defaultColorForTool,
+  defaultWidthForTool,
   isNumberStampAction,
   isTextAction,
   getTextEditState,
@@ -173,12 +174,25 @@ export const CanvasView = GObject.registerClass(
     // no entry (their styling isn't user-editable in M14).
     private toolColors: Map<ToolId, ColorRGBA> = new Map();
 
+    // Per-tool current stroke/outline width. Same lifetime story as
+    // toolColors; tools without a width (text, number, select, resize)
+    // never have an entry here.
+    private toolWidths: Map<ToolId, number> = new Map();
+
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save / copy / fresh-image-load. If the current state
     // is the same object, nothing has been modified since. Stays valid
     // across undo/redo because those just move the historyCursor — the
     // underlying state object in `history[i]` doesn't change.
     private cleanStateRef: CanvasState | null = null;
+
+    // Last pushState's coalesce key. Successive pushes with the same key
+    // replace the top entry instead of growing history (the slider drag
+    // case — one history entry per drag, not per tick). Any push without
+    // a key, or with a different key, breaks the chain. Operations that
+    // don't push but should still break the chain (undo/redo/setTool/...
+    // /selection change) clear it explicitly.
+    private lastCoalesceKey: string | null = null;
 
     constructor() {
       super({ hexpand: true, vexpand: true });
@@ -190,18 +204,29 @@ export const CanvasView = GObject.registerClass(
       return this.history[this.historyCursor];
     }
 
-    private pushState(next: CanvasState): void {
+    private pushState(next: CanvasState, coalesceKey: string | null = null): void {
       // Truncate any redo entries past the cursor before pushing.
       if (this.historyCursor < this.history.length - 1) {
         this.history.length = this.historyCursor + 1;
       }
-      this.history.push(next);
-      this.historyCursor++;
-      if (this.history.length > HISTORY_CAP) {
-        const excess = this.history.length - HISTORY_CAP;
-        this.history.splice(0, excess);
-        this.historyCursor -= excess;
+
+      const canCoalesce =
+        coalesceKey !== null &&
+        coalesceKey === this.lastCoalesceKey &&
+        this.history.length > 1;
+
+      if (canCoalesce) {
+        this.history[this.historyCursor] = next;
+      } else {
+        this.history.push(next);
+        this.historyCursor++;
+        if (this.history.length > HISTORY_CAP) {
+          const excess = this.history.length - HISTORY_CAP;
+          this.history.splice(0, excess);
+          this.historyCursor -= excess;
+        }
       }
+      this.lastCoalesceKey = coalesceKey;
       this.notifyStateChange();
     }
 
@@ -220,6 +245,7 @@ export const CanvasView = GObject.registerClass(
       this.history = [{ surface, actions: [] }];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
+      this.lastCoalesceKey = null;
       this.resetTransientState();
       this.queue_draw();
       this.notifyStateChange();
@@ -229,6 +255,7 @@ export const CanvasView = GObject.registerClass(
       this.history = [{ surface: null, actions: [] }];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
+      this.lastCoalesceKey = null;
       this.resetTransientState();
       this.queue_draw();
       this.notifyStateChange();
@@ -273,6 +300,7 @@ export const CanvasView = GObject.registerClass(
       this.liveStroke = null;
       this.selectedIndex = -1;
       this.moving = false;
+      this.lastCoalesceKey = null;
       if (toolId === 'resize' && this.state.surface) {
         // Auto-select current canvas bounds so the user can immediately drag
         // a handle to adjust, rather than having to drag a fresh region.
@@ -311,6 +339,19 @@ export const CanvasView = GObject.registerClass(
       this.toolColors.set(toolId, color);
     }
 
+    // Current width for the given tool, falling back to the tool's static
+    // default. Returns null for tools without an editable width (text uses
+    // font size, number stamp uses radius, select/resize have no stroke).
+    getToolWidth(toolId: ToolId): number | null {
+      const def = defaultWidthForTool(toolId);
+      if (def === null) return null;
+      return this.toolWidths.get(toolId) ?? def;
+    }
+
+    setToolWidth(toolId: ToolId, width: number): void {
+      this.toolWidths.set(toolId, width);
+    }
+
     // The currently selected action, if any. Used by the color picker to
     // populate itself with the selected action's color in select mode.
     getSelectedAction(): Action | null {
@@ -336,7 +377,21 @@ export const CanvasView = GObject.registerClass(
       this.pushState({
         surface: this.state.surface,
         actions: cur.map((a, j) => (j === i ? recolored : a)),
-      });
+      }, `color:${i}`);
+      this.queue_draw();
+      return true;
+    }
+
+    replaceSelectedWidth(width: number): boolean {
+      const i = this.selectedIndex;
+      const cur = this.state.actions;
+      if (i < 0 || i >= cur.length) return false;
+      if (cur[i].getWidth() === null) return false;
+      const resized = cur[i].withWidth(width);
+      this.pushState({
+        surface: this.state.surface,
+        actions: cur.map((a, j) => (j === i ? resized : a)),
+      }, `width:${i}`);
       this.queue_draw();
       return true;
     }
@@ -453,6 +508,7 @@ export const CanvasView = GObject.registerClass(
     undo(): void {
       if (this.historyCursor === 0) return;
       this.historyCursor--;
+      this.lastCoalesceKey = null;
       this.resetTransientState();
       this.queue_draw();
       this.notifyStateChange();
@@ -461,6 +517,7 @@ export const CanvasView = GObject.registerClass(
     redo(): void {
       if (this.historyCursor >= this.history.length - 1) return;
       this.historyCursor++;
+      this.lastCoalesceKey = null;
       this.resetTransientState();
       this.queue_draw();
       this.notifyStateChange();
@@ -524,7 +581,10 @@ export const CanvasView = GObject.registerClass(
         this.moveDx = 0;
         this.moveDy = 0;
         this.queue_draw();
-        if (this.selectedIndex !== prev) this.notifyStateChange();
+        if (this.selectedIndex !== prev) {
+          this.lastCoalesceKey = null;
+          this.notifyStateChange();
+        }
         return;
       }
       if (this.currentToolId === 'resize') {
@@ -547,7 +607,8 @@ export const CanvasView = GObject.registerClass(
       if (!isDragTool(this.currentToolId)) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       const color = this.getToolColor(this.currentToolId) ?? defaultColorForTool(this.currentToolId);
-      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color);
+      const width = this.getToolWidth(this.currentToolId) ?? defaultWidthForTool(this.currentToolId) ?? 1;
+      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color, width);
       this.queue_draw();
     }
 

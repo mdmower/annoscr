@@ -33,6 +33,11 @@ export interface Action {
   // Returns a new instance with the color replaced. Actions whose color is
   // fixed return themselves unchanged.
   withColor(color: ColorRGBA): Action;
+  // The action's editable stroke / outline width in image-space pixels, or
+  // null for actions where the width isn't a single user-editable scalar
+  // (text uses font size, number stamp uses radius + borderWidth).
+  getWidth(): number | null;
+  withWidth(width: number): Action;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -114,6 +119,29 @@ export function defaultColorForTool(toolId: ToolId): ColorRGBA {
   return toolId === 'highlighter' ? DEFAULT_HIGHLIGHTER_COLOR : DEFAULT_COLOR;
 }
 
+// Default per-tool stroke/outline widths. Tools without an editable width
+// (text, number, select, resize) return null.
+export function defaultWidthForTool(toolId: ToolId): number | null {
+  switch (toolId) {
+    case 'pen':         return PEN_STYLE.width;
+    case 'highlighter': return HIGHLIGHTER_STYLE.width;
+    case 'line':        return LINE_STYLE.width;
+    case 'arrow':       return ARROW_STYLE.width;
+    case 'rect':
+    case 'oval':        return SHAPE_STYLE.width;
+    case 'text':
+    case 'number':
+    case 'select':
+    case 'resize':
+    default:            return null;
+  }
+}
+
+// Slider range for the width control. Generous enough that the highlighter's
+// default (18 px) sits comfortably below the top.
+export const WIDTH_MIN = 1;
+export const WIDTH_MAX = 40;
+
 const SHAPE_MIN_EXTENT = 2;
 
 // ---------- Text ----------
@@ -177,6 +205,16 @@ class TextAction implements Action {
 
   withColor(color: ColorRGBA): Action {
     return new TextAction(this.x, this.y, this.markup, this.rotation, { ...this.style, color });
+  }
+
+  // Text uses a font size, not a stroke width. Width-tool UI greys out
+  // when a TextAction is selected.
+  getWidth(): number | null {
+    return null;
+  }
+
+  withWidth(_width: number): Action {
+    return this;
   }
 }
 
@@ -271,6 +309,16 @@ class NumberStampAction implements Action {
   withColor(_color: ColorRGBA): Action {
     return this;
   }
+
+  // Number stamp has radius + borderWidth, not a single user-editable
+  // width. Width-tool UI greys out when a stamp is selected.
+  getWidth(): number | null {
+    return null;
+  }
+
+  withWidth(_width: number): Action {
+    return this;
+  }
 }
 
 export function makeNumberStampAction(
@@ -327,6 +375,14 @@ class StrokeAction implements Action {
 
   withColor(color: ColorRGBA): Action {
     return new StrokeAction(this.points, { ...this.style, color });
+  }
+
+  getWidth(): number {
+    return this.style.width;
+  }
+
+  withWidth(width: number): Action {
+    return new StrokeAction(this.points, { ...this.style, width });
   }
 }
 
@@ -388,6 +444,14 @@ class LineAction implements Action {
 
   withColor(color: ColorRGBA): Action {
     return new LineAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+  }
+
+  getWidth(): number {
+    return this.style.width;
+  }
+
+  withWidth(width: number): Action {
+    return new LineAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
   }
 }
 
@@ -461,6 +525,14 @@ class ArrowAction implements Action {
   withColor(color: ColorRGBA): Action {
     return new ArrowAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
   }
+
+  getWidth(): number {
+    return this.style.width;
+  }
+
+  withWidth(width: number): Action {
+    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
+  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -527,6 +599,14 @@ class RectAction implements Action {
 
   withColor(color: ColorRGBA): Action {
     return new RectAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+  }
+
+  getWidth(): number {
+    return this.style.width;
+  }
+
+  withWidth(width: number): Action {
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
   }
 }
 
@@ -603,6 +683,14 @@ class OvalAction implements Action {
   withColor(color: ColorRGBA): Action {
     return new OvalAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
   }
+
+  getWidth(): number {
+    return this.style.width;
+  }
+
+  withWidth(width: number): Action {
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
+  }
 }
 
 class OvalLiveStroke implements LiveStroke {
@@ -629,14 +717,14 @@ class OvalLiveStroke implements LiveStroke {
   }
 }
 
-export function createLiveStroke(toolId: ToolId, x: number, y: number, color: ColorRGBA): LiveStroke {
+export function createLiveStroke(toolId: ToolId, x: number, y: number, color: ColorRGBA, width: number): LiveStroke {
   switch (toolId) {
-    case 'pen':         return new StrokeLiveStroke(x, y, { ...PEN_STYLE,         color });
-    case 'highlighter': return new StrokeLiveStroke(x, y, { ...HIGHLIGHTER_STYLE, color });
-    case 'line':        return new LineLiveStroke(x, y,   { ...LINE_STYLE,        color });
-    case 'arrow':       return new ArrowLiveStroke(x, y,  { ...ARROW_STYLE,       color });
-    case 'rect':        return new RectLiveStroke(x, y,   { ...SHAPE_STYLE,       color });
-    case 'oval':        return new OvalLiveStroke(x, y,   { ...SHAPE_STYLE,       color });
+    case 'pen':         return new StrokeLiveStroke(x, y, { ...PEN_STYLE,         color, width });
+    case 'highlighter': return new StrokeLiveStroke(x, y, { ...HIGHLIGHTER_STYLE, color, width });
+    case 'line':        return new LineLiveStroke(x, y,   { ...LINE_STYLE,        color, width });
+    case 'arrow':       return new ArrowLiveStroke(x, y,  { ...ARROW_STYLE,       color, width });
+    case 'rect':        return new RectLiveStroke(x, y,   { ...SHAPE_STYLE,       color, width });
+    case 'oval':        return new OvalLiveStroke(x, y,   { ...SHAPE_STYLE,       color, width });
     case 'select':
     case 'text':
     case 'number':
