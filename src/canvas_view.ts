@@ -8,9 +8,11 @@ import type { CairoPatternExt } from './globals.js';
 import {
   Action,
   Bounds,
+  ColorRGBA,
   LiveStroke,
   ToolId,
   createLiveStroke,
+  defaultColorForTool,
   isNumberStampAction,
   isTextAction,
   getTextEditState,
@@ -166,6 +168,11 @@ export const CanvasView = GObject.registerClass(
     private onTextEditRequest: TextEditRequest | null = null;
     private onStateChange: (() => void) | null = null;
 
+    // Per-tool current color. Drawing a new action reads from here; the color
+    // picker writes here for the active tool. Number stamp and resize have
+    // no entry (their styling isn't user-editable in M14).
+    private toolColors: Map<ToolId, ColorRGBA> = new Map();
+
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save / copy / fresh-image-load. If the current state
     // is the same object, nothing has been modified since. Stays valid
@@ -290,6 +297,48 @@ export const CanvasView = GObject.registerClass(
 
     setStateChangeHandler(handler: (() => void) | null): void {
       this.onStateChange = handler;
+    }
+
+    // Current color for the given tool, falling back to the tool's static
+    // default if nothing has been set yet. Returns null for tools that have
+    // no editable color in M14 (number stamp, select, resize).
+    getToolColor(toolId: ToolId): ColorRGBA | null {
+      if (toolId === 'number' || toolId === 'select' || toolId === 'resize') return null;
+      return this.toolColors.get(toolId) ?? defaultColorForTool(toolId);
+    }
+
+    setToolColor(toolId: ToolId, color: ColorRGBA): void {
+      this.toolColors.set(toolId, color);
+    }
+
+    // The currently selected action, if any. Used by the color picker to
+    // populate itself with the selected action's color in select mode.
+    getSelectedAction(): Action | null {
+      const i = this.selectedIndex;
+      if (i < 0 || i >= this.state.actions.length) return null;
+      return this.state.actions[i];
+    }
+
+    getActionAt(index: number): Action | null {
+      const cur = this.state.actions;
+      if (index < 0 || index >= cur.length) return null;
+      return cur[index];
+    }
+
+    // Replace the selected action's color, pushing a new history state.
+    // No-op if nothing is selected or the action's color isn't editable.
+    replaceSelectedColor(color: ColorRGBA): boolean {
+      const i = this.selectedIndex;
+      const cur = this.state.actions;
+      if (i < 0 || i >= cur.length) return false;
+      if (cur[i].getColor() === null) return false;
+      const recolored = cur[i].withColor(color);
+      this.pushState({
+        surface: this.state.surface,
+        actions: cur.map((a, j) => (j === i ? recolored : a)),
+      });
+      this.queue_draw();
+      return true;
     }
 
     private notifyStateChange(): void {
@@ -469,11 +518,13 @@ export const CanvasView = GObject.registerClass(
       if (!this.state.surface) return;
       if (this.currentToolId === 'select') {
         const [ix, iy] = this.widgetToImage(wx, wy);
+        const prev = this.selectedIndex;
         this.selectedIndex = this.hitTest(ix, iy);
         this.moving = false;
         this.moveDx = 0;
         this.moveDy = 0;
         this.queue_draw();
+        if (this.selectedIndex !== prev) this.notifyStateChange();
         return;
       }
       if (this.currentToolId === 'resize') {
@@ -495,7 +546,8 @@ export const CanvasView = GObject.registerClass(
       }
       if (!isDragTool(this.currentToolId)) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy);
+      const color = this.getToolColor(this.currentToolId) ?? defaultColorForTool(this.currentToolId);
+      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color);
       this.queue_draw();
     }
 

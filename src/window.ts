@@ -10,7 +10,7 @@ import type Cairo from 'cairo';
 import { AnnoscrApplication } from './application.js';
 import { CanvasView } from './canvas_view.js';
 import { loadFromFile, loadFromPixbuf } from './image_loader.js';
-import { ToolId, makeTextAction } from './actions.js';
+import { ColorRGBA, ToolId, defaultColorForTool, makeTextAction } from './actions.js';
 import { TextEditor, TextEditorBeginOptions } from './text_editor.js';
 import {
   FORMATS,
@@ -64,6 +64,11 @@ export const AnnoscrWindow = GObject.registerClass(
     private skipCloseConfirm: boolean = false;
     private saveButton: Gtk.Button;
     private copyButton: Gtk.Button;
+    // Assigned inside buildStyleBar(), which the constructor calls.
+    private colorButton!: Gtk.ColorDialogButton;
+    // Guard against the programmatic set_rgba() we do in refreshStylePicker
+    // firing notify::rgba and looping back into the change handler.
+    private updatingPicker: boolean = false;
 
     constructor(app: InstanceType<typeof AnnoscrApplication>) {
       super({
@@ -125,10 +130,11 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.editor = new TextEditor({
         onCommit: (markup: string, ix: number, iy: number, rotation: number, replaceIndex?: number) => {
+          const color = this.textColorFor(replaceIndex);
           if (replaceIndex !== undefined) {
-            this.canvas.replaceAction(replaceIndex, makeTextAction(ix, iy, markup, rotation));
+            this.canvas.replaceAction(replaceIndex, makeTextAction(ix, iy, markup, rotation, color));
           } else {
-            this.canvas.addAction(makeTextAction(ix, iy, markup, rotation));
+            this.canvas.addAction(makeTextAction(ix, iy, markup, rotation, color));
           }
         },
         onCancel: (replaceIndex?: number) => {
@@ -167,12 +173,17 @@ export const AnnoscrWindow = GObject.registerClass(
 
       const toolbar = new Adw.ToolbarView();
       toolbar.add_top_bar(header);
+      toolbar.add_top_bar(this.buildStyleBar());
       toolbar.set_content(this.stack);
       toolbar.add_bottom_bar(this.buildStatusBar());
       this.set_content(toolbar);
 
-      this.canvas.setStateChangeHandler(() => this.refreshStatus());
+      this.canvas.setStateChangeHandler(() => {
+        this.refreshStatus();
+        this.refreshStylePicker();
+      });
       this.refreshStatus();
+      this.refreshStylePicker();
 
       this.installDropTarget();
       this.installShortcuts();
@@ -188,6 +199,78 @@ export const AnnoscrWindow = GObject.registerClass(
         });
         return true; // block the default close until the user responds
       });
+    }
+
+    // Pick the color for a text commit. Re-edit preserves the existing
+    // action's color (so changing the text-tool default doesn't mutate
+    // historical actions); fresh text uses the tool's current color.
+    private textColorFor(replaceIndex: number | undefined): ColorRGBA {
+      if (replaceIndex !== undefined) {
+        const existing = this.canvas.getActionAt(replaceIndex);
+        const c = existing?.getColor();
+        if (c) return c;
+      }
+      return this.canvas.getToolColor('text') ?? defaultColorForTool('text');
+    }
+
+    private buildStyleBar(): Gtk.Box {
+      const box = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+        margin_start: 12,
+        margin_end: 12,
+        margin_top: 4,
+        margin_bottom: 4,
+      });
+      const label = new Gtk.Label({ label: 'Color', css_classes: ['caption'] });
+      const dialog = new Gtk.ColorDialog({ with_alpha: true });
+      this.colorButton = new Gtk.ColorDialogButton({ dialog });
+      this.colorButton.connect('notify::rgba', () => this.onColorPicked());
+      box.append(label);
+      box.append(this.colorButton);
+      return box;
+    }
+
+    // Sync the color picker with whatever color the active context expects:
+    //   - select tool + selected action → that action's color (greyed if no
+    //     action selected or its color isn't editable)
+    //   - drawing tool → that tool's stored color (or default)
+    //   - non-color tool (number / resize) → greyed; picker shows nothing
+    //     meaningful
+    private refreshStylePicker(): void {
+      if (!this.colorButton) return;
+      const target = this.styleTargetColor();
+      this.colorButton.set_sensitive(target !== null);
+      if (target !== null) {
+        this.updatingPicker = true;
+        this.colorButton.set_rgba(colorToRgba(target));
+        this.updatingPicker = false;
+      }
+    }
+
+    // The color that the picker should currently display, or null when the
+    // picker has no meaningful color to show (and should be disabled).
+    private styleTargetColor(): ColorRGBA | null {
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        const sel = this.canvas.getSelectedAction();
+        return sel ? sel.getColor() : null;
+      }
+      return this.canvas.getToolColor(tool);
+    }
+
+    private onColorPicked(): void {
+      if (this.updatingPicker || !this.colorButton) return;
+      const color = rgbaToColor(this.colorButton.get_rgba());
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        // Recolor the selected action in place. No-op if no action selected
+        // or its color isn't editable (refreshStylePicker will have already
+        // disabled the picker in that case, but guard anyway).
+        this.canvas.replaceSelectedColor(color);
+        return;
+      }
+      this.canvas.setToolColor(tool, color);
     }
 
     private buildStatusBar(): Gtk.Box {
@@ -573,3 +656,16 @@ export const AnnoscrWindow = GObject.registerClass(
     }
   },
 );
+
+function colorToRgba(c: ColorRGBA): Gdk.RGBA {
+  const rgba = new Gdk.RGBA();
+  rgba.red = c[0];
+  rgba.green = c[1];
+  rgba.blue = c[2];
+  rgba.alpha = c[3];
+  return rgba;
+}
+
+function rgbaToColor(rgba: Gdk.RGBA): ColorRGBA {
+  return [rgba.red, rgba.green, rgba.blue, rgba.alpha];
+}

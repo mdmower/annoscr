@@ -3,8 +3,10 @@ import Pango from 'gi://Pango?version=1.0';
 import PangoCairo from 'gi://PangoCairo?version=1.0';
 import type Cairo from 'cairo';
 
+export type ColorRGBA = [number, number, number, number];
+
 export interface Style {
-  color: [number, number, number, number];
+  color: ColorRGBA;
   width: number;
 }
 
@@ -25,6 +27,12 @@ export interface Action {
   // are the source image dimensions BEFORE the rotation; the action's stored
   // coords are interpreted in the old image's coordinate space.
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
+  // The action's editable color, or null for actions whose color is fixed
+  // (number stamp's red is part of its identity for now).
+  getColor(): ColorRGBA | null;
+  // Returns a new instance with the color replaced. Actions whose color is
+  // fixed return themselves unchanged.
+  withColor(color: ColorRGBA): Action;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -81,23 +89,30 @@ export interface NumberStampStyle {
   fontSize: number;   // image-space pixels
 }
 
-const RED: Style['color'] = [0.85, 0.18, 0.18, 1.0];
+export const DEFAULT_COLOR: ColorRGBA = [0.85, 0.18, 0.18, 1.0];
+export const DEFAULT_HIGHLIGHTER_COLOR: ColorRGBA = [1.0, 0.92, 0.10, 0.35];
 
-export const PEN_STYLE: Style = { color: RED, width: 4 };
-export const HIGHLIGHTER_STYLE: Style = { color: [1.0, 0.92, 0.10, 0.35], width: 18 };
-export const LINE_STYLE: Style = { color: RED, width: 3 };
-export const ARROW_STYLE: Style = { color: RED, width: 3 };
-export const SHAPE_STYLE: Style = { color: RED, width: 3 };
-export const TEXT_STYLE: TextStyle = { color: RED, size: 24, fontDesc: 'Sans Bold' };
+export const PEN_STYLE: Style = { color: DEFAULT_COLOR, width: 4 };
+export const HIGHLIGHTER_STYLE: Style = { color: DEFAULT_HIGHLIGHTER_COLOR, width: 18 };
+export const LINE_STYLE: Style = { color: DEFAULT_COLOR, width: 3 };
+export const ARROW_STYLE: Style = { color: DEFAULT_COLOR, width: 3 };
+export const SHAPE_STYLE: Style = { color: DEFAULT_COLOR, width: 3 };
+export const TEXT_STYLE: TextStyle = { color: DEFAULT_COLOR, size: 24, fontDesc: 'Sans Bold' };
 export const NUMBER_STAMP_STYLE: NumberStampStyle = {
   radius: 16,
-  fillColor: RED,
+  fillColor: DEFAULT_COLOR,
   borderColor: [1, 1, 1, 1],
   borderWidth: 2,
   textColor: [1, 1, 1, 1],
   fontDesc: 'Sans Bold',
   fontSize: 16,
 };
+
+// Default per-tool colors used both at startup and as the fallback for the
+// color picker when a tool has no explicit override yet.
+export function defaultColorForTool(toolId: ToolId): ColorRGBA {
+  return toolId === 'highlighter' ? DEFAULT_HIGHLIGHTER_COLOR : DEFAULT_COLOR;
+}
 
 const SHAPE_MIN_EXTENT = 2;
 
@@ -155,6 +170,14 @@ class TextAction implements Action {
     const dr = direction === 'cw' ? 1 : 3;
     return new TextAction(nx, ny, this.markup, (this.rotation + dr) % 4, this.style);
   }
+
+  getColor(): ColorRGBA {
+    return this.style.color;
+  }
+
+  withColor(color: ColorRGBA): Action {
+    return new TextAction(this.x, this.y, this.markup, this.rotation, { ...this.style, color });
+  }
 }
 
 export function makeTextAction(
@@ -162,9 +185,9 @@ export function makeTextAction(
   y: number,
   markup: string,
   rotation: number = 0,
-  style: TextStyle = TEXT_STYLE,
+  color: ColorRGBA = DEFAULT_COLOR,
 ): Action {
-  return new TextAction(x, y, markup, ((rotation % 4) + 4) % 4, style);
+  return new TextAction(x, y, markup, ((rotation % 4) + 4) % 4, { ...TEXT_STYLE, color });
 }
 
 export function isTextAction(action: Action): boolean {
@@ -238,6 +261,16 @@ class NumberStampAction implements Action {
     const dr = direction === 'cw' ? 1 : 3;
     return new NumberStampAction(nx, ny, this.n, (this.rotation + dr) % 4, this.style);
   }
+
+  // Number stamp's fillColor is part of its identity in M14; recoloring
+  // happens in a later milestone.
+  getColor(): ColorRGBA | null {
+    return null;
+  }
+
+  withColor(_color: ColorRGBA): Action {
+    return this;
+  }
 }
 
 export function makeNumberStampAction(
@@ -286,6 +319,14 @@ class StrokeAction implements Action {
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const moved: Array<[number, number]> = this.points.map(([x, y]) => rotatePoint(x, y, direction, oldW, oldH));
     return new StrokeAction(moved, this.style);
+  }
+
+  getColor(): ColorRGBA {
+    return this.style.color;
+  }
+
+  withColor(color: ColorRGBA): Action {
+    return new StrokeAction(this.points, { ...this.style, color });
   }
 }
 
@@ -339,6 +380,14 @@ class LineAction implements Action {
     const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
     const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
     return new LineAction(nx1, ny1, nx2, ny2, this.style);
+  }
+
+  getColor(): ColorRGBA {
+    return this.style.color;
+  }
+
+  withColor(color: ColorRGBA): Action {
+    return new LineAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
   }
 }
 
@@ -404,6 +453,14 @@ class ArrowAction implements Action {
     const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
     return new ArrowAction(nx1, ny1, nx2, ny2, this.style);
   }
+
+  getColor(): ColorRGBA {
+    return this.style.color;
+  }
+
+  withColor(color: ColorRGBA): Action {
+    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -462,6 +519,14 @@ class RectAction implements Action {
     const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
     const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
     return new RectAction(nx1, ny1, nx2, ny2, this.style);
+  }
+
+  getColor(): ColorRGBA {
+    return this.style.color;
+  }
+
+  withColor(color: ColorRGBA): Action {
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
   }
 }
 
@@ -530,6 +595,14 @@ class OvalAction implements Action {
     const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
     return new OvalAction(nx1, ny1, nx2, ny2, this.style);
   }
+
+  getColor(): ColorRGBA {
+    return this.style.color;
+  }
+
+  withColor(color: ColorRGBA): Action {
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+  }
 }
 
 class OvalLiveStroke implements LiveStroke {
@@ -556,14 +629,14 @@ class OvalLiveStroke implements LiveStroke {
   }
 }
 
-export function createLiveStroke(toolId: ToolId, x: number, y: number): LiveStroke {
+export function createLiveStroke(toolId: ToolId, x: number, y: number, color: ColorRGBA): LiveStroke {
   switch (toolId) {
-    case 'pen':         return new StrokeLiveStroke(x, y, PEN_STYLE);
-    case 'highlighter': return new StrokeLiveStroke(x, y, HIGHLIGHTER_STYLE);
-    case 'line':        return new LineLiveStroke(x, y, LINE_STYLE);
-    case 'arrow':       return new ArrowLiveStroke(x, y, ARROW_STYLE);
-    case 'rect':        return new RectLiveStroke(x, y, SHAPE_STYLE);
-    case 'oval':        return new OvalLiveStroke(x, y, SHAPE_STYLE);
+    case 'pen':         return new StrokeLiveStroke(x, y, { ...PEN_STYLE,         color });
+    case 'highlighter': return new StrokeLiveStroke(x, y, { ...HIGHLIGHTER_STYLE, color });
+    case 'line':        return new LineLiveStroke(x, y,   { ...LINE_STYLE,        color });
+    case 'arrow':       return new ArrowLiveStroke(x, y,  { ...ARROW_STYLE,       color });
+    case 'rect':        return new RectLiveStroke(x, y,   { ...SHAPE_STYLE,       color });
+    case 'oval':        return new OvalLiveStroke(x, y,   { ...SHAPE_STYLE,       color });
     case 'select':
     case 'text':
     case 'number':
