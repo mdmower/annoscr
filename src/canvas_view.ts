@@ -372,6 +372,17 @@ export const CanvasView = GObject.registerClass(
       return this.state.actions[i];
     }
 
+    // Clear the current selection. Returns true if something was actually
+    // deselected so callers can decide whether to consume the input.
+    clearSelection(): boolean {
+      if (this.selectedIndex < 0) return false;
+      this.selectedIndex = -1;
+      this.lastCoalesceKey = null;
+      this.queue_draw();
+      this.notifyStateChange();
+      return true;
+    }
+
     getActionAt(index: number): Action | null {
       const cur = this.state.actions;
       if (index < 0 || index >= cur.length) return null;

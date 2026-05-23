@@ -543,7 +543,14 @@ export const AnnoscrWindow = GObject.registerClass(
         if (this.canvas.getTool() === 'resize') this.exitResizeMode(true);
       });
       this.bindShortcut(controller, 'Escape', () => {
-        if (this.canvas.getTool() === 'resize') this.exitResizeMode(false);
+        if (this.canvas.getTool() === 'resize') {
+          this.exitResizeMode(false);
+          return true;
+        }
+        // Deselect when the select tool has something picked. Returning false
+        // when nothing is selected lets the event bubble (e.g. to a dialog).
+        if (this.canvas.getTool() === 'select') return this.canvas.clearSelection();
+        return false;
       });
       for (const tool of TOOLS) {
         this.bindShortcut(controller, tool.accelerator, () => this.selectTool(tool.id));
