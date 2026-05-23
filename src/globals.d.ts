@@ -1,14 +1,14 @@
-import "@girs/glib-2.0";
-import "@girs/gobject-2.0";
-import "@girs/gio-2.0";
-import "@girs/gdk-4.0";
-import "@girs/gtk-4.0";
-import "@girs/adw-1";
-import "@girs/gdkpixbuf-2.0";
-import "@girs/pango-1.0";
-import "@girs/pangocairo-1.0";
+import '@girs/glib-2.0';
+import '@girs/gobject-2.0';
+import '@girs/gio-2.0';
+import '@girs/gdk-4.0';
+import '@girs/gtk-4.0';
+import '@girs/adw-1';
+import '@girs/gdkpixbuf-2.0';
+import '@girs/pango-1.0';
+import '@girs/pangocairo-1.0';
 
-import type Cairo from "cairo";
+import type Cairo from 'cairo';
 
 // @girs/gjs declares `class Pattern extends Cairo.Pattern {}` inside a
 // non-exported `declare namespace giCairo`, so external module augmentation

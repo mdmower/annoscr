@@ -1,0 +1,7 @@
+# npm manages this — never reformat.
+package-lock.json
+
+# Debian packaging source files (control, copyright, changelog, rules) have
+# their own whitespace constraints. .gitignore only catches build artifacts
+# inside debian/, not the sources we care about.
+debian/

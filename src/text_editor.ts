@@ -3,7 +3,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import Pango from 'gi://Pango?version=1.0';
 
 const TAG_NAMES = ['bold', 'italic', 'underline'] as const;
-type TagName = typeof TAG_NAMES[number];
+type TagName = (typeof TAG_NAMES)[number];
 
 const MARKUP_TAG: Record<TagName, string> = {
   bold: 'b',
@@ -25,7 +25,7 @@ export interface TextEditorCallbacks {
 export interface TextEditorBeginOptions {
   markup?: string;
   replaceIndex?: number;
-  rotation?: number;     // 0..3 quarter-turns CW (carried through commit unchanged)
+  rotation?: number; // 0..3 quarter-turns CW (carried through commit unchanged)
 }
 
 export class TextEditor {
@@ -79,7 +79,13 @@ export class TextEditor {
     return this.active;
   }
 
-  beginAt(imageX: number, imageY: number, widgetX: number, widgetY: number, options?: TextEditorBeginOptions): void {
+  beginAt(
+    imageX: number,
+    imageY: number,
+    widgetX: number,
+    widgetY: number,
+    options?: TextEditorBeginOptions
+  ): void {
     this.imageX = imageX;
     this.imageY = imageY;
     this.rotation = options?.rotation ?? 0;
@@ -132,9 +138,9 @@ export class TextEditor {
 
   private installTags(): void {
     const table = this.buffer.get_tag_table();
-    table.add(new Gtk.TextTag({ name: 'bold', weight: Pango.Weight.BOLD }));
-    table.add(new Gtk.TextTag({ name: 'italic', style: Pango.Style.ITALIC }));
-    table.add(new Gtk.TextTag({ name: 'underline', underline: Pango.Underline.SINGLE }));
+    table.add(new Gtk.TextTag({name: 'bold', weight: Pango.Weight.BOLD}));
+    table.add(new Gtk.TextTag({name: 'italic', style: Pango.Style.ITALIC}));
+    table.add(new Gtk.TextTag({name: 'underline', underline: Pango.Underline.SINGLE}));
   }
 
   private installPendingTagsApplier(): void {
@@ -250,7 +256,7 @@ export class TextEditor {
   // so a small custom parser is enough. GJS's Pango.AttrIterator.get(type) is
   // unreliable, so we don't use Pango.parse_markup here.
   private setBufferFromMarkup(markup: string): void {
-    const { plainText, runs } = parseSimpleMarkup(markup);
+    const {plainText, runs} = parseSimpleMarkup(markup);
     this.buffer.set_text(plainText, -1);
     for (const run of runs) {
       if (run.tags.size === 0) continue;
@@ -269,7 +275,10 @@ interface MarkupRun {
   tags: Set<TagName>;
 }
 
-function parseSimpleMarkup(markup: string): { plainText: string; runs: MarkupRun[] } {
+function parseSimpleMarkup(markup: string): {
+  plainText: string;
+  runs: MarkupRun[];
+} {
   let plainText = '';
   const runs: MarkupRun[] = [];
   const stack: TagName[] = [];
@@ -277,7 +286,7 @@ function parseSimpleMarkup(markup: string): { plainText: string; runs: MarkupRun
 
   function flushRun(end: number): void {
     if (end > runStart) {
-      runs.push({ start: runStart, end, tags: new Set(stack) });
+      runs.push({start: runStart, end, tags: new Set(stack)});
     }
     runStart = end;
   }
@@ -319,16 +328,21 @@ function parseSimpleMarkup(markup: string): { plainText: string; runs: MarkupRun
   }
   flushRun(plainText.length);
 
-  return { plainText, runs };
+  return {plainText, runs};
 }
 
 function decodeEntity(name: string): string {
   switch (name) {
-    case 'amp': return '&';
-    case 'lt': return '<';
-    case 'gt': return '>';
-    case 'quot': return '"';
-    case 'apos': return "'";
+    case 'amp':
+      return '&';
+    case 'lt':
+      return '<';
+    case 'gt':
+      return '>';
+    case 'quot':
+      return '"';
+    case 'apos':
+      return "'";
     default:
       // Numeric character references (&#NN; / &#xHH;) are rare in our output
       // but worth a try; unknown entities collapse to empty.

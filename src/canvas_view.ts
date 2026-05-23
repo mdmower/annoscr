@@ -3,7 +3,7 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import cairo from 'cairo';
 import type Cairo from 'cairo';
-import type { CairoPatternExt } from './globals.js';
+import type {CairoPatternExt} from './globals.js';
 
 import {
   Action,
@@ -19,9 +19,9 @@ import {
   getTextEditState,
   makeNumberStampAction,
 } from './actions.js';
-import { resizeSurface, rotateSurface } from './image_transforms.js';
-import { renderToSurface } from './exporter.js';
-import type { RotateDirection } from './actions.js';
+import {resizeSurface, rotateSurface} from './image_transforms.js';
+import {renderToSurface} from './exporter.js';
+import type {RotateDirection} from './actions.js';
 
 export interface ResizeRect {
   x: number;
@@ -49,7 +49,7 @@ export type TextEditRequest = (
   imageY: number,
   widgetX: number,
   widgetY: number,
-  options?: TextEditRequestOptions,
+  options?: TextEditRequestOptions
 ) => void;
 
 function isShift(gesture: Gtk.GestureDrag): boolean {
@@ -66,13 +66,13 @@ function cursorForTool(id: ToolId): string {
   return 'crosshair';
 }
 
-function normalizeRegion(r: { x1: number; y1: number; x2: number; y2: number }): ResizeRect | null {
+function normalizeRegion(r: {x1: number; y1: number; x2: number; y2: number}): ResizeRect | null {
   const minX = Math.min(r.x1, r.x2);
   const maxX = Math.max(r.x1, r.x2);
   const minY = Math.min(r.y1, r.y2);
   const maxY = Math.max(r.y1, r.y2);
   if (maxX - minX < 1 || maxY - minY < 1) return null;
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
 }
 
 function pointInBounds(x: number, y: number, b: Bounds): boolean {
@@ -118,27 +118,36 @@ type ResizeGrab = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'inside' |
 
 function cursorForResizeGrab(grab: ResizeGrab): string {
   switch (grab) {
-    case 'tl': case 'br': return 'nwse-resize';
-    case 'tr': case 'bl': return 'nesw-resize';
-    case 't':  case 'b':  return 'ns-resize';
-    case 'l':  case 'r':  return 'ew-resize';
+    case 'tl':
+    case 'br':
+      return 'nwse-resize';
+    case 'tr':
+    case 'bl':
+      return 'nesw-resize';
+    case 't':
+    case 'b':
+      return 'ns-resize';
+    case 'l':
+    case 'r':
+      return 'ew-resize';
     // Inside the bounded region (but not on a handle) and outside it both
     // start a fresh region — same gesture, same cursor.
     case 'inside':
-    case 'outside':       return 'crosshair';
+    case 'outside':
+      return 'crosshair';
     default:
       throw new Error('Unrecognized resize grab');
   }
 }
 
 export const CanvasView = GObject.registerClass(
-  { GTypeName: 'CanvasView' },
+  {GTypeName: 'CanvasView'},
   class extends Gtk.DrawingArea {
     // Immutable snapshot history. Each state is {surface, actions}; modifying
     // operations produce a new state and push it. Untouched actions and the
     // surface are shared by reference across states. Capped at HISTORY_CAP to
     // bound memory when rotate/resize allocate new surfaces.
-    private history: CanvasState[] = [{ surface: null, actions: [] }];
+    private history: CanvasState[] = [{surface: null, actions: []}];
     private historyCursor: number = 0;
 
     private mode: DisplayMode = 'fit';
@@ -160,7 +169,12 @@ export const CanvasView = GObject.registerClass(
 
     // Raw resize region while in resize mode (image-space coords; may extend
     // outside current image bounds in any direction).
-    private resizeRegion: { x1: number; y1: number; x2: number; y2: number } | null = null;
+    private resizeRegion: {
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+    } | null = null;
 
     // Tracks which edges/corners of the resize region the active drag is
     // grabbing. null when not currently dragging in resize mode.
@@ -195,7 +209,7 @@ export const CanvasView = GObject.registerClass(
     private lastCoalesceKey: string | null = null;
 
     constructor() {
-      super({ hexpand: true, vexpand: true });
+      super({hexpand: true, vexpand: true});
       this.set_draw_func(this.onDraw.bind(this));
       this.installPointer();
     }
@@ -211,9 +225,7 @@ export const CanvasView = GObject.registerClass(
       }
 
       const canCoalesce =
-        coalesceKey !== null &&
-        coalesceKey === this.lastCoalesceKey &&
-        this.history.length > 1;
+        coalesceKey !== null && coalesceKey === this.lastCoalesceKey && this.history.length > 1;
 
       if (canCoalesce) {
         this.history[this.historyCursor] = next;
@@ -242,7 +254,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     setImage(surface: Cairo.ImageSurface): void {
-      this.history = [{ surface, actions: [] }];
+      this.history = [{surface, actions: []}];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
       this.lastCoalesceKey = null;
@@ -252,7 +264,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     clearImage(): void {
-      this.history = [{ surface: null, actions: [] }];
+      this.history = [{surface: null, actions: []}];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
       this.lastCoalesceKey = null;
@@ -305,7 +317,7 @@ export const CanvasView = GObject.registerClass(
         // Auto-select current canvas bounds so the user can immediately drag
         // a handle to adjust, rather than having to drag a fresh region.
         const s = this.state.surface;
-        this.resizeRegion = { x1: 0, y1: 0, x2: s.getWidth(), y2: s.getHeight() };
+        this.resizeRegion = {x1: 0, y1: 0, x2: s.getWidth(), y2: s.getHeight()};
       } else if (toolId !== 'resize') {
         this.resizeRegion = null;
       }
@@ -374,10 +386,13 @@ export const CanvasView = GObject.registerClass(
       if (i < 0 || i >= cur.length) return false;
       if (cur[i].getColor() === null) return false;
       const recolored = cur[i].withColor(color);
-      this.pushState({
-        surface: this.state.surface,
-        actions: cur.map((a, j) => (j === i ? recolored : a)),
-      }, `color:${i}`);
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: cur.map((a, j) => (j === i ? recolored : a)),
+        },
+        `color:${i}`
+      );
       this.queue_draw();
       return true;
     }
@@ -388,10 +403,13 @@ export const CanvasView = GObject.registerClass(
       if (i < 0 || i >= cur.length) return false;
       if (cur[i].getWidth() === null) return false;
       const resized = cur[i].withWidth(width);
-      this.pushState({
-        surface: this.state.surface,
-        actions: cur.map((a, j) => (j === i ? resized : a)),
-      }, `width:${i}`);
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: cur.map((a, j) => (j === i ? resized : a)),
+        },
+        `width:${i}`
+      );
       this.queue_draw();
       return true;
     }
@@ -402,19 +420,19 @@ export const CanvasView = GObject.registerClass(
 
     // Width × height of the current image in source pixels, or null if no
     // image is loaded.
-    getImageDimensions(): { w: number; h: number } | null {
+    getImageDimensions(): {w: number; h: number} | null {
       const s = this.state.surface;
       if (!s) return null;
-      return { w: s.getWidth(), h: s.getHeight() };
+      return {w: s.getWidth(), h: s.getHeight()};
     }
 
     // Width × height of the currently-defined resize region (rounded to whole
     // pixels), or null if no region or not in resize mode.
-    getResizeDimensions(): { w: number; h: number } | null {
+    getResizeDimensions(): {w: number; h: number} | null {
       if (this.currentToolId !== 'resize') return null;
       const r = this.getResizeRect();
       if (!r) return null;
-      return { w: Math.round(r.w), h: Math.round(r.h) };
+      return {w: Math.round(r.w), h: Math.round(r.h)};
     }
 
     addAction(action: Action): void {
@@ -473,7 +491,7 @@ export const CanvasView = GObject.registerClass(
       if (!rect || !s) return false;
       this.pushState({
         surface: resizeSurface(s, rect.x, rect.y, rect.w, rect.h),
-        actions: this.state.actions.map(a => a.translate(-rect.x, -rect.y)),
+        actions: this.state.actions.map((a) => a.translate(-rect.x, -rect.y)),
       });
       this.resizeRegion = null;
       this.liveStroke = null;
@@ -497,7 +515,7 @@ export const CanvasView = GObject.registerClass(
       const oldH = s.getHeight();
       this.pushState({
         surface: rotateSurface(s, direction),
-        actions: this.state.actions.map(a => a.rotateOnImage(direction, oldW, oldH)),
+        actions: this.state.actions.map((a) => a.rotateOnImage(direction, oldW, oldH)),
       });
       this.liveStroke = null;
       this.selectedIndex = -1;
@@ -596,7 +614,7 @@ export const CanvasView = GObject.registerClass(
         // (inside body, outside the region, or no region yet) starts a
         // fresh region from this point with BR-drag semantics.
         if (grab === 'inside' || grab === 'outside' || !this.resizeRegion) {
-          this.resizeRegion = { x1: ix, y1: iy, x2: ix, y2: iy };
+          this.resizeRegion = {x1: ix, y1: iy, x2: ix, y2: iy};
           this.resizeGrab = 'br';
         } else {
           this.resizeGrab = grab;
@@ -606,8 +624,10 @@ export const CanvasView = GObject.registerClass(
       }
       if (!isDragTool(this.currentToolId)) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      const color = this.getToolColor(this.currentToolId) ?? defaultColorForTool(this.currentToolId);
-      const width = this.getToolWidth(this.currentToolId) ?? defaultWidthForTool(this.currentToolId) ?? 1;
+      const color =
+        this.getToolColor(this.currentToolId) ?? defaultColorForTool(this.currentToolId);
+      const width =
+        this.getToolWidth(this.currentToolId) ?? defaultWidthForTool(this.currentToolId) ?? 1;
       this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color, width);
       this.queue_draw();
     }
@@ -748,23 +768,25 @@ export const CanvasView = GObject.registerClass(
     private hitTestResizeRegion(ix: number, iy: number, tol: number): ResizeGrab {
       const r = this.getResizeRect();
       if (!r) return 'outside';
-      const x1 = r.x, x2 = r.x + r.w;
-      const y1 = r.y, y2 = r.y + r.h;
-      const nearLeft   = Math.abs(ix - x1) <= tol;
-      const nearRight  = Math.abs(ix - x2) <= tol;
-      const nearTop    = Math.abs(iy - y1) <= tol;
+      const x1 = r.x,
+        x2 = r.x + r.w;
+      const y1 = r.y,
+        y2 = r.y + r.h;
+      const nearLeft = Math.abs(ix - x1) <= tol;
+      const nearRight = Math.abs(ix - x2) <= tol;
+      const nearTop = Math.abs(iy - y1) <= tol;
       const nearBottom = Math.abs(iy - y2) <= tol;
-      const withinX    = ix >= x1 - tol && ix <= x2 + tol;
-      const withinY    = iy >= y1 - tol && iy <= y2 + tol;
+      const withinX = ix >= x1 - tol && ix <= x2 + tol;
+      const withinY = iy >= y1 - tol && iy <= y2 + tol;
 
-      if (nearTop && nearLeft && withinX && withinY)    return 'tl';
-      if (nearTop && nearRight && withinX && withinY)   return 'tr';
+      if (nearTop && nearLeft && withinX && withinY) return 'tl';
+      if (nearTop && nearRight && withinX && withinY) return 'tr';
       if (nearBottom && nearLeft && withinX && withinY) return 'bl';
-      if (nearBottom && nearRight && withinX && withinY)return 'br';
-      if (nearTop && withinX)    return 't';
+      if (nearBottom && nearRight && withinX && withinY) return 'br';
+      if (nearTop && withinX) return 't';
       if (nearBottom && withinX) return 'b';
-      if (nearLeft && withinY)   return 'l';
-      if (nearRight && withinY)  return 'r';
+      if (nearLeft && withinY) return 'l';
+      if (nearRight && withinY) return 'r';
       if (ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2) return 'inside';
       return 'outside';
     }
@@ -791,13 +813,16 @@ export const CanvasView = GObject.registerClass(
     // during resize mode, the union of image bounds and every action's bounds
     // (plus a small margin) so orphan annotations are visible and reachable
     // for rescue. The display transform fits this rectangle into the widget.
-    private displayedArea(): { x: number; y: number; w: number; h: number } {
+    private displayedArea(): {x: number; y: number; w: number; h: number} {
       const s = this.state.surface;
       const imgW = s ? s.getWidth() : 0;
       const imgH = s ? s.getHeight() : 0;
-      if (this.currentToolId !== 'resize') return { x: 0, y: 0, w: imgW, h: imgH };
+      if (this.currentToolId !== 'resize') return {x: 0, y: 0, w: imgW, h: imgH};
 
-      let minX = 0, minY = 0, maxX = imgW, maxY = imgH;
+      let minX = 0,
+        minY = 0,
+        maxX = imgW,
+        maxY = imgH;
       for (const action of this.state.actions) {
         const b = action.getBounds();
         if (!b) continue;
@@ -810,18 +835,16 @@ export const CanvasView = GObject.registerClass(
       return {
         x: minX - margin,
         y: minY - margin,
-        w: (maxX - minX) + 2 * margin,
-        h: (maxY - minY) + 2 * margin,
+        w: maxX - minX + 2 * margin,
+        h: maxY - minY + 2 * margin,
       };
     }
 
     private computeTransform(widgetW: number, widgetH: number): Transform {
       const s = this.state.surface;
-      if (!s) return { scale: 1, offsetX: 0, offsetY: 0 };
+      if (!s) return {scale: 1, offsetX: 0, offsetY: 0};
       const area = this.displayedArea();
-      const scale = this.mode === 'actual'
-        ? 1
-        : Math.min(widgetW / area.w, widgetH / area.h, 1);
+      const scale = this.mode === 'actual' ? 1 : Math.min(widgetW / area.w, widgetH / area.h, 1);
       const drawW = area.w * scale;
       const drawH = area.h * scale;
       // Image-space (area.x, area.y) lands at the centered top-left of the
@@ -833,7 +856,12 @@ export const CanvasView = GObject.registerClass(
       };
     }
 
-    private onDraw(_widget: Gtk.DrawingArea, cr: Cairo.Context, widgetW: number, widgetH: number): void {
+    private onDraw(
+      _widget: Gtk.DrawingArea,
+      cr: Cairo.Context,
+      widgetW: number,
+      widgetH: number
+    ): void {
       cr.setSourceRGB(0.12, 0.12, 0.12);
       cr.paint();
 
@@ -858,7 +886,9 @@ export const CanvasView = GObject.registerClass(
       cr.fill();
 
       cr.setSourceSurface(s, 0, 0);
-      (cr.getSource() as unknown as CairoPatternExt).setFilter(t.scale === 1 ? cairo.Filter.NEAREST : cairo.Filter.BILINEAR);
+      (cr.getSource() as unknown as CairoPatternExt).setFilter(
+        t.scale === 1 ? cairo.Filter.NEAREST : cairo.Filter.BILINEAR
+      );
       cr.paint();
 
       const acts = this.state.actions;
@@ -901,10 +931,16 @@ export const CanvasView = GObject.registerClass(
 
       cr.restore();
     }
-  },
+  }
 );
 
-function drawResizeOverlay(cr: Cairo.Context, imgW: number, imgH: number, rect: ResizeRect | null, scale: number): void {
+function drawResizeOverlay(
+  cr: Cairo.Context,
+  imgW: number,
+  imgH: number,
+  rect: ResizeRect | null,
+  scale: number
+): void {
   cr.save();
 
   // Dim the parts of the *current image* that fall outside the new region —
@@ -931,7 +967,13 @@ function drawResizeOverlay(cr: Cairo.Context, imgW: number, imgH: number, rect: 
   cr.restore();
 }
 
-function drawSelectionBox(cr: Cairo.Context, bounds: Bounds, scale: number, ox: number, oy: number): void {
+function drawSelectionBox(
+  cr: Cairo.Context,
+  bounds: Bounds,
+  scale: number,
+  ox: number,
+  oy: number
+): void {
   const pad = 4 / scale;
   const lineWidth = 1.5 / scale;
   const dashOn = 6 / scale;
@@ -947,7 +989,7 @@ function drawSelectionBox(cr: Cairo.Context, bounds: Bounds, scale: number, ox: 
     bounds.x1 + ox - pad,
     bounds.y1 + oy - pad,
     bounds.x2 - bounds.x1 + 2 * pad,
-    bounds.y2 - bounds.y1 + 2 * pad,
+    bounds.y2 - bounds.y1 + 2 * pad
   );
   cr.stroke();
   cr.restore();

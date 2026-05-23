@@ -3,20 +3,30 @@ import Gdk from 'gi://Gdk?version=4.0';
 import cairo from 'cairo';
 import type Cairo from 'cairo';
 
-import type { Action } from './actions.js';
+import type {Action} from './actions.js';
 
 export type ImageFormat = 'png' | 'jpeg';
 
 export interface FormatInfo {
-  ext: string;       // canonical extension including the dot
+  ext: string; // canonical extension including the dot
   mime: string;
-  label: string;     // file-filter display name
+  label: string; // file-filter display name
   patterns: string[];
 }
 
 export const FORMATS: Record<ImageFormat, FormatInfo> = {
-  png:  { ext: '.png',  mime: 'image/png',  label: 'PNG image',  patterns: ['*.png'] },
-  jpeg: { ext: '.jpeg', mime: 'image/jpeg', label: 'JPEG image', patterns: ['*.jpg', '*.jpeg'] },
+  png: {
+    ext: '.png',
+    mime: 'image/png',
+    label: 'PNG image',
+    patterns: ['*.png'],
+  },
+  jpeg: {
+    ext: '.jpeg',
+    mime: 'image/jpeg',
+    label: 'JPEG image',
+    patterns: ['*.jpg', '*.jpeg'],
+  },
 };
 
 export function formatFromPath(path: string): ImageFormat {
@@ -27,7 +37,10 @@ export function formatFromPath(path: string): ImageFormat {
 
 // Composite source image + every action onto a fresh ARGB32 surface at the
 // source image's native resolution. This is what gets saved or copied.
-export function renderToSurface(srcSurface: Cairo.ImageSurface, actions: ReadonlyArray<Action>): Cairo.ImageSurface {
+export function renderToSurface(
+  srcSurface: Cairo.ImageSurface,
+  actions: ReadonlyArray<Action>
+): Cairo.ImageSurface {
   const w = srcSurface.getWidth();
   const h = srcSurface.getHeight();
   const out = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
@@ -72,7 +85,10 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
 // deadlock when this same process pastes the clipboard back: the synchronous
 // PNG serializer and the synchronous stream reader both run on the main loop
 // and stall each other.
-export function copySurfaceToClipboard(clipboard: Gdk.Clipboard, surface: Cairo.ImageSurface): void {
+export function copySurfaceToClipboard(
+  clipboard: Gdk.Clipboard,
+  surface: Cairo.ImageSurface
+): void {
   const w = surface.getWidth();
   const h = surface.getHeight();
   // Same GJS constraint as the JPEG path: no JS-accessible way to get cairo

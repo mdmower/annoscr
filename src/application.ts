@@ -2,10 +2,10 @@ import GObject from 'gi://GObject?version=2.0';
 import Gio from 'gi://Gio?version=2.0';
 import Adw from 'gi://Adw?version=1';
 
-import { AnnoscrWindow } from './window.js';
+import {AnnoscrWindow} from './window.js';
 
 export const AnnoscrApplication = GObject.registerClass(
-  { GTypeName: 'AnnoscrApplication' },
+  {GTypeName: 'AnnoscrApplication'},
   class extends Adw.Application {
     constructor() {
       super({
@@ -18,5 +18,5 @@ export const AnnoscrApplication = GObject.registerClass(
       const win = this.active_window ?? new AnnoscrWindow(this);
       win.present();
     }
-  },
+  }
 );

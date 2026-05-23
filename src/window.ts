@@ -8,9 +8,9 @@ import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
 import cairo from 'cairo';
 import type Cairo from 'cairo';
 
-import { AnnoscrApplication } from './application.js';
-import { CanvasView } from './canvas_view.js';
-import { loadFromFile, loadFromPixbuf } from './image_loader.js';
+import {AnnoscrApplication} from './application.js';
+import {CanvasView} from './canvas_view.js';
+import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {
   ColorRGBA,
   ToolId,
@@ -20,7 +20,7 @@ import {
   defaultWidthForTool,
   makeTextAction,
 } from './actions.js';
-import { TextEditor, TextEditorBeginOptions } from './text_editor.js';
+import {TextEditor, TextEditorBeginOptions} from './text_editor.js';
 import {
   FORMATS,
   ImageFormat,
@@ -47,19 +47,19 @@ interface ToolDef {
 }
 
 const TOOLS: ToolDef[] = [
-  { id: 'select',      label: 'Select',    accelerator: 's' },
-  { id: 'pen',         label: 'Pen',       accelerator: 'p' },
-  { id: 'highlighter', label: 'Highlight', accelerator: 'h' },
-  { id: 'text',        label: 'Text',      accelerator: 't' },
-  { id: 'number',      label: 'Number',    accelerator: 'n' },
-  { id: 'line',        label: 'Line',      accelerator: 'l' },
-  { id: 'arrow',       label: 'Arrow',     accelerator: 'a' },
-  { id: 'rect',        label: 'Rect',      accelerator: 'r' },
-  { id: 'oval',        label: 'Oval',      accelerator: 'o' },
+  {id: 'select', label: 'Select', accelerator: 's'},
+  {id: 'pen', label: 'Pen', accelerator: 'p'},
+  {id: 'highlighter', label: 'Highlight', accelerator: 'h'},
+  {id: 'text', label: 'Text', accelerator: 't'},
+  {id: 'number', label: 'Number', accelerator: 'n'},
+  {id: 'line', label: 'Line', accelerator: 'l'},
+  {id: 'arrow', label: 'Arrow', accelerator: 'a'},
+  {id: 'rect', label: 'Rect', accelerator: 'r'},
+  {id: 'oval', label: 'Oval', accelerator: 'o'},
 ];
 
 export const AnnoscrWindow = GObject.registerClass(
-  { GTypeName: 'AnnoscrWindow' },
+  {GTypeName: 'AnnoscrWindow'},
   class extends Adw.ApplicationWindow {
     private canvas: InstanceType<typeof CanvasView>;
     private stack: Gtk.Stack;
@@ -141,10 +141,19 @@ export const AnnoscrWindow = GObject.registerClass(
       this.canvas = new CanvasView();
 
       this.editor = new TextEditor({
-        onCommit: (markup: string, ix: number, iy: number, rotation: number, replaceIndex?: number) => {
+        onCommit: (
+          markup: string,
+          ix: number,
+          iy: number,
+          rotation: number,
+          replaceIndex?: number
+        ) => {
           const color = this.textColorFor(replaceIndex);
           if (replaceIndex !== undefined) {
-            this.canvas.replaceAction(replaceIndex, makeTextAction(ix, iy, markup, rotation, color));
+            this.canvas.replaceAction(
+              replaceIndex,
+              makeTextAction(ix, iy, markup, rotation, color)
+            );
           } else {
             this.canvas.addAction(makeTextAction(ix, iy, markup, rotation, color));
           }
@@ -153,13 +162,15 @@ export const AnnoscrWindow = GObject.registerClass(
           if (replaceIndex !== undefined) this.canvas.clearEditing();
         },
       });
-      this.canvas.setTextEditRequestHandler((ix: number, iy: number, wx: number, wy: number, options?: TextEditorBeginOptions) => {
-        // Click on canvas with text tool active (or double-click with select tool):
-        // commit any prior edit, then begin a new one. Pass-through options
-        // carry markup + replaceIndex for re-edit of an existing TextAction.
-        this.editor.commitIfActive();
-        this.editor.beginAt(ix, iy, wx, wy, options);
-      });
+      this.canvas.setTextEditRequestHandler(
+        (ix: number, iy: number, wx: number, wy: number, options?: TextEditorBeginOptions) => {
+          // Click on canvas with text tool active (or double-click with select tool):
+          // commit any prior edit, then begin a new one. Pass-through options
+          // carry markup + replaceIndex for re-edit of an existing TextAction.
+          this.editor.commitIfActive();
+          this.editor.beginAt(ix, iy, wx, wy, options);
+        }
+      );
 
       const overlay = new Gtk.Overlay();
       overlay.set_child(this.canvas);
@@ -235,17 +246,29 @@ export const AnnoscrWindow = GObject.registerClass(
         margin_bottom: 4,
       });
 
-      const colorLabel = new Gtk.Label({ label: 'Color', css_classes: ['caption'] });
-      const dialog = new Gtk.ColorDialog({ with_alpha: true });
-      this.colorButton = new Gtk.ColorDialogButton({ dialog });
+      const colorLabel = new Gtk.Label({
+        label: 'Color',
+        css_classes: ['caption'],
+      });
+      const dialog = new Gtk.ColorDialog({with_alpha: true});
+      this.colorButton = new Gtk.ColorDialogButton({dialog});
       this.colorButton.connect('notify::rgba', () => this.onColorPicked());
       box.append(colorLabel);
       box.append(this.colorButton);
 
       // Visual gap between the two style controls.
-      box.append(new Gtk.Separator({ orientation: Gtk.Orientation.VERTICAL, margin_start: 8, margin_end: 8 }));
+      box.append(
+        new Gtk.Separator({
+          orientation: Gtk.Orientation.VERTICAL,
+          margin_start: 8,
+          margin_end: 8,
+        })
+      );
 
-      const widthLabel = new Gtk.Label({ label: 'Width', css_classes: ['caption'] });
+      const widthLabel = new Gtk.Label({
+        label: 'Width',
+        css_classes: ['caption'],
+      });
       this.widthScale = new Gtk.Scale({
         orientation: Gtk.Orientation.HORIZONTAL,
         adjustment: new Gtk.Adjustment({
@@ -426,16 +449,16 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private openImageDialogUnchecked(): void {
-      const dialog = new Gtk.FileDialog({ title: 'Open image', modal: true });
+      const dialog = new Gtk.FileDialog({title: 'Open image', modal: true});
 
-      const filter = new Gtk.FileFilter({ name: 'Images' });
+      const filter = new Gtk.FileFilter({name: 'Images'});
       filter.add_mime_type('image/png');
       filter.add_mime_type('image/jpeg');
       filter.add_mime_type('image/webp');
       filter.add_mime_type('image/gif');
       filter.add_mime_type('image/bmp');
       filter.add_mime_type('image/tiff');
-      const filters = new Gio.ListStore({ item_type: Gtk.FileFilter.$gtype });
+      const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
       filters.append(filter);
       dialog.set_filters(filters);
       dialog.set_default_filter(filter);
@@ -541,7 +564,8 @@ export const AnnoscrWindow = GObject.registerClass(
           tooltip_text: `${tool.label} (${tool.accelerator.toUpperCase()})`,
           active: tool.id === this.canvas.getTool(),
         });
-        if (group) btn.set_group(group); else group = btn;
+        if (group) btn.set_group(group);
+        else group = btn;
         btn.connect('toggled', () => {
           if (btn.get_active()) this.selectTool(tool.id);
         });
@@ -581,9 +605,12 @@ export const AnnoscrWindow = GObject.registerClass(
         visible: false,
         css_classes: ['toolbar', 'osd'],
       });
-      const cancelBtn = new Gtk.Button({ label: 'Cancel' });
+      const cancelBtn = new Gtk.Button({label: 'Cancel'});
       cancelBtn.connect('clicked', () => this.exitResizeMode(false));
-      const applyBtn = new Gtk.Button({ label: 'Apply', css_classes: ['suggested-action'] });
+      const applyBtn = new Gtk.Button({
+        label: 'Apply',
+        css_classes: ['suggested-action'],
+      });
       applyBtn.connect('clicked', () => this.exitResizeMode(true));
       box.append(cancelBtn);
       box.append(applyBtn);
@@ -613,7 +640,11 @@ export const AnnoscrWindow = GObject.registerClass(
       this.setActiveTool('select');
     }
 
-    private bindShortcut(controller: Gtk.ShortcutController, accelerator: string, callback: () => boolean | void): void {
+    private bindShortcut(
+      controller: Gtk.ShortcutController,
+      accelerator: string,
+      callback: () => boolean | void
+    ): void {
       const trigger = Gtk.ShortcutTrigger.parse_string(accelerator);
       const action = Gtk.CallbackAction.new(() => {
         // Returning false from the callback means "not handled" — lets the
@@ -622,27 +653,27 @@ export const AnnoscrWindow = GObject.registerClass(
         const result = callback();
         return result !== false;
       });
-      controller.add_shortcut(new Gtk.Shortcut({ trigger, action }));
+      controller.add_shortcut(new Gtk.Shortcut({trigger, action}));
     }
 
     private saveImageDialog(): void {
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
 
-      const dialog = new Gtk.FileDialog({ title: 'Save image', modal: true });
+      const dialog = new Gtk.FileDialog({title: 'Save image', modal: true});
       dialog.set_initial_name(defaultSaveFilename());
       dialog.set_initial_folder(Gio.File.new_for_path(defaultSaveFolderPath()));
 
       // Single combined filter — extension in the filename decides the format.
       // Two separate filters would mislead the user: Gtk.FileDialog doesn't
       // report which one was active, so a dropdown pick can't drive format.
-      const filter = new Gtk.FileFilter({ name: 'Image (PNG, JPEG)' });
+      const filter = new Gtk.FileFilter({name: 'Image (PNG, JPEG)'});
       for (const key of Object.keys(FORMATS) as ImageFormat[]) {
         const f = FORMATS[key];
         filter.add_mime_type(f.mime);
         for (const p of f.patterns) filter.add_pattern(p);
       }
-      const filters = new Gio.ListStore({ item_type: Gtk.FileFilter.$gtype });
+      const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
       filters.append(filter);
       dialog.set_filters(filters);
       dialog.set_default_filter(filter);
@@ -670,7 +701,8 @@ export const AnnoscrWindow = GObject.registerClass(
         // If the user typed a name without an extension, append the canonical
         // one for the format their filter implied (PNG by default).
         const lower = path.toLowerCase();
-        const hasKnownExt = lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+        const hasKnownExt =
+          lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
         if (!hasKnownExt) path = path + FORMATS[format].ext;
 
         try {
@@ -702,7 +734,7 @@ export const AnnoscrWindow = GObject.registerClass(
     private pasteFromClipboardUnchecked(): void {
       const clipboard = this.get_clipboard();
       clipboard.read_async(IMAGE_MIME_TYPES, GLib.PRIORITY_DEFAULT, null, (_src, result) => {
-        let stream: Gio.InputStream  | null = null;
+        let stream: Gio.InputStream | null = null;
         try {
           [stream] = clipboard.read_finish(result);
         } catch {
@@ -739,14 +771,17 @@ export const AnnoscrWindow = GObject.registerClass(
           const bytes = stream.read_bytes(64 * 1024, null);
           stream.close(null);
           const text = new TextDecoder().decode(bytes.toArray());
-          const uri = text.split(/\r?\n/).find(line => line && !line.startsWith('#'))?.trim();
+          const uri = text
+            .split(/\r?\n/)
+            .find((line) => line && !line.startsWith('#'))
+            ?.trim();
           if (uri) this.loadFile(Gio.File.new_for_uri(uri));
         } catch (e) {
           console.error('paste (uri-list) failed', e);
         }
       });
     }
-  },
+  }
 );
 
 function colorToRgba(c: ColorRGBA): Gdk.RGBA {

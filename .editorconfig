@@ -1,0 +1,27 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+charset = utf-8
+trim_trailing_whitespace = true
+end_of_line = lf
+insert_final_newline = true
+
+[*.ts]
+quote_type = single
+
+[*.md]
+trim_trailing_whitespace = false
+
+# Debian packaging is whitespace-sensitive in subtle ways: debian/changelog's
+# signature line ends with two spaces before the date; leading single-space
+# marks continuation lines in debian/control and debian/copyright. Defend
+# the whole subtree from automatic trimming.
+[debian/**]
+trim_trailing_whitespace = false
+
+# Makefile recipes (debian/rules is a Makefile) must start with a real TAB.
+# An IDE auto-converting to spaces would silently break the build.
+[{Makefile,debian/rules}]
+indent_style = tab

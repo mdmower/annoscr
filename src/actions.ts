@@ -42,7 +42,13 @@ export interface Action {
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
 // rotate + post-translate-to-positive-quadrant transformation.
-function rotatePoint(x: number, y: number, direction: RotateDirection, oldW: number, oldH: number): [number, number] {
+function rotatePoint(
+  x: number,
+  y: number,
+  direction: RotateDirection,
+  oldW: number,
+  oldH: number
+): [number, number] {
   return direction === 'cw' ? [oldH - y, x] : [y, oldW - x];
 }
 
@@ -50,11 +56,16 @@ function rotatePoint(x: number, y: number, direction: RotateDirection, oldW: num
 // dimensions w × h and `rotation` quarter-turns CW (0..3).
 function textBounds(x: number, y: number, w: number, h: number, rotation: number): Bounds {
   switch (((rotation % 4) + 4) % 4) {
-    case 0: return { x1: x,     y1: y,     x2: x + w, y2: y + h };
-    case 1: return { x1: x - h, y1: y,     x2: x,     y2: y + w };
-    case 2: return { x1: x - w, y1: y - h, x2: x,     y2: y     };
-    case 3: return { x1: x,     y1: y - w, x2: x + h, y2: y     };
-    default: return { x1: x, y1: y, x2: x, y2: y };
+    case 0:
+      return {x1: x, y1: y, x2: x + w, y2: y + h};
+    case 1:
+      return {x1: x - h, y1: y, x2: x, y2: y + w};
+    case 2:
+      return {x1: x - w, y1: y - h, x2: x, y2: y};
+    case 3:
+      return {x1: x, y1: y - w, x2: x + h, y2: y};
+    default:
+      return {x1: x, y1: y, x2: x, y2: y};
   }
 }
 
@@ -80,29 +91,36 @@ export type ToolId =
 
 export interface TextStyle {
   color: [number, number, number, number];
-  size: number;       // image-space pixels (font height)
-  fontDesc: string;   // Pango font description string
+  size: number; // image-space pixels (font height)
+  fontDesc: string; // Pango font description string
 }
 
 export interface NumberStampStyle {
-  radius: number;     // image-space pixels
+  radius: number; // image-space pixels
   fillColor: [number, number, number, number];
   borderColor: [number, number, number, number];
   borderWidth: number;
   textColor: [number, number, number, number];
   fontDesc: string;
-  fontSize: number;   // image-space pixels
+  fontSize: number; // image-space pixels
 }
 
 export const DEFAULT_COLOR: ColorRGBA = [0.85, 0.18, 0.18, 1.0];
-export const DEFAULT_HIGHLIGHTER_COLOR: ColorRGBA = [1.0, 0.92, 0.10, 0.35];
+export const DEFAULT_HIGHLIGHTER_COLOR: ColorRGBA = [1.0, 0.92, 0.1, 0.35];
 
-export const PEN_STYLE: Style = { color: DEFAULT_COLOR, width: 4 };
-export const HIGHLIGHTER_STYLE: Style = { color: DEFAULT_HIGHLIGHTER_COLOR, width: 18 };
-export const LINE_STYLE: Style = { color: DEFAULT_COLOR, width: 3 };
-export const ARROW_STYLE: Style = { color: DEFAULT_COLOR, width: 3 };
-export const SHAPE_STYLE: Style = { color: DEFAULT_COLOR, width: 3 };
-export const TEXT_STYLE: TextStyle = { color: DEFAULT_COLOR, size: 24, fontDesc: 'Sans Bold' };
+export const PEN_STYLE: Style = {color: DEFAULT_COLOR, width: 4};
+export const HIGHLIGHTER_STYLE: Style = {
+  color: DEFAULT_HIGHLIGHTER_COLOR,
+  width: 18,
+};
+export const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
+export const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
+export const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
+export const TEXT_STYLE: TextStyle = {
+  color: DEFAULT_COLOR,
+  size: 24,
+  fontDesc: 'Sans Bold',
+};
 export const NUMBER_STAMP_STYLE: NumberStampStyle = {
   radius: 16,
   fillColor: DEFAULT_COLOR,
@@ -123,17 +141,23 @@ export function defaultColorForTool(toolId: ToolId): ColorRGBA {
 // (text, number, select, resize) return null.
 export function defaultWidthForTool(toolId: ToolId): number | null {
   switch (toolId) {
-    case 'pen':         return PEN_STYLE.width;
-    case 'highlighter': return HIGHLIGHTER_STYLE.width;
-    case 'line':        return LINE_STYLE.width;
-    case 'arrow':       return ARROW_STYLE.width;
+    case 'pen':
+      return PEN_STYLE.width;
+    case 'highlighter':
+      return HIGHLIGHTER_STYLE.width;
+    case 'line':
+      return LINE_STYLE.width;
+    case 'arrow':
+      return ARROW_STYLE.width;
     case 'rect':
-    case 'oval':        return SHAPE_STYLE.width;
+    case 'oval':
+      return SHAPE_STYLE.width;
     case 'text':
     case 'number':
     case 'select':
     case 'resize':
-    default:            return null;
+    default:
+      return null;
   }
 }
 
@@ -156,8 +180,8 @@ class TextAction implements Action {
     public readonly x: number,
     public readonly y: number,
     public readonly markup: string,
-    public readonly rotation: number,        // 0..3 quarter-turns CW
-    private readonly style: TextStyle,
+    public readonly rotation: number, // 0..3 quarter-turns CW
+    private readonly style: TextStyle
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -186,7 +210,7 @@ class TextAction implements Action {
     // Fallback for the rare "added but never drawn" case — a tiny clickable
     // area around the anchor so the action isn't entirely un-hittable.
     const r = this.style.size;
-    return { x1: this.x, y1: this.y, x2: this.x + r, y2: this.y + r };
+    return {x1: this.x, y1: this.y, x2: this.x + r, y2: this.y + r};
   }
 
   translate(dx: number, dy: number): Action {
@@ -204,7 +228,10 @@ class TextAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new TextAction(this.x, this.y, this.markup, this.rotation, { ...this.style, color });
+    return new TextAction(this.x, this.y, this.markup, this.rotation, {
+      ...this.style,
+      color,
+    });
   }
 
   // Text uses a font size, not a stroke width. Width-tool UI greys out
@@ -223,18 +250,28 @@ export function makeTextAction(
   y: number,
   markup: string,
   rotation: number = 0,
-  color: ColorRGBA = DEFAULT_COLOR,
+  color: ColorRGBA = DEFAULT_COLOR
 ): Action {
-  return new TextAction(x, y, markup, ((rotation % 4) + 4) % 4, { ...TEXT_STYLE, color });
+  return new TextAction(x, y, markup, ((rotation % 4) + 4) % 4, {
+    ...TEXT_STYLE,
+    color,
+  });
 }
 
 export function isTextAction(action: Action): boolean {
   return action instanceof TextAction;
 }
 
-export function getTextEditState(action: Action): { x: number; y: number; markup: string; rotation: number } | null {
+export function getTextEditState(
+  action: Action
+): {x: number; y: number; markup: string; rotation: number} | null {
   if (!(action instanceof TextAction)) return null;
-  return { x: action.x, y: action.y, markup: action.markup, rotation: action.rotation };
+  return {
+    x: action.x,
+    y: action.y,
+    markup: action.markup,
+    rotation: action.rotation,
+  };
 }
 
 // ---------- Number stamp ----------
@@ -244,8 +281,8 @@ class NumberStampAction implements Action {
     private readonly x: number,
     private readonly y: number,
     private readonly n: number,
-    private readonly rotation: number,           // 0..3 quarter-turns CW (affects the digit only)
-    private readonly style: NumberStampStyle,
+    private readonly rotation: number, // 0..3 quarter-turns CW (affects the digit only)
+    private readonly style: NumberStampStyle
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -287,7 +324,12 @@ class NumberStampAction implements Action {
   getBounds(): Bounds {
     // Circle bounds — rotation of the digit doesn't change the AABB.
     const half = this.style.radius + this.style.borderWidth / 2;
-    return { x1: this.x - half, y1: this.y - half, x2: this.x + half, y2: this.y + half };
+    return {
+      x1: this.x - half,
+      y1: this.y - half,
+      x2: this.x + half,
+      y2: this.y + half,
+    };
   }
 
   translate(dx: number, dy: number): Action {
@@ -326,7 +368,7 @@ export function makeNumberStampAction(
   y: number,
   n: number,
   rotation: number = 0,
-  style: NumberStampStyle = NUMBER_STAMP_STYLE,
+  style: NumberStampStyle = NUMBER_STAMP_STYLE
 ): Action {
   return new NumberStampAction(x, y, n, ((rotation % 4) + 4) % 4, style);
 }
@@ -338,7 +380,10 @@ export function isNumberStampAction(action: Action): boolean {
 // ---------- Pen / Highlighter (multi-point stroke) ----------
 
 class StrokeAction implements Action {
-  constructor(private readonly points: ReadonlyArray<[number, number]>, private readonly style: Style) {}
+  constructor(
+    private readonly points: ReadonlyArray<[number, number]>,
+    private readonly style: Style
+  ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
     if (this.points.length < 2) return;
@@ -348,7 +393,10 @@ class StrokeAction implements Action {
   }
 
   getBounds(): Bounds {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     for (const [x, y] of this.points) {
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
@@ -356,7 +404,7 @@ class StrokeAction implements Action {
       if (y > maxY) maxY = y;
     }
     const pad = this.style.width / 2;
-    return { x1: minX - pad, y1: minY - pad, x2: maxX + pad, y2: maxY + pad };
+    return {x1: minX - pad, y1: minY - pad, x2: maxX + pad, y2: maxY + pad};
   }
 
   translate(dx: number, dy: number): Action {
@@ -365,7 +413,9 @@ class StrokeAction implements Action {
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
-    const moved: Array<[number, number]> = this.points.map(([x, y]) => rotatePoint(x, y, direction, oldW, oldH));
+    const moved: Array<[number, number]> = this.points.map(([x, y]) =>
+      rotatePoint(x, y, direction, oldW, oldH)
+    );
     return new StrokeAction(moved, this.style);
   }
 
@@ -374,7 +424,7 @@ class StrokeAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new StrokeAction(this.points, { ...this.style, color });
+    return new StrokeAction(this.points, {...this.style, color});
   }
 
   getWidth(): number {
@@ -382,14 +432,18 @@ class StrokeAction implements Action {
   }
 
   withWidth(width: number): Action {
-    return new StrokeAction(this.points, { ...this.style, width });
+    return new StrokeAction(this.points, {...this.style, width});
   }
 }
 
 class StrokeLiveStroke implements LiveStroke {
   private points: Array<[number, number]>;
 
-  constructor(x: number, y: number, private readonly style: Style) {
+  constructor(
+    x: number,
+    y: number,
+    private readonly style: Style
+  ) {
     this.points = [[x, y]];
   }
 
@@ -412,9 +466,11 @@ class StrokeLiveStroke implements LiveStroke {
 
 class LineAction implements Action {
   constructor(
-    private readonly x1: number, private readonly y1: number,
-    private readonly x2: number, private readonly y2: number,
-    private readonly style: Style,
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly x2: number,
+    private readonly y2: number,
+    private readonly style: Style
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -443,7 +499,10 @@ class LineAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new LineAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+    return new LineAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      color,
+    });
   }
 
   getWidth(): number {
@@ -451,7 +510,10 @@ class LineAction implements Action {
   }
 
   withWidth(width: number): Action {
-    return new LineAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
+    return new LineAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      width,
+    });
   }
 }
 
@@ -459,7 +521,11 @@ class LineLiveStroke implements LiveStroke {
   private endX: number;
   private endY: number;
 
-  constructor(private readonly x1: number, private readonly y1: number, private readonly style: Style) {
+  constructor(
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly style: Style
+  ) {
     this.endX = x1;
     this.endY = y1;
   }
@@ -484,9 +550,11 @@ class LineLiveStroke implements LiveStroke {
 
 class ArrowAction implements Action {
   constructor(
-    private readonly x1: number, private readonly y1: number,
-    private readonly x2: number, private readonly y2: number,
-    private readonly style: Style,
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly x2: number,
+    private readonly y2: number,
+    private readonly style: Style
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -497,9 +565,15 @@ class ArrowAction implements Action {
     const angle = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
     const headLen = this.style.width * 5;
     const headAngle = Math.PI / 6;
-    cr.moveTo(this.x2 - headLen * Math.cos(angle - headAngle), this.y2 - headLen * Math.sin(angle - headAngle));
+    cr.moveTo(
+      this.x2 - headLen * Math.cos(angle - headAngle),
+      this.y2 - headLen * Math.sin(angle - headAngle)
+    );
     cr.lineTo(this.x2, this.y2);
-    cr.lineTo(this.x2 - headLen * Math.cos(angle + headAngle), this.y2 - headLen * Math.sin(angle + headAngle));
+    cr.lineTo(
+      this.x2 - headLen * Math.cos(angle + headAngle),
+      this.y2 - headLen * Math.sin(angle + headAngle)
+    );
     cr.stroke();
   }
 
@@ -523,7 +597,10 @@ class ArrowAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      color,
+    });
   }
 
   getWidth(): number {
@@ -531,7 +608,10 @@ class ArrowAction implements Action {
   }
 
   withWidth(width: number): Action {
-    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
+    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      width,
+    });
   }
 }
 
@@ -539,7 +619,11 @@ class ArrowLiveStroke implements LiveStroke {
   private endX: number;
   private endY: number;
 
-  constructor(private readonly x1: number, private readonly y1: number, private readonly style: Style) {
+  constructor(
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly style: Style
+  ) {
     this.endX = x1;
     this.endY = y1;
   }
@@ -564,9 +648,11 @@ class ArrowLiveStroke implements LiveStroke {
 
 class RectAction implements Action {
   constructor(
-    private readonly x1: number, private readonly y1: number,
-    private readonly x2: number, private readonly y2: number,
-    private readonly style: Style,
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly x2: number,
+    private readonly y2: number,
+    private readonly style: Style
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -598,7 +684,10 @@ class RectAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      color,
+    });
   }
 
   getWidth(): number {
@@ -606,7 +695,10 @@ class RectAction implements Action {
   }
 
   withWidth(width: number): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      width,
+    });
   }
 }
 
@@ -614,7 +706,11 @@ class RectLiveStroke implements LiveStroke {
   private endX: number;
   private endY: number;
 
-  constructor(private readonly x1: number, private readonly y1: number, private readonly style: Style) {
+  constructor(
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly style: Style
+  ) {
     this.endX = x1;
     this.endY = y1;
   }
@@ -638,9 +734,11 @@ class RectLiveStroke implements LiveStroke {
 
 class OvalAction implements Action {
   constructor(
-    private readonly x1: number, private readonly y1: number,
-    private readonly x2: number, private readonly y2: number,
-    private readonly style: Style,
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly x2: number,
+    private readonly y2: number,
+    private readonly style: Style
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -681,7 +779,10 @@ class OvalAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, color });
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      color,
+    });
   }
 
   getWidth(): number {
@@ -689,7 +790,10 @@ class OvalAction implements Action {
   }
 
   withWidth(width: number): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, { ...this.style, width });
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      width,
+    });
   }
 }
 
@@ -697,7 +801,11 @@ class OvalLiveStroke implements LiveStroke {
   private endX: number;
   private endY: number;
 
-  constructor(private readonly x1: number, private readonly y1: number, private readonly style: Style) {
+  constructor(
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly style: Style
+  ) {
     this.endX = x1;
     this.endY = y1;
   }
@@ -717,14 +825,26 @@ class OvalLiveStroke implements LiveStroke {
   }
 }
 
-export function createLiveStroke(toolId: ToolId, x: number, y: number, color: ColorRGBA, width: number): LiveStroke {
+export function createLiveStroke(
+  toolId: ToolId,
+  x: number,
+  y: number,
+  color: ColorRGBA,
+  width: number
+): LiveStroke {
   switch (toolId) {
-    case 'pen':         return new StrokeLiveStroke(x, y, { ...PEN_STYLE,         color, width });
-    case 'highlighter': return new StrokeLiveStroke(x, y, { ...HIGHLIGHTER_STYLE, color, width });
-    case 'line':        return new LineLiveStroke(x, y,   { ...LINE_STYLE,        color, width });
-    case 'arrow':       return new ArrowLiveStroke(x, y,  { ...ARROW_STYLE,       color, width });
-    case 'rect':        return new RectLiveStroke(x, y,   { ...SHAPE_STYLE,       color, width });
-    case 'oval':        return new OvalLiveStroke(x, y,   { ...SHAPE_STYLE,       color, width });
+    case 'pen':
+      return new StrokeLiveStroke(x, y, {...PEN_STYLE, color, width});
+    case 'highlighter':
+      return new StrokeLiveStroke(x, y, {...HIGHLIGHTER_STYLE, color, width});
+    case 'line':
+      return new LineLiveStroke(x, y, {...LINE_STYLE, color, width});
+    case 'arrow':
+      return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width});
+    case 'rect':
+      return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width});
+    case 'oval':
+      return new OvalLiveStroke(x, y, {...SHAPE_STYLE, color, width});
     case 'select':
     case 'text':
     case 'number':
