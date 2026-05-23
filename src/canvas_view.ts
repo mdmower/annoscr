@@ -11,13 +11,16 @@ import {
   ColorRGBA,
   LiveStroke,
   ToolId,
+  TRANSPARENT_FILL,
   createLiveStroke,
   defaultColorForTool,
+  defaultFillForTool,
   defaultWidthForTool,
   isNumberStampAction,
   isTextAction,
   getTextEditState,
   makeNumberStampAction,
+  numberStampStyle,
 } from './actions.js';
 import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
@@ -193,6 +196,10 @@ export const CanvasView = GObject.registerClass(
     // never have an entry here.
     private toolWidths: Map<ToolId, number> = new Map();
 
+    // Per-tool current fill color. Only rect, oval, number, resize have
+    // entries here; everything else has no fill in M16.
+    private toolFills: Map<ToolId, ColorRGBA> = new Map();
+
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save / copy / fresh-image-load. If the current state
     // is the same object, nothing has been modified since. Stays valid
@@ -343,7 +350,7 @@ export const CanvasView = GObject.registerClass(
     // default if nothing has been set yet. Returns null for tools that have
     // no editable color in M14 (number stamp, select, resize).
     getToolColor(toolId: ToolId): ColorRGBA | null {
-      if (toolId === 'number' || toolId === 'select' || toolId === 'resize') return null;
+      if (toolId === 'select' || toolId === 'resize') return null;
       return this.toolColors.get(toolId) ?? defaultColorForTool(toolId);
     }
 
@@ -362,6 +369,18 @@ export const CanvasView = GObject.registerClass(
 
     setToolWidth(toolId: ToolId, width: number): void {
       this.toolWidths.set(toolId, width);
+    }
+
+    // Current fill for the given tool. Returns null for tools without an
+    // editable fill (pen, highlighter, line, arrow, text, select).
+    getToolFill(toolId: ToolId): ColorRGBA | null {
+      const def = defaultFillForTool(toolId);
+      if (def === null) return null;
+      return this.toolFills.get(toolId) ?? def;
+    }
+
+    setToolFill(toolId: ToolId, fill: ColorRGBA): void {
+      this.toolFills.set(toolId, fill);
     }
 
     // The currently selected action, if any. Used by the color picker to
@@ -420,6 +439,23 @@ export const CanvasView = GObject.registerClass(
           actions: cur.map((a, j) => (j === i ? resized : a)),
         },
         `width:${i}`
+      );
+      this.queue_draw();
+      return true;
+    }
+
+    replaceSelectedFill(fill: ColorRGBA): boolean {
+      const i = this.selectedIndex;
+      const cur = this.state.actions;
+      if (i < 0 || i >= cur.length) return false;
+      if (cur[i].getFill() === null) return false;
+      const refilled = cur[i].withFill(fill);
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: cur.map((a, j) => (j === i ? refilled : a)),
+        },
+        `fill:${i}`
       );
       this.queue_draw();
       return true;
@@ -500,8 +536,9 @@ export const CanvasView = GObject.registerClass(
       const rect = this.getResizeRect();
       const s = this.state.surface;
       if (!rect || !s) return false;
+      const fill = this.getToolFill('resize') ?? TRANSPARENT_FILL;
       this.pushState({
-        surface: resizeSurface(s, rect.x, rect.y, rect.w, rect.h),
+        surface: resizeSurface(s, rect.x, rect.y, rect.w, rect.h, fill),
         actions: this.state.actions.map((a) => a.translate(-rect.x, -rect.y)),
       });
       this.resizeRegion = null;
@@ -639,7 +676,8 @@ export const CanvasView = GObject.registerClass(
         this.getToolColor(this.currentToolId) ?? defaultColorForTool(this.currentToolId);
       const width =
         this.getToolWidth(this.currentToolId) ?? defaultWidthForTool(this.currentToolId) ?? 1;
-      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color, width);
+      const fill = this.getToolFill(this.currentToolId) ?? TRANSPARENT_FILL;
+      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color, width, fill);
       this.queue_draw();
     }
 
@@ -732,7 +770,13 @@ export const CanvasView = GObject.registerClass(
       if (this.currentToolId === 'text') {
         if (this.onTextEditRequest) this.onTextEditRequest(ix, iy, wx, wy);
       } else if (this.currentToolId === 'number') {
-        this.addAction(makeNumberStampAction(ix, iy, this.nextStampNumber()));
+        // Apply the active Color (foreground) and Fill (interior) from the
+        // style bar so stamps inherit picker state on placement rather than
+        // requiring a post-place select-edit round trip.
+        const fg = this.getToolColor('number') ?? defaultColorForTool('number');
+        const interior = this.getToolFill('number') ?? defaultFillForTool('number') ?? fg;
+        const style = numberStampStyle(fg, interior);
+        this.addAction(makeNumberStampAction(ix, iy, this.nextStampNumber(), 0, style));
       }
     }
 

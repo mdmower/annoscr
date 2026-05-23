@@ -27,17 +27,21 @@ export interface Action {
   // are the source image dimensions BEFORE the rotation; the action's stored
   // coords are interpreted in the old image's coordinate space.
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
-  // The action's editable color, or null for actions whose color is fixed
-  // (number stamp's red is part of its identity for now).
+  // The action's editable foreground color (stroke / outline / text / number
+  // stamp border+digit), or null for actions where there is no editable
+  // foreground.
   getColor(): ColorRGBA | null;
-  // Returns a new instance with the color replaced. Actions whose color is
-  // fixed return themselves unchanged.
   withColor(color: ColorRGBA): Action;
   // The action's editable stroke / outline width in image-space pixels, or
   // null for actions where the width isn't a single user-editable scalar
   // (text uses font size, number stamp uses radius + borderWidth).
   getWidth(): number | null;
   withWidth(width: number): Action;
+  // The action's editable fill color (interior of rect / oval / number stamp
+  // circle), or null for actions that don't carry a fill. For rect / oval,
+  // alpha === 0 means "no fill" (outline-only).
+  getFill(): ColorRGBA | null;
+  withFill(color: ColorRGBA): Action;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -97,10 +101,11 @@ export interface TextStyle {
 
 export interface NumberStampStyle {
   radius: number; // image-space pixels
-  fillColor: [number, number, number, number];
-  borderColor: [number, number, number, number];
+  // Interior of the circle (the dominant visual color).
+  fillColor: ColorRGBA;
+  // Shared color for the circle border and the digit.
+  foregroundColor: ColorRGBA;
   borderWidth: number;
-  textColor: [number, number, number, number];
   fontDesc: string;
   fontSize: number; // image-space pixels
 }
@@ -121,20 +126,34 @@ export const TEXT_STYLE: TextStyle = {
   size: 24,
   fontDesc: 'Sans Bold',
 };
+export const DEFAULT_NUMBER_STAMP_FG: ColorRGBA = [1, 1, 1, 1];
+
 export const NUMBER_STAMP_STYLE: NumberStampStyle = {
   radius: 16,
   fillColor: DEFAULT_COLOR,
-  borderColor: [1, 1, 1, 1],
+  foregroundColor: DEFAULT_NUMBER_STAMP_FG,
   borderWidth: 2,
-  textColor: [1, 1, 1, 1],
   fontDesc: 'Sans Bold',
   fontSize: 16,
 };
 
 // Default per-tool colors used both at startup and as the fallback for the
-// color picker when a tool has no explicit override yet.
+// color picker when a tool has no explicit override yet. For the number
+// stamp, "color" means the foreground (border + digit), not the dominant
+// interior — interior lives in the fill slot.
 export function defaultColorForTool(toolId: ToolId): ColorRGBA {
-  return toolId === 'highlighter' ? DEFAULT_HIGHLIGHTER_COLOR : DEFAULT_COLOR;
+  if (toolId === 'highlighter') return DEFAULT_HIGHLIGHTER_COLOR;
+  if (toolId === 'number') return DEFAULT_NUMBER_STAMP_FG;
+  return DEFAULT_COLOR;
+}
+
+// Build a NumberStampStyle with a user-chosen foreground and fill, falling
+// back to the static defaults.
+export function numberStampStyle(
+  foregroundColor: ColorRGBA,
+  fillColor: ColorRGBA
+): NumberStampStyle {
+  return {...NUMBER_STAMP_STYLE, foregroundColor, fillColor};
 }
 
 // Default per-tool stroke/outline widths. Tools without an editable width
@@ -243,6 +262,14 @@ class TextAction implements Action {
   withWidth(_width: number): Action {
     return this;
   }
+
+  getFill(): ColorRGBA | null {
+    return null;
+  }
+
+  withFill(_color: ColorRGBA): Action {
+    return this;
+  }
 }
 
 export function makeTextAction(
@@ -300,8 +327,8 @@ class NumberStampAction implements Action {
     cr.setLineWidth(s.borderWidth);
     cr.setLineCap(cairo.LineCap.BUTT);
     cr.setLineJoin(cairo.LineJoin.MITER);
-    const [br, bg, bb, ba] = s.borderColor;
-    cr.setSourceRGBA(br, bg, bb, ba);
+    const [fgr, fgg, fgb, fga] = s.foregroundColor;
+    cr.setSourceRGBA(fgr, fgg, fgb, fga);
     cr.stroke();
 
     const layout = PangoCairo.create_layout(cr);
@@ -311,8 +338,8 @@ class NumberStampAction implements Action {
     layout.set_text(String(this.n), -1);
     const [textW, textH] = layout.get_pixel_size();
 
-    const [tr, tg, tb, ta] = s.textColor;
-    cr.setSourceRGBA(tr, tg, tb, ta);
+    // Same foreground as the border — single user-editable color.
+    cr.setSourceRGBA(fgr, fgg, fgb, fga);
     cr.save();
     cr.translate(this.x, this.y);
     if (this.rotation !== 0) cr.rotate((this.rotation * Math.PI) / 2);
@@ -342,14 +369,18 @@ class NumberStampAction implements Action {
     return new NumberStampAction(nx, ny, this.n, (this.rotation + dr) % 4, this.style);
   }
 
-  // Number stamp's fillColor is part of its identity in M14; recoloring
-  // happens in a later milestone.
-  getColor(): ColorRGBA | null {
-    return null;
+  // For the number stamp, "Color" controls the foreground (border + digit,
+  // which share a color by design); "Fill" controls the interior of the
+  // circle (the dominant red by default).
+  getColor(): ColorRGBA {
+    return this.style.foregroundColor;
   }
 
-  withColor(_color: ColorRGBA): Action {
-    return this;
+  withColor(color: ColorRGBA): Action {
+    return new NumberStampAction(this.x, this.y, this.n, this.rotation, {
+      ...this.style,
+      foregroundColor: color,
+    });
   }
 
   // Number stamp has radius + borderWidth, not a single user-editable
@@ -360,6 +391,17 @@ class NumberStampAction implements Action {
 
   withWidth(_width: number): Action {
     return this;
+  }
+
+  getFill(): ColorRGBA {
+    return this.style.fillColor;
+  }
+
+  withFill(color: ColorRGBA): Action {
+    return new NumberStampAction(this.x, this.y, this.n, this.rotation, {
+      ...this.style,
+      fillColor: color,
+    });
   }
 }
 
@@ -433,6 +475,14 @@ class StrokeAction implements Action {
 
   withWidth(width: number): Action {
     return new StrokeAction(this.points, {...this.style, width});
+  }
+
+  getFill(): ColorRGBA | null {
+    return null;
+  }
+
+  withFill(_color: ColorRGBA): Action {
+    return this;
   }
 }
 
@@ -514,6 +564,14 @@ class LineAction implements Action {
       ...this.style,
       width,
     });
+  }
+
+  getFill(): ColorRGBA | null {
+    return null;
+  }
+
+  withFill(_color: ColorRGBA): Action {
+    return this;
   }
 }
 
@@ -613,6 +671,14 @@ class ArrowAction implements Action {
       width,
     });
   }
+
+  getFill(): ColorRGBA | null {
+    return null;
+  }
+
+  withFill(_color: ColorRGBA): Action {
+    return this;
+  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -652,16 +718,22 @@ class RectAction implements Action {
     private readonly y1: number,
     private readonly x2: number,
     private readonly y2: number,
-    private readonly style: Style
+    private readonly style: Style,
+    private readonly fill: ColorRGBA
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
-    applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
     const x = Math.min(this.x1, this.x2);
     const y = Math.min(this.y1, this.y2);
     const w = Math.abs(this.x2 - this.x1);
     const h = Math.abs(this.y2 - this.y1);
     cr.rectangle(x, y, w, h);
+    if (this.fill[3] > 0) {
+      const [fr, fg, fb, fa] = this.fill;
+      cr.setSourceRGBA(fr, fg, fb, fa);
+      cr.fillPreserve();
+    }
+    applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
     cr.stroke();
   }
 
@@ -670,13 +742,20 @@ class RectAction implements Action {
   }
 
   translate(dx: number, dy: number): Action {
-    return new RectAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+    return new RectAction(
+      this.x1 + dx,
+      this.y1 + dy,
+      this.x2 + dx,
+      this.y2 + dy,
+      this.style,
+      this.fill
+    );
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
     const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
-    return new RectAction(nx1, ny1, nx2, ny2, this.style);
+    return new RectAction(nx1, ny1, nx2, ny2, this.style, this.fill);
   }
 
   getColor(): ColorRGBA {
@@ -684,10 +763,7 @@ class RectAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      color,
-    });
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, {...this.style, color}, this.fill);
   }
 
   getWidth(): number {
@@ -695,10 +771,15 @@ class RectAction implements Action {
   }
 
   withWidth(width: number): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      width,
-    });
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, {...this.style, width}, this.fill);
+  }
+
+  getFill(): ColorRGBA {
+    return this.fill;
+  }
+
+  withFill(fill: ColorRGBA): Action {
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
   }
 }
 
@@ -709,7 +790,8 @@ class RectLiveStroke implements LiveStroke {
   constructor(
     private readonly x1: number,
     private readonly y1: number,
-    private readonly style: Style
+    private readonly style: Style,
+    private readonly fill: ColorRGBA
   ) {
     this.endX = x1;
     this.endY = y1;
@@ -721,12 +803,12 @@ class RectLiveStroke implements LiveStroke {
 
   finish(): Action | null {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return null;
-    return new RectAction(this.x1, this.y1, this.endX, this.endY, this.style);
+    return new RectAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill);
   }
 
   draw(cr: Cairo.Context, scale: number): void {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
-    new RectAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
+    new RectAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill).draw(cr, scale);
   }
 }
 
@@ -738,11 +820,11 @@ class OvalAction implements Action {
     private readonly y1: number,
     private readonly x2: number,
     private readonly y2: number,
-    private readonly style: Style
+    private readonly style: Style,
+    private readonly fill: ColorRGBA
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
-    applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
     const cx = (this.x1 + this.x2) / 2;
     const cy = (this.y1 + this.y2) / 2;
     const rx = Math.abs(this.x2 - this.x1) / 2;
@@ -757,6 +839,13 @@ class OvalAction implements Action {
     cr.newSubPath();
     cr.arc(0, 0, 1, 0, 2 * Math.PI);
     cr.restore();
+
+    if (this.fill[3] > 0) {
+      const [fr, fg, fb, fa] = this.fill;
+      cr.setSourceRGBA(fr, fg, fb, fa);
+      cr.fillPreserve();
+    }
+    applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
     cr.stroke();
   }
 
@@ -765,13 +854,20 @@ class OvalAction implements Action {
   }
 
   translate(dx: number, dy: number): Action {
-    return new OvalAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+    return new OvalAction(
+      this.x1 + dx,
+      this.y1 + dy,
+      this.x2 + dx,
+      this.y2 + dy,
+      this.style,
+      this.fill
+    );
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
     const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
-    return new OvalAction(nx1, ny1, nx2, ny2, this.style);
+    return new OvalAction(nx1, ny1, nx2, ny2, this.style, this.fill);
   }
 
   getColor(): ColorRGBA {
@@ -779,10 +875,7 @@ class OvalAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      color,
-    });
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {...this.style, color}, this.fill);
   }
 
   getWidth(): number {
@@ -790,10 +883,15 @@ class OvalAction implements Action {
   }
 
   withWidth(width: number): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      width,
-    });
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {...this.style, width}, this.fill);
+  }
+
+  getFill(): ColorRGBA {
+    return this.fill;
+  }
+
+  withFill(fill: ColorRGBA): Action {
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
   }
 }
 
@@ -804,7 +902,8 @@ class OvalLiveStroke implements LiveStroke {
   constructor(
     private readonly x1: number,
     private readonly y1: number,
-    private readonly style: Style
+    private readonly style: Style,
+    private readonly fill: ColorRGBA
   ) {
     this.endX = x1;
     this.endY = y1;
@@ -816,21 +915,27 @@ class OvalLiveStroke implements LiveStroke {
 
   finish(): Action | null {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return null;
-    return new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style);
+    return new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill);
   }
 
   draw(cr: Cairo.Context, scale: number): void {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
-    new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
+    new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill).draw(cr, scale);
   }
 }
+
+// Transparent default fill for rect/oval — outline-only on creation,
+// matching the M14 / M15 behaviour. The user can paint a real fill via
+// the picker afterwards (or before, with the tool active).
+export const TRANSPARENT_FILL: ColorRGBA = [0, 0, 0, 0];
 
 export function createLiveStroke(
   toolId: ToolId,
   x: number,
   y: number,
   color: ColorRGBA,
-  width: number
+  width: number,
+  fill: ColorRGBA
 ): LiveStroke {
   switch (toolId) {
     case 'pen':
@@ -842,9 +947,9 @@ export function createLiveStroke(
     case 'arrow':
       return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width});
     case 'rect':
-      return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width});
+      return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width}, fill);
     case 'oval':
-      return new OvalLiveStroke(x, y, {...SHAPE_STYLE, color, width});
+      return new OvalLiveStroke(x, y, {...SHAPE_STYLE, color, width}, fill);
     case 'select':
     case 'text':
     case 'number':
@@ -853,6 +958,29 @@ export function createLiveStroke(
       // Non-drag-stroke tools handled elsewhere; the canvas guards against
       // this call, the throw is a safety net.
       throw new Error(`${toolId} tool is handled outside createLiveStroke`);
+  }
+}
+
+// Default per-tool fill. rect/oval start transparent (outline-only);
+// number stamp's fill is the dominant red; resize fills with transparent
+// (matches the M11.5 behaviour). Tools without a fill return null.
+export function defaultFillForTool(toolId: ToolId): ColorRGBA | null {
+  switch (toolId) {
+    case 'rect':
+    case 'oval':
+      return TRANSPARENT_FILL;
+    case 'number':
+      return NUMBER_STAMP_STYLE.fillColor;
+    case 'resize':
+      return TRANSPARENT_FILL;
+    case 'pen':
+    case 'highlighter':
+    case 'line':
+    case 'arrow':
+    case 'text':
+    case 'select':
+    default:
+      return null;
   }
 }
 

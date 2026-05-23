@@ -17,6 +17,7 @@ import {
   WIDTH_MAX,
   WIDTH_MIN,
   defaultColorForTool,
+  defaultFillForTool,
   defaultWidthForTool,
   makeTextAction,
 } from './actions.js';
@@ -77,6 +78,7 @@ export const AnnoscrWindow = GObject.registerClass(
     private colorButton!: Gtk.ColorDialogButton;
     private widthScale!: Gtk.Scale;
     private widthPreview!: Gtk.DrawingArea;
+    private fillButton!: Gtk.ColorDialogButton;
     // Guard against the programmatic set_rgba() / set_value() we do in
     // refreshStylePicker firing change signals and looping back into the
     // user-edit handlers.
@@ -246,29 +248,32 @@ export const AnnoscrWindow = GObject.registerClass(
         margin_bottom: 4,
       });
 
-      const colorLabel = new Gtk.Label({
-        label: 'Color',
-        css_classes: ['caption'],
-      });
+      const sep = (): Gtk.Separator =>
+        new Gtk.Separator({
+          orientation: Gtk.Orientation.VERTICAL,
+          margin_start: 8,
+          margin_end: 8,
+        });
+
+      const colorLabel = new Gtk.Label({label: 'Color', css_classes: ['caption']});
       const dialog = new Gtk.ColorDialog({with_alpha: true});
       this.colorButton = new Gtk.ColorDialogButton({dialog});
       this.colorButton.connect('notify::rgba', () => this.onColorPicked());
       box.append(colorLabel);
       box.append(this.colorButton);
 
-      // Visual gap between the two style controls.
-      box.append(
-        new Gtk.Separator({
-          orientation: Gtk.Orientation.VERTICAL,
-          margin_start: 8,
-          margin_end: 8,
-        })
-      );
+      box.append(sep());
 
-      const widthLabel = new Gtk.Label({
-        label: 'Width',
-        css_classes: ['caption'],
-      });
+      const fillLabel = new Gtk.Label({label: 'Fill', css_classes: ['caption']});
+      const fillDialog = new Gtk.ColorDialog({with_alpha: true});
+      this.fillButton = new Gtk.ColorDialogButton({dialog: fillDialog});
+      this.fillButton.connect('notify::rgba', () => this.onFillPicked());
+      box.append(fillLabel);
+      box.append(this.fillButton);
+
+      box.append(sep());
+
+      const widthLabel = new Gtk.Label({label: 'Width', css_classes: ['caption']});
       this.widthScale = new Gtk.Scale({
         orientation: Gtk.Orientation.HORIZONTAL,
         adjustment: new Gtk.Adjustment({
@@ -334,6 +339,10 @@ export const AnnoscrWindow = GObject.registerClass(
       this.widthScale.set_sensitive(width !== null);
       if (width !== null) this.widthScale.set_value(width);
 
+      const fill = this.styleTargetFill();
+      this.fillButton.set_sensitive(fill !== null);
+      if (fill !== null) this.fillButton.set_rgba(colorToRgba(fill));
+
       this.updatingPicker = false;
       this.widthPreview.queue_draw();
     }
@@ -356,6 +365,29 @@ export const AnnoscrWindow = GObject.registerClass(
         return sel ? sel.getWidth() : null;
       }
       return this.canvas.getToolWidth(tool);
+    }
+
+    private styleTargetFill(): ColorRGBA | null {
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        const sel = this.canvas.getSelectedAction();
+        return sel ? sel.getFill() : null;
+      }
+      return this.canvas.getToolFill(tool);
+    }
+
+    private onFillPicked(): void {
+      if (this.updatingPicker || !this.fillButton) return;
+      const fill = rgbaToColor(this.fillButton.get_rgba());
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        // Same select-edit shape as the color picker; coalesce-by-key gives
+        // a single history entry for a drag (see pushState in canvas_view.ts).
+        this.canvas.replaceSelectedFill(fill);
+      } else if (defaultFillForTool(tool) !== null) {
+        this.canvas.setToolFill(tool, fill);
+      }
+      this.widthPreview.queue_draw();
     }
 
     private onColorPicked(): void {

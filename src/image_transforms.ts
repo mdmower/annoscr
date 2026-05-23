@@ -31,18 +31,24 @@ export function rotateSurface(
 // Returns a fresh surface of size (w × h), with the source blitted in at
 // offset (-x, -y) in destination coords. Equivalent to "what does the source
 // look like when the canvas origin moves to (x, y) and the canvas size is
-// (w, h)". The region may extend outside the source bounds in any direction;
-// Cairo clips the blit automatically, and the new ARGB32 surface is zeroed
-// (fully transparent) — that's the fill for areas beyond the source.
+// (w, h)". The region may extend outside the source bounds; Cairo clips the
+// blit automatically. The new ARGB32 surface starts zeroed (fully
+// transparent); if `fill` is provided and has non-zero alpha, the area
+// outside the source's clipped region is painted with that color first.
 export function resizeSurface(
   src: Cairo.ImageSurface,
   x: number,
   y: number,
   w: number,
-  h: number
+  h: number,
+  fill?: [number, number, number, number]
 ): Cairo.ImageSurface {
   const dst = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
   const cr = new cairo.Context(dst);
+  if (fill && fill[3] > 0) {
+    cr.setSourceRGBA(fill[0], fill[1], fill[2], fill[3]);
+    cr.paint();
+  }
   cr.setSourceSurface(src, -x, -y);
   (cr.getSource() as unknown as CairoPatternExt).setFilter(cairo.Filter.NEAREST);
   cr.paint();
