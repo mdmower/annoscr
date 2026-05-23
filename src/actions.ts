@@ -110,6 +110,19 @@ export interface NumberStampStyle {
   fontSize: number; // image-space pixels
 }
 
+// 'number' renders the n-th stamp as String(n); 'letter' renders as A..Z,
+// restarting at A after Z. Variant lives on each action so undo/redo of a
+// global variant change is just a normal history entry.
+export type StampVariant = 'number' | 'letter';
+export const DEFAULT_STAMP_VARIANT: StampVariant = 'number';
+
+function stampLabel(n: number, variant: StampVariant): string {
+  if (variant === 'letter') {
+    return String.fromCharCode(65 + ((n - 1) % 26));
+  }
+  return String(n);
+}
+
 export const DEFAULT_COLOR: ColorRGBA = [0.85, 0.18, 0.18, 1.0];
 export const DEFAULT_HIGHLIGHTER_COLOR: ColorRGBA = [1.0, 0.92, 0.1, 0.35];
 
@@ -305,11 +318,12 @@ export function getTextEditState(
 
 class NumberStampAction implements Action {
   constructor(
-    private readonly x: number,
-    private readonly y: number,
-    private readonly n: number,
-    private readonly rotation: number, // 0..3 quarter-turns CW (affects the digit only)
-    private readonly style: NumberStampStyle
+    public readonly x: number,
+    public readonly y: number,
+    public readonly n: number,
+    public readonly variant: StampVariant,
+    public readonly rotation: number, // 0..3 quarter-turns CW (affects the digit only)
+    public readonly style: NumberStampStyle
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -335,7 +349,7 @@ class NumberStampAction implements Action {
     const desc = Pango.FontDescription.from_string(s.fontDesc);
     desc.set_absolute_size(s.fontSize * Pango.SCALE);
     layout.set_font_description(desc);
-    layout.set_text(String(this.n), -1);
+    layout.set_text(stampLabel(this.n, this.variant), -1);
     const [textW, textH] = layout.get_pixel_size();
 
     // Same foreground as the border — single user-editable color.
@@ -360,13 +374,27 @@ class NumberStampAction implements Action {
   }
 
   translate(dx: number, dy: number): Action {
-    return new NumberStampAction(this.x + dx, this.y + dy, this.n, this.rotation, this.style);
+    return new NumberStampAction(
+      this.x + dx,
+      this.y + dy,
+      this.n,
+      this.variant,
+      this.rotation,
+      this.style
+    );
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const [nx, ny] = rotatePoint(this.x, this.y, direction, oldW, oldH);
     const dr = direction === 'cw' ? 1 : 3;
-    return new NumberStampAction(nx, ny, this.n, (this.rotation + dr) % 4, this.style);
+    return new NumberStampAction(
+      nx,
+      ny,
+      this.n,
+      this.variant,
+      (this.rotation + dr) % 4,
+      this.style
+    );
   }
 
   // For the number stamp, "Color" controls the foreground (border + digit,
@@ -377,7 +405,7 @@ class NumberStampAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new NumberStampAction(this.x, this.y, this.n, this.rotation, {
+    return new NumberStampAction(this.x, this.y, this.n, this.variant, this.rotation, {
       ...this.style,
       foregroundColor: color,
     });
@@ -398,10 +426,18 @@ class NumberStampAction implements Action {
   }
 
   withFill(color: ColorRGBA): Action {
-    return new NumberStampAction(this.x, this.y, this.n, this.rotation, {
+    return new NumberStampAction(this.x, this.y, this.n, this.variant, this.rotation, {
       ...this.style,
       fillColor: color,
     });
+  }
+
+  withNumber(n: number): Action {
+    return new NumberStampAction(this.x, this.y, n, this.variant, this.rotation, this.style);
+  }
+
+  withVariant(variant: StampVariant): Action {
+    return new NumberStampAction(this.x, this.y, this.n, variant, this.rotation, this.style);
   }
 }
 
@@ -409,14 +445,38 @@ export function makeNumberStampAction(
   x: number,
   y: number,
   n: number,
+  variant: StampVariant = DEFAULT_STAMP_VARIANT,
   rotation: number = 0,
   style: NumberStampStyle = NUMBER_STAMP_STYLE
 ): Action {
-  return new NumberStampAction(x, y, n, ((rotation % 4) + 4) % 4, style);
+  return new NumberStampAction(x, y, n, variant, ((rotation % 4) + 4) % 4, style);
 }
 
 export function isNumberStampAction(action: Action): boolean {
   return action instanceof NumberStampAction;
+}
+
+// Walk an action list and reassign `n` to surviving NumberStampActions in
+// the order they appear, starting from 1. Used by deleteSelected so that
+// "1, 2, 3" with "2" removed becomes "1, 2" rather than "1, 3".
+export function renumberStamps(actions: ReadonlyArray<Action>): Action[] {
+  let count = 0;
+  return actions.map((a) => {
+    if (a instanceof NumberStampAction) {
+      count++;
+      return a.withNumber(count);
+    }
+    return a;
+  });
+}
+
+// Rewrite every NumberStampAction in the list with the given variant.
+// Non-stamp actions pass through. Used by the global variant toggle.
+export function setStampVariantOnAll(
+  actions: ReadonlyArray<Action>,
+  variant: StampVariant
+): Action[] {
+  return actions.map((a) => (a instanceof NumberStampAction ? a.withVariant(variant) : a));
 }
 
 // ---------- Pen / Highlighter (multi-point stroke) ----------

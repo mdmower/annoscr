@@ -13,6 +13,7 @@ import {CanvasView} from './canvas_view.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {
   ColorRGBA,
+  StampVariant,
   ToolId,
   WIDTH_MAX,
   WIDTH_MIN,
@@ -79,6 +80,10 @@ export const AnnoscrWindow = GObject.registerClass(
     private widthScale!: Gtk.Scale;
     private widthPreview!: Gtk.DrawingArea;
     private fillButton!: Gtk.ColorDialogButton;
+    // Variant group wraps label + dropdown so we can hide/show as one unit
+    // (the entire group only exists when the number tool is active).
+    private variantGroup!: Gtk.Box;
+    private variantDropdown!: Gtk.DropDown;
     // Guard against the programmatic set_rgba() / set_value() we do in
     // refreshStylePicker firing change signals and looping back into the
     // user-edit handlers.
@@ -302,6 +307,21 @@ export const AnnoscrWindow = GObject.registerClass(
       box.append(this.widthScale);
       box.append(this.widthPreview);
 
+      // Variant group — only visible when the number tool is active.
+      // Wrapping label + separator + dropdown in a Box lets us toggle the
+      // whole group's visibility instead of three sibling widgets.
+      this.variantGroup = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+      });
+      this.variantGroup.append(sep());
+      const variantLabel = new Gtk.Label({label: 'Variant', css_classes: ['caption']});
+      this.variantDropdown = Gtk.DropDown.new_from_strings(['Number', 'Letter']);
+      this.variantDropdown.connect('notify::selected', () => this.onVariantPicked());
+      this.variantGroup.append(variantLabel);
+      this.variantGroup.append(this.variantDropdown);
+      box.append(this.variantGroup);
+
       return box;
     }
 
@@ -343,8 +363,21 @@ export const AnnoscrWindow = GObject.registerClass(
       this.fillButton.set_sensitive(fill !== null);
       if (fill !== null) this.fillButton.set_rgba(colorToRgba(fill));
 
+      // Variant is a stamp-specific concept — show the group only when the
+      // number tool is active. Always reflects canvas state, even when
+      // hidden, so when it reappears the selection is correct.
+      const tool = this.canvas.getTool();
+      this.variantGroup.set_visible(tool === 'number');
+      this.variantDropdown.set_selected(this.canvas.getStampVariant() === 'letter' ? 1 : 0);
+
       this.updatingPicker = false;
       this.widthPreview.queue_draw();
+    }
+
+    private onVariantPicked(): void {
+      if (this.updatingPicker || !this.variantDropdown) return;
+      const variant: StampVariant = this.variantDropdown.get_selected() === 1 ? 'letter' : 'number';
+      this.canvas.setStampVariant(variant);
     }
 
     // The color that the picker should currently display, or null when the

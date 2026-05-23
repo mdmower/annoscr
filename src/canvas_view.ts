@@ -9,7 +9,9 @@ import {
   Action,
   Bounds,
   ColorRGBA,
+  DEFAULT_STAMP_VARIANT,
   LiveStroke,
+  StampVariant,
   ToolId,
   TRANSPARENT_FILL,
   createLiveStroke,
@@ -21,6 +23,8 @@ import {
   getTextEditState,
   makeNumberStampAction,
   numberStampStyle,
+  renumberStamps,
+  setStampVariantOnAll,
 } from './actions.js';
 import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
@@ -199,6 +203,11 @@ export const CanvasView = GObject.registerClass(
     // Per-tool current fill color. Only rect, oval, number, resize have
     // entries here; everything else has no fill in M16.
     private toolFills: Map<ToolId, ColorRGBA> = new Map();
+
+    // Variant applied to newly-placed number stamps. The Variant dropdown
+    // both updates this (so subsequent placements inherit) and rewrites
+    // every existing stamp via setStampVariant().
+    private toolStampVariant: StampVariant = DEFAULT_STAMP_VARIANT;
 
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save / copy / fresh-image-load. If the current state
@@ -383,6 +392,29 @@ export const CanvasView = GObject.registerClass(
       this.toolFills.set(toolId, fill);
     }
 
+    // Variant for the next stamp the user places.
+    getStampVariant(): StampVariant {
+      return this.toolStampVariant;
+    }
+
+    // Set the active variant. Updates the tool default for future placements
+    // AND rewrites every existing stamp in the current state so the toggle
+    // affects all stamps (one history entry, undoable).
+    setStampVariant(variant: StampVariant): void {
+      if (this.toolStampVariant === variant) return;
+      this.toolStampVariant = variant;
+      const cur = this.state.actions;
+      const next = setStampVariantOnAll(cur, variant);
+      // Only push if at least one stamp changed; otherwise this is just a
+      // tool-default flip with no visible effect.
+      const changed = next.some((a, i) => a !== cur[i]);
+      if (changed) {
+        this.pushState({surface: this.state.surface, actions: next});
+      }
+      this.queue_draw();
+      this.notifyStateChange();
+    }
+
     // The currently selected action, if any. Used by the color picker to
     // populate itself with the selected action's color in select mode.
     getSelectedAction(): Action | null {
@@ -510,9 +542,12 @@ export const CanvasView = GObject.registerClass(
       const cur = this.state.actions;
       if (this.selectedIndex < 0 || this.selectedIndex >= cur.length) return false;
       const removeAt = this.selectedIndex;
+      // Renumber stamps so deleting "2" from "1,2,3" leaves "1,2" — not
+      // "1,3" with a hole that the next placement would duplicate.
+      const survivors = renumberStamps(cur.filter((_, i) => i !== removeAt));
       this.pushState({
         surface: this.state.surface,
-        actions: cur.filter((_, i) => i !== removeAt),
+        actions: survivors,
       });
       this.selectedIndex = -1;
       this.queue_draw();
@@ -776,7 +811,9 @@ export const CanvasView = GObject.registerClass(
         const fg = this.getToolColor('number') ?? defaultColorForTool('number');
         const interior = this.getToolFill('number') ?? defaultFillForTool('number') ?? fg;
         const style = numberStampStyle(fg, interior);
-        this.addAction(makeNumberStampAction(ix, iy, this.nextStampNumber(), 0, style));
+        this.addAction(
+          makeNumberStampAction(ix, iy, this.nextStampNumber(), this.toolStampVariant, 0, style)
+        );
       }
     }
 
