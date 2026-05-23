@@ -57,7 +57,12 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
   cr.setSourceSurface(surface, 0, 0);
   cr.paint();
   opaque.flush();
-  // TODO: @deprecated — since 4.12: Use Gdk.Texture and subclasses instead cairo surfaces and pixbufs
+  // Gdk.pixbuf_get_from_surface is deprecated since 4.12. The replacement
+  // (Gdk.MemoryTexture from cairo pixels) requires
+  // cairo_image_surface_get_data, which GJS deliberately omits. See
+  // [[gjs-cairo-pixel-access]] for the gap; until GJS exposes it, this
+  // path stays on the deprecated helper.
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const pixbuf = Gdk.pixbuf_get_from_surface(opaque, 0, 0, w, h);
   pixbuf?.savev(path, 'jpeg', ['quality'], ['90']);
 }
@@ -70,7 +75,10 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
 export function copySurfaceToClipboard(clipboard: Gdk.Clipboard, surface: Cairo.ImageSurface): void {
   const w = surface.getWidth();
   const h = surface.getHeight();
-  // TODO: @deprecated — since 4.12: Use Gdk.Texture and subclasses instead cairo surfaces and pixbufs
+  // Same GJS constraint as the JPEG path: no JS-accessible way to get cairo
+  // pixel data, so the modern MemoryTexture route is closed. Stay on the
+  // deprecated helper until GJS exposes cairo_image_surface_get_data.
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, w, h);
   if (!pixbuf) return;
   const texture = Gdk.Texture.new_for_pixbuf(pixbuf);
