@@ -20,10 +20,12 @@ import {
   WIDTH_MIN,
   defaultColorForTool,
   defaultFillForTool,
+  defaultFontDescForTool,
   defaultWidthForTool,
   makeTextAction,
 } from './actions.js';
-import {TextEditor, TextEditorBeginOptions} from './text_editor.js';
+import {getAvailableFonts} from './font_catalogue.js';
+import {TextEditor, TextEditorBeginOptions, TextEditorStyle} from './text_editor.js';
 import {
   FORMATS,
   ImageFormat,
@@ -85,6 +87,10 @@ export const AnnoscrWindow = GObject.registerClass(
     // (the entire group only exists when the number tool is active).
     private variantGroup!: Gtk.Box;
     private variantDropdown!: Gtk.DropDown;
+    // Font family group — hidden unless the text tool is active or a
+    // TextAction is selected.
+    private fontGroup!: Gtk.Box;
+    private fontDropdown!: Gtk.DropDown;
     // Guard against the programmatic set_rgba() / set_value() we do in
     // refreshStylePicker firing change signals and looping back into the
     // user-edit handlers.
@@ -154,20 +160,27 @@ export const AnnoscrWindow = GObject.registerClass(
           ix: number,
           iy: number,
           rotation: number,
+          style,
           replaceIndex?: number
         ) => {
-          const color = this.textColorFor(replaceIndex);
+          // The editor is the source of truth for style during an edit;
+          // pickers update it via refreshStyle so the latest pick lands here.
           if (replaceIndex !== undefined) {
             this.canvas.replaceAction(
               replaceIndex,
-              makeTextAction(ix, iy, markup, rotation, color)
+              makeTextAction(ix, iy, markup, rotation, style.color, style.fontDesc)
             );
           } else {
-            this.canvas.addAction(makeTextAction(ix, iy, markup, rotation, color));
+            this.canvas.addAction(
+              makeTextAction(ix, iy, markup, rotation, style.color, style.fontDesc)
+            );
           }
         },
         onCancel: (replaceIndex?: number) => {
           if (replaceIndex !== undefined) this.canvas.clearEditing();
+          // Editor is no longer the style source — refresh so the picker
+          // reverts to the tool default / selected action.
+          this.refreshStylePicker();
         },
       });
       this.canvas.setTextEditRequestHandler(
@@ -177,11 +190,14 @@ export const AnnoscrWindow = GObject.registerClass(
           // carry markup + replaceIndex for re-edit of an existing TextAction.
           this.editor.commitIfActive();
           // Editor preview uses the same color/font the commit will use, so
-          // placement and sizing reflect the final TextAction. Font + size
-          // come from TEXT_STYLE until M17 adds user-editable pickers.
+          // placement and sizing reflect the final TextAction.
           const color = this.textColorFor(options?.replaceIndex);
-          const style = {color, fontDesc: TEXT_STYLE.fontDesc, size: TEXT_STYLE.size};
+          const fontDesc = this.textFontDescFor(options?.replaceIndex);
+          const style = {color, fontDesc, size: TEXT_STYLE.size};
           this.editor.beginAt(ix, iy, wx, wy, {...options, style});
+          // Picker now reflects the editor's style (color + font of the
+          // in-progress edit), so refresh to point dropdown + buttons at it.
+          this.refreshStylePicker();
         }
       );
 
@@ -247,6 +263,26 @@ export const AnnoscrWindow = GObject.registerClass(
         if (c) return c;
       }
       return this.canvas.getToolColor('text') ?? defaultColorForTool('text');
+    }
+
+    private textFontDescFor(replaceIndex: number | undefined): string {
+      if (replaceIndex !== undefined) {
+        const existing = this.canvas.getActionAt(replaceIndex);
+        const f = existing?.getFontDesc();
+        if (f) return f;
+      }
+      return this.canvas.getToolFontDesc('text') ?? TEXT_STYLE.fontDesc;
+    }
+
+    // Patch the editor's current style with new field values from a picker
+    // change so the live TextView and the eventual commit both reflect the
+    // user's latest pick. The editor (not toolColors / the selected action)
+    // is the source of truth for style while an edit is in progress.
+    private patchEditorStyle(overrides: Partial<TextEditorStyle>): void {
+      if (!this.editor.isActive()) return;
+      const current = this.editor.getCurrentStyle();
+      if (!current) return;
+      this.editor.refreshStyle({...current, ...overrides});
     }
 
     private buildStyleBar(): Gtk.Box {
@@ -328,6 +364,23 @@ export const AnnoscrWindow = GObject.registerClass(
       this.variantGroup.append(this.variantDropdown);
       box.append(this.variantGroup);
 
+      // Font group — visible only when the text tool is active or a
+      // TextAction is selected. Same hide-the-whole-group pattern as Variant.
+      this.fontGroup = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+      });
+      this.fontGroup.append(sep());
+      const fontLabel = new Gtk.Label({label: 'Font', css_classes: ['caption']});
+      // Labels carry a group suffix ("Liberation Sans · sans") since the
+      // dropdown can't render entries in their own font. Catalogue resolves
+      // lazily on first access and caches for the process lifetime.
+      this.fontDropdown = Gtk.DropDown.new_from_strings(getAvailableFonts().map((f) => f.label));
+      this.fontDropdown.connect('notify::selected', () => this.onFontDescPicked());
+      this.fontGroup.append(fontLabel);
+      this.fontGroup.append(this.fontDropdown);
+      box.append(this.fontGroup);
+
       return box;
     }
 
@@ -376,6 +429,17 @@ export const AnnoscrWindow = GObject.registerClass(
       this.variantGroup.set_visible(tool === 'number');
       this.variantDropdown.set_selected(this.canvas.getStampVariant() === 'letter' ? 1 : 0);
 
+      // Font is text-only — hide when the target font is null (no text tool
+      // and no TextAction selected). Picker reflects whichever font the
+      // target carries; a family not in the catalogue (e.g. legacy 'Sans
+      // Bold' on existing actions) selects nothing (INVALID).
+      const fontDesc = this.styleTargetFontDesc();
+      this.fontGroup.set_visible(fontDesc !== null);
+      if (fontDesc !== null) {
+        const idx = getAvailableFonts().findIndex((f) => f.family === fontDesc);
+        this.fontDropdown.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
+      }
+
       this.updatingPicker = false;
       this.widthPreview.queue_draw();
     }
@@ -386,9 +450,50 @@ export const AnnoscrWindow = GObject.registerClass(
       this.canvas.setStampVariant(variant);
     }
 
+    private onFontDescPicked(): void {
+      if (this.updatingPicker || !this.fontDropdown) return;
+      const idx = this.fontDropdown.get_selected();
+      if (idx === Gtk.INVALID_LIST_POSITION) return;
+      const fonts = getAvailableFonts();
+      if (idx >= fonts.length) return;
+      const fontDesc = fonts[idx].family;
+      const tool = this.canvas.getTool();
+      const editorActive = this.editor.isActive();
+      // Active edit → flow into the editor (which propagates to commit and
+      // updates the live preview + caret focus). Outside an edit, fall back
+      // to the standard select-vs-tool routing. Sticky tool default also
+      // updates for text-tool placements so the next click inherits.
+      if (editorActive) {
+        this.patchEditorStyle({fontDesc});
+      } else if (tool === 'select') {
+        this.canvas.replaceSelectedFontDesc(fontDesc);
+      }
+      if (defaultFontDescForTool(tool) !== null) {
+        this.canvas.setToolFontDesc(tool, fontDesc);
+      }
+    }
+
+    private styleTargetFontDesc(): string | null {
+      // During an active edit the editor owns the style; show what it has
+      // (and therefore what will be committed), not the selected action or
+      // tool default.
+      if (this.editor.isActive()) {
+        return this.editor.getCurrentStyle()?.fontDesc ?? null;
+      }
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        const sel = this.canvas.getSelectedAction();
+        return sel ? sel.getFontDesc() : null;
+      }
+      return this.canvas.getToolFontDesc(tool);
+    }
+
     // The color that the picker should currently display, or null when the
     // picker has no meaningful color to show (and should be disabled).
     private styleTargetColor(): ColorRGBA | null {
+      if (this.editor.isActive()) {
+        return this.editor.getCurrentStyle()?.color ?? null;
+      }
       const tool = this.canvas.getTool();
       if (tool === 'select') {
         const sel = this.canvas.getSelectedAction();
@@ -433,12 +538,19 @@ export const AnnoscrWindow = GObject.registerClass(
       if (this.updatingPicker || !this.colorButton) return;
       const color = rgbaToColor(this.colorButton.get_rgba());
       const tool = this.canvas.getTool();
-      if (tool === 'select') {
+      const editorActive = this.editor.isActive();
+      // Same routing as the font picker: editor wins during an active edit;
+      // otherwise apply to selection or tool default. Tool default updates
+      // for any non-select tool so picker changes are sticky.
+      if (editorActive) {
+        this.patchEditorStyle({color});
+      } else if (tool === 'select') {
         // Recolor the selected action in place. No-op if no action selected
         // or its color isn't editable (refreshStylePicker will have already
         // disabled the picker in that case, but guard anyway).
         this.canvas.replaceSelectedColor(color);
-      } else {
+      }
+      if (tool !== 'select' && tool !== 'resize') {
         this.canvas.setToolColor(tool, color);
       }
       this.widthPreview.queue_draw();

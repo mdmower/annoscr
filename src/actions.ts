@@ -3,6 +3,8 @@ import Pango from 'gi://Pango?version=1.0';
 import PangoCairo from 'gi://PangoCairo?version=1.0';
 import type Cairo from 'cairo';
 
+import {getDefaultTextFont} from './font_catalogue.js';
+
 export type ColorRGBA = [number, number, number, number];
 
 export interface Style {
@@ -42,6 +44,10 @@ export interface Action {
   // alpha === 0 means "no fill" (outline-only).
   getFill(): ColorRGBA | null;
   withFill(color: ColorRGBA): Action;
+  // The action's editable font family (Pango font description string), or
+  // null for actions that don't carry one. Only TextAction does today.
+  getFontDesc(): string | null;
+  withFontDesc(fontDesc: string): Action;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -137,8 +143,9 @@ export const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
 export const TEXT_STYLE: TextStyle = {
   color: DEFAULT_COLOR,
   size: 24,
-  fontDesc: 'Sans Bold',
+  fontDesc: 'Sans',
 };
+
 export const DEFAULT_NUMBER_STAMP_FG: ColorRGBA = [1, 1, 1, 1];
 
 export const NUMBER_STAMP_STYLE: NumberStampStyle = {
@@ -191,6 +198,15 @@ export function defaultWidthForTool(toolId: ToolId): number | null {
     default:
       return null;
   }
+}
+
+// Default per-tool font description. Only the text tool has one; everything
+// else returns null and the font picker hides accordingly. The text default
+// resolves to the first available sans family in the font catalogue (lazy,
+// cached for the process lifetime).
+export function defaultFontDescForTool(toolId: ToolId): string | null {
+  if (toolId === 'text') return getDefaultTextFont();
+  return null;
 }
 
 // Slider range for the width control. Generous enough that the highlighter's
@@ -283,6 +299,17 @@ class TextAction implements Action {
   withFill(_color: ColorRGBA): Action {
     return this;
   }
+
+  getFontDesc(): string {
+    return this.style.fontDesc;
+  }
+
+  withFontDesc(fontDesc: string): Action {
+    return new TextAction(this.x, this.y, this.markup, this.rotation, {
+      ...this.style,
+      fontDesc,
+    });
+  }
 }
 
 export function makeTextAction(
@@ -290,11 +317,13 @@ export function makeTextAction(
   y: number,
   markup: string,
   rotation: number = 0,
-  color: ColorRGBA = DEFAULT_COLOR
+  color: ColorRGBA = DEFAULT_COLOR,
+  fontDesc: string = TEXT_STYLE.fontDesc
 ): Action {
   return new TextAction(x, y, markup, ((rotation % 4) + 4) % 4, {
     ...TEXT_STYLE,
     color,
+    fontDesc,
   });
 }
 
@@ -439,6 +468,14 @@ class NumberStampAction implements Action {
   withVariant(variant: StampVariant): Action {
     return new NumberStampAction(this.x, this.y, this.n, variant, this.rotation, this.style);
   }
+
+  getFontDesc(): string | null {
+    return null;
+  }
+
+  withFontDesc(_fontDesc: string): Action {
+    return this;
+  }
 }
 
 export function makeNumberStampAction(
@@ -544,6 +581,14 @@ class StrokeAction implements Action {
   withFill(_color: ColorRGBA): Action {
     return this;
   }
+
+  getFontDesc(): string | null {
+    return null;
+  }
+
+  withFontDesc(_fontDesc: string): Action {
+    return this;
+  }
 }
 
 class StrokeLiveStroke implements LiveStroke {
@@ -631,6 +676,14 @@ class LineAction implements Action {
   }
 
   withFill(_color: ColorRGBA): Action {
+    return this;
+  }
+
+  getFontDesc(): string | null {
+    return null;
+  }
+
+  withFontDesc(_fontDesc: string): Action {
     return this;
   }
 }
@@ -739,6 +792,14 @@ class ArrowAction implements Action {
   withFill(_color: ColorRGBA): Action {
     return this;
   }
+
+  getFontDesc(): string | null {
+    return null;
+  }
+
+  withFontDesc(_fontDesc: string): Action {
+    return this;
+  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -840,6 +901,14 @@ class RectAction implements Action {
 
   withFill(fill: ColorRGBA): Action {
     return new RectAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
+  }
+
+  getFontDesc(): string | null {
+    return null;
+  }
+
+  withFontDesc(_fontDesc: string): Action {
+    return this;
   }
 }
 
@@ -952,6 +1021,14 @@ class OvalAction implements Action {
 
   withFill(fill: ColorRGBA): Action {
     return new OvalAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
+  }
+
+  getFontDesc(): string | null {
+    return null;
+  }
+
+  withFontDesc(_fontDesc: string): Action {
+    return this;
   }
 }
 

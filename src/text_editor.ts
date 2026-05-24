@@ -65,7 +65,14 @@ const MARKUP_TAG_REVERSE: Record<string, TagName> = {
 };
 
 export interface TextEditorCallbacks {
-  onCommit: (markup: string, x: number, y: number, rotation: number, replaceIndex?: number) => void;
+  onCommit: (
+    markup: string,
+    x: number,
+    y: number,
+    rotation: number,
+    style: TextEditorStyle,
+    replaceIndex?: number
+  ) => void;
   onCancel: (replaceIndex?: number) => void;
 }
 
@@ -93,6 +100,11 @@ export class TextEditor {
   // after set_text/setBufferFromMarkup and to each insert range so newly
   // typed text inherits the same baseline. B/I/U tags layer on top.
   private baseTag!: Gtk.TextTag;
+  // Current style of the active edit (seeded from beginAt, updated by
+  // refreshStyle when the picker fires while the editor is open). The
+  // editor is the source of truth for style during an edit so picker
+  // changes flow into both the live preview and the committed action.
+  private currentStyle: TextEditorStyle | null = null;
 
   private active: boolean = false;
   private imageX: number = 0;
@@ -190,6 +202,24 @@ export class TextEditor {
     return this.active;
   }
 
+  // Current style of the in-progress edit, or null when inactive. Used by
+  // the style-bar pickers so they reflect what the editor will commit.
+  getCurrentStyle(): TextEditorStyle | null {
+    return this.currentStyle;
+  }
+
+  // Re-apply a new style to the in-progress edit so picker changes update the
+  // visible TextView live (not just at commit). Safe to call when inactive;
+  // it no-ops to keep callers simple. Returns keyboard focus to the TextView
+  // since the user almost always wants to keep typing after a picker change.
+  refreshStyle(style: TextEditorStyle): void {
+    if (!this.active) return;
+    this.currentStyle = style;
+    this.updateBaseTag(style);
+    this.applyBaseTagToBuffer();
+    this.view.grab_focus();
+  }
+
   beginAt(
     imageX: number,
     imageY: number,
@@ -202,7 +232,12 @@ export class TextEditor {
     this.rotation = options?.rotation ?? 0;
     this.replaceIndex = options?.replaceIndex;
     this.pendingTags.clear();
-    if (options?.style) this.updateBaseTag(options.style);
+    if (options?.style) {
+      this.updateBaseTag(options.style);
+      this.currentStyle = options.style;
+    } else {
+      this.currentStyle = null;
+    }
     if (options?.markup) {
       this.setBufferFromMarkup(options.markup);
     } else {
@@ -232,18 +267,20 @@ export class TextEditor {
     const plainText = this.buffer.get_text(start, end, true);
     const replaceIndex = this.replaceIndex;
     const rotation = this.rotation;
+    const style = this.currentStyle;
     this.active = false;
     this.frame.set_visible(false);
     this.replaceIndex = undefined;
     this.rotation = 0;
-    if (plainText.trim().length === 0) {
+    this.currentStyle = null;
+    if (plainText.trim().length === 0 || !style) {
       // No content — treat like a cancel so any hidden source action becomes
       // visible again, rather than silently deleting it.
       this.callbacks.onCancel(replaceIndex);
       return;
     }
     const markup = this.bufferToMarkup();
-    this.callbacks.onCommit(markup, this.imageX, this.imageY, rotation, replaceIndex);
+    this.callbacks.onCommit(markup, this.imageX, this.imageY, rotation, style, replaceIndex);
   }
 
   cancel(): void {
@@ -253,6 +290,7 @@ export class TextEditor {
     this.frame.set_visible(false);
     this.replaceIndex = undefined;
     this.rotation = 0;
+    this.currentStyle = null;
     this.callbacks.onCancel(replaceIndex);
   }
 

@@ -17,6 +17,7 @@ import {
   createLiveStroke,
   defaultColorForTool,
   defaultFillForTool,
+  defaultFontDescForTool,
   defaultWidthForTool,
   isNumberStampAction,
   isTextAction,
@@ -209,6 +210,10 @@ export const CanvasView = GObject.registerClass(
     // every existing stamp via setStampVariant().
     private toolStampVariant: StampVariant = DEFAULT_STAMP_VARIANT;
 
+    // Per-tool current font description. Only 'text' has an entry today;
+    // other tools have no editable font and return null from getToolFontDesc.
+    private toolFontDescs: Map<ToolId, string> = new Map();
+
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save / copy / fresh-image-load. If the current state
     // is the same object, nothing has been modified since. Stays valid
@@ -392,6 +397,18 @@ export const CanvasView = GObject.registerClass(
       this.toolFills.set(toolId, fill);
     }
 
+    // Current font description for the given tool. Returns null for tools
+    // that don't have an editable font (everything but 'text' in M17).
+    getToolFontDesc(toolId: ToolId): string | null {
+      const def = defaultFontDescForTool(toolId);
+      if (def === null) return null;
+      return this.toolFontDescs.get(toolId) ?? def;
+    }
+
+    setToolFontDesc(toolId: ToolId, fontDesc: string): void {
+      this.toolFontDescs.set(toolId, fontDesc);
+    }
+
     // Variant for the next stamp the user places.
     getStampVariant(): StampVariant {
       return this.toolStampVariant;
@@ -488,6 +505,23 @@ export const CanvasView = GObject.registerClass(
           actions: cur.map((a, j) => (j === i ? refilled : a)),
         },
         `fill:${i}`
+      );
+      this.queue_draw();
+      return true;
+    }
+
+    replaceSelectedFontDesc(fontDesc: string): boolean {
+      const i = this.selectedIndex;
+      const cur = this.state.actions;
+      if (i < 0 || i >= cur.length) return false;
+      if (cur[i].getFontDesc() === null) return false;
+      const refonted = cur[i].withFontDesc(fontDesc);
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: cur.map((a, j) => (j === i ? refonted : a)),
+        },
+        `font:${i}`
       );
       this.queue_draw();
       return true;
