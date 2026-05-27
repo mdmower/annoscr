@@ -13,6 +13,8 @@ import {CanvasView} from './canvas_view.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {
   ColorRGBA,
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
   StampVariant,
   TEXT_STYLE,
   ToolId,
@@ -21,6 +23,7 @@ import {
   defaultColorForTool,
   defaultFillForTool,
   defaultFontDescForTool,
+  defaultFontSizeForTool,
   defaultWidthForTool,
   makeTextAction,
 } from './actions.js';
@@ -35,6 +38,28 @@ import {
   formatFromPath,
   saveSurface,
 } from './exporter.js';
+
+const WINDOW_CSS = `
+  .annoscr-font-size > text {
+    padding-left: 12px;
+  }
+`;
+
+let windowCssInstalled = false;
+function installWindowCss(): void {
+  if (windowCssInstalled) return;
+  const display = Gdk.Display.get_default();
+  if (!display) return;
+  const provider = new Gtk.CssProvider();
+  provider.load_from_string(WINDOW_CSS);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  Gtk.StyleContext.add_provider_for_display(
+    display,
+    provider,
+    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+  );
+  windowCssInstalled = true;
+}
 
 const IMAGE_MIME_TYPES = [
   'image/png',
@@ -88,9 +113,10 @@ export const AnnoscrWindow = GObject.registerClass(
     private variantGroup!: Gtk.Box;
     private variantDropdown!: Gtk.DropDown;
     // Font family group — hidden unless the text tool is active or a
-    // TextAction is selected.
+    // TextAction is selected. Font size spinner shares visibility.
     private fontGroup!: Gtk.Box;
     private fontDropdown!: Gtk.DropDown;
+    private fontSizeSpinner!: Gtk.SpinButton;
     // Guard against the programmatic set_rgba() / set_value() we do in
     // refreshStylePicker firing change signals and looping back into the
     // user-edit handlers.
@@ -103,6 +129,8 @@ export const AnnoscrWindow = GObject.registerClass(
         default_width: 960,
         default_height: 640,
       });
+
+      installWindowCss();
 
       const header = new Adw.HeaderBar();
 
@@ -174,6 +202,7 @@ export const AnnoscrWindow = GObject.registerClass(
             rotation,
             style.color,
             style.fontDesc,
+            style.size,
             editorSize
           );
           if (replaceIndex !== undefined) {
@@ -199,7 +228,8 @@ export const AnnoscrWindow = GObject.registerClass(
           // placement and sizing reflect the final TextAction.
           const color = this.textColorFor(options?.replaceIndex);
           const fontDesc = this.textFontDescFor(options?.replaceIndex);
-          const style = {color, fontDesc, size: TEXT_STYLE.size};
+          const fontSize = this.textFontSizeFor(options?.replaceIndex);
+          const style = {color, fontDesc, size: fontSize};
           this.editor.beginAt(ix, iy, wx, wy, {...options, style});
           // Picker now reflects the editor's style (color + font of the
           // in-progress edit), so refresh to point dropdown + buttons at it.
@@ -278,6 +308,15 @@ export const AnnoscrWindow = GObject.registerClass(
         if (f) return f;
       }
       return this.canvas.getToolFontDesc('text') ?? TEXT_STYLE.fontDesc;
+    }
+
+    private textFontSizeFor(replaceIndex: number | undefined): number {
+      if (replaceIndex !== undefined) {
+        const existing = this.canvas.getActionAt(replaceIndex);
+        const s = existing?.getFontSize();
+        if (s) return s;
+      }
+      return this.canvas.getToolFontSize('text') ?? TEXT_STYLE.size;
     }
 
     // Patch the editor's current style with new field values from a picker
@@ -383,8 +422,27 @@ export const AnnoscrWindow = GObject.registerClass(
       // lazily on first access and caches for the process lifetime.
       this.fontDropdown = Gtk.DropDown.new_from_strings(getAvailableFonts().map((f) => f.label));
       this.fontDropdown.connect('notify::selected', () => this.onFontDescPicked());
+      this.fontSizeSpinner = new Gtk.SpinButton({
+        adjustment: new Gtk.Adjustment({
+          lower: FONT_SIZE_MIN,
+          upper: FONT_SIZE_MAX,
+          step_increment: 1,
+          page_increment: 4,
+        }),
+        digits: 0,
+        width_request: 64,
+      });
+      this.fontSizeSpinner.add_css_class('annoscr-font-size');
+      this.fontSizeSpinner.connect('value-changed', () => this.onFontSizePicked());
+      const sizeLabel = new Gtk.Label({
+        label: 'Size',
+        css_classes: ['caption'],
+        margin_start: 6,
+      });
       this.fontGroup.append(fontLabel);
       this.fontGroup.append(this.fontDropdown);
+      this.fontGroup.append(sizeLabel);
+      this.fontGroup.append(this.fontSizeSpinner);
       box.append(this.fontGroup);
 
       return box;
@@ -446,6 +504,11 @@ export const AnnoscrWindow = GObject.registerClass(
         this.fontDropdown.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
       }
 
+      const fontSize = this.styleTargetFontSize();
+      if (fontSize !== null) {
+        this.fontSizeSpinner.set_value(fontSize);
+      }
+
       this.updatingPicker = false;
       this.widthPreview.queue_draw();
     }
@@ -477,6 +540,33 @@ export const AnnoscrWindow = GObject.registerClass(
       if (defaultFontDescForTool(tool) !== null) {
         this.canvas.setToolFontDesc(tool, fontDesc);
       }
+    }
+
+    private onFontSizePicked(): void {
+      if (this.updatingPicker || !this.fontSizeSpinner) return;
+      const size = Math.round(this.fontSizeSpinner.get_value());
+      const tool = this.canvas.getTool();
+      const editorActive = this.editor.isActive();
+      if (editorActive) {
+        this.patchEditorStyle({size});
+      } else if (tool === 'select') {
+        this.canvas.replaceSelectedFontSize(size);
+      }
+      if (defaultFontSizeForTool(tool) !== null) {
+        this.canvas.setToolFontSize(tool, size);
+      }
+    }
+
+    private styleTargetFontSize(): number | null {
+      if (this.editor.isActive()) {
+        return this.editor.getCurrentStyle()?.size ?? null;
+      }
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        const sel = this.canvas.getSelectedAction();
+        return sel ? sel.getFontSize() : null;
+      }
+      return this.canvas.getToolFontSize(tool);
     }
 
     private styleTargetFontDesc(): string | null {

@@ -18,6 +18,7 @@ import {
   defaultColorForTool,
   defaultFillForTool,
   defaultFontDescForTool,
+  defaultFontSizeForTool,
   defaultWidthForTool,
   isNumberStampAction,
   isTextAction,
@@ -215,6 +216,10 @@ export const CanvasView = GObject.registerClass(
     // other tools have no editable font and return null from getToolFontDesc.
     private toolFontDescs: Map<ToolId, string> = new Map();
 
+    // Per-tool current font size (image-space pixels). Only 'text' has an
+    // entry today; other tools return null from getToolFontSize.
+    private toolFontSizes: Map<ToolId, number> = new Map();
+
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save / copy / fresh-image-load. If the current state
     // is the same object, nothing has been modified since. Stays valid
@@ -410,6 +415,16 @@ export const CanvasView = GObject.registerClass(
       this.toolFontDescs.set(toolId, fontDesc);
     }
 
+    getToolFontSize(toolId: ToolId): number | null {
+      const def = defaultFontSizeForTool(toolId);
+      if (def === null) return null;
+      return this.toolFontSizes.get(toolId) ?? def;
+    }
+
+    setToolFontSize(toolId: ToolId, size: number): void {
+      this.toolFontSizes.set(toolId, size);
+    }
+
     // Variant for the next stamp the user places.
     getStampVariant(): StampVariant {
       return this.toolStampVariant;
@@ -523,6 +538,23 @@ export const CanvasView = GObject.registerClass(
           actions: cur.map((a, j) => (j === i ? refonted : a)),
         },
         `font:${i}`
+      );
+      this.queue_draw();
+      return true;
+    }
+
+    replaceSelectedFontSize(size: number): boolean {
+      const i = this.selectedIndex;
+      const cur = this.state.actions;
+      if (i < 0 || i >= cur.length) return false;
+      if (cur[i].getFontSize() === null) return false;
+      const resized = cur[i].withFontSize(size);
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: cur.map((a, j) => (j === i ? resized : a)),
+        },
+        `fontSize:${i}`
       );
       this.queue_draw();
       return true;

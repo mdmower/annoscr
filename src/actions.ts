@@ -48,6 +48,10 @@ export interface Action {
   // null for actions that don't carry one. Only TextAction does today.
   getFontDesc(): string | null;
   withFontDesc(fontDesc: string): Action;
+  // The action's editable font size in image-space pixels, or null for
+  // actions that don't carry one. Only TextAction does today.
+  getFontSize(): number | null;
+  withFontSize(size: number): Action;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -217,10 +221,22 @@ export function defaultFontDescForTool(toolId: ToolId): string | null {
   return null;
 }
 
+// Default per-tool font size (image-space pixels). Only the text tool has
+// an editable font size today; everything else returns null and the font
+// size picker hides accordingly.
+export function defaultFontSizeForTool(toolId: ToolId): number | null {
+  if (toolId === 'text') return TEXT_STYLE.size;
+  return null;
+}
+
 // Slider range for the width control. Generous enough that the highlighter's
 // default (18 px) sits comfortably below the top.
 export const WIDTH_MIN = 1;
 export const WIDTH_MAX = 40;
+
+// SpinButton range for the font size control (image-space pixels).
+export const FONT_SIZE_MIN = 6;
+export const FONT_SIZE_MAX = 200;
 
 const SHAPE_MIN_EXTENT = 2;
 
@@ -345,6 +361,24 @@ class TextAction implements Action {
       this.editorSize
     );
   }
+
+  getFontSize(): number {
+    return this.style.size;
+  }
+
+  withFontSize(size: number): Action {
+    return new TextAction(
+      this.x,
+      this.y,
+      this.markup,
+      this.rotation,
+      {
+        ...this.style,
+        size,
+      },
+      this.editorSize
+    );
+  }
 }
 
 export function makeTextAction(
@@ -354,6 +388,7 @@ export function makeTextAction(
   rotation: number = 0,
   color: ColorRGBA = DEFAULT_COLOR,
   fontDesc: string = TEXT_STYLE.fontDesc,
+  fontSize: number = TEXT_STYLE.size,
   editorSize?: EditorSize
 ): Action {
   return new TextAction(
@@ -365,6 +400,7 @@ export function makeTextAction(
       ...TEXT_STYLE,
       color,
       fontDesc,
+      size: fontSize,
     },
     editorSize
   );
@@ -520,6 +556,14 @@ class NumberStampAction implements Action {
   withFontDesc(_fontDesc: string): Action {
     return this;
   }
+
+  getFontSize(): number | null {
+    return null;
+  }
+
+  withFontSize(_size: number): Action {
+    return this;
+  }
 }
 
 export function makeNumberStampAction(
@@ -633,6 +677,14 @@ class StrokeAction implements Action {
   withFontDesc(_fontDesc: string): Action {
     return this;
   }
+
+  getFontSize(): number | null {
+    return null;
+  }
+
+  withFontSize(_size: number): Action {
+    return this;
+  }
 }
 
 class StrokeLiveStroke implements LiveStroke {
@@ -728,6 +780,14 @@ class LineAction implements Action {
   }
 
   withFontDesc(_fontDesc: string): Action {
+    return this;
+  }
+
+  getFontSize(): number | null {
+    return null;
+  }
+
+  withFontSize(_size: number): Action {
     return this;
   }
 }
@@ -844,6 +904,14 @@ class ArrowAction implements Action {
   withFontDesc(_fontDesc: string): Action {
     return this;
   }
+
+  getFontSize(): number | null {
+    return null;
+  }
+
+  withFontSize(_size: number): Action {
+    return this;
+  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -952,6 +1020,14 @@ class RectAction implements Action {
   }
 
   withFontDesc(_fontDesc: string): Action {
+    return this;
+  }
+
+  getFontSize(): number | null {
+    return null;
+  }
+
+  withFontSize(_size: number): Action {
     return this;
   }
 }
@@ -1072,6 +1148,14 @@ class OvalAction implements Action {
   }
 
   withFontDesc(_fontDesc: string): Action {
+    return this;
+  }
+
+  getFontSize(): number | null {
+    return null;
+  }
+
+  withFontSize(_size: number): Action {
     return this;
   }
 }
