@@ -4,15 +4,16 @@ A lightweight screenshot annotation tool for GNOME, written in TypeScript on GJS
 
 Annoscr is a reimplementation of a subset of [Gradia](https://github.com/AlexanderVanhee/Gradia), focused primarily on annotation. The canvas/action design is inspired by Gradia's.
 
-## Features (planned)
+## Features
 
 **Annotation tools:** Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, Number stamp
-**Transforms:** Rotation, Crop
-**I/O:** Open file, paste from clipboard, drag-and-drop, export PNG/WebP, copy to clipboard
+**Transforms:** Rotation, Resize (crop / canvas expansion)
+**I/O:** Open file, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
+**Editing:** Per-tool color, fill, stroke width, font family, font size; undo/redo; discard confirmation
 
 ## Status
 
-Pre-alpha. Currently at milestone 1 (scaffolding + hello-world window).
+In active development.
 
 ## Building
 
