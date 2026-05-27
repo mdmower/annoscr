@@ -1,6 +1,6 @@
 import Cairo from 'cairo';
 
-export type RotateDirection = 'cw' | 'ccw';
+import type {RotateDirection} from './actions.js';
 
 // Rotates a Cairo.ImageSurface by 90° in the given direction and returns a
 // fresh surface with swapped dimensions. Pixel-exact (no resampling): the

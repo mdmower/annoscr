@@ -6,7 +6,7 @@ import {getDefaultTextFont} from './font_catalogue.js';
 
 export type ColorRGBA = [number, number, number, number];
 
-export interface Style {
+interface Style {
   color: ColorRGBA;
   width: number;
 }
@@ -103,7 +103,7 @@ export type ToolId =
   | 'resize';
 
 export interface TextStyle {
-  color: [number, number, number, number];
+  color: ColorRGBA;
   size: number; // image-space pixels (font height)
   fontDesc: string; // Pango font description string
 }
@@ -140,26 +140,26 @@ function stampLabel(n: number, variant: StampVariant): string {
   return String(n);
 }
 
-export const DEFAULT_COLOR: ColorRGBA = [0.85, 0.18, 0.18, 1.0];
-export const DEFAULT_HIGHLIGHTER_COLOR: ColorRGBA = [1.0, 0.92, 0.1, 0.35];
+const DEFAULT_COLOR: ColorRGBA = [0.85, 0.18, 0.18, 1.0];
+const DEFAULT_HIGHLIGHTER_COLOR: ColorRGBA = [1.0, 0.92, 0.1, 0.35];
 
-export const PEN_STYLE: Style = {color: DEFAULT_COLOR, width: 4};
-export const HIGHLIGHTER_STYLE: Style = {
+const PEN_STYLE: Style = {color: DEFAULT_COLOR, width: 4};
+const HIGHLIGHTER_STYLE: Style = {
   color: DEFAULT_HIGHLIGHTER_COLOR,
   width: 18,
 };
-export const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
-export const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
-export const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
+const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
+const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
+const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
 export const TEXT_STYLE: TextStyle = {
   color: DEFAULT_COLOR,
   size: 24,
   fontDesc: 'Sans',
 };
 
-export const DEFAULT_NUMBER_STAMP_FG: ColorRGBA = [1, 1, 1, 1];
+const DEFAULT_NUMBER_STAMP_FG: ColorRGBA = [1, 1, 1, 1];
 
-export const NUMBER_STAMP_STYLE: NumberStampStyle = {
+const NUMBER_STAMP_STYLE: NumberStampStyle = {
   radius: 16,
   fillColor: DEFAULT_COLOR,
   foregroundColor: DEFAULT_NUMBER_STAMP_FG,
@@ -237,11 +237,53 @@ export const WIDTH_MAX = 40;
 export const FONT_SIZE_MIN = 6;
 export const FONT_SIZE_MAX = 200;
 
+// Canvas dimension limits for the blank-canvas dialog and CLI flags.
+export const CANVAS_SIZE_MIN = 1;
+export const CANVAS_SIZE_MAX = 8192;
+
 const SHAPE_MIN_EXTENT = 2;
+
+abstract class BaseAction implements Action {
+  abstract draw(cr: Cairo.Context, scale: number): void;
+  abstract getBounds(): Bounds | null;
+  abstract translate(dx: number, dy: number): Action;
+  abstract rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
+
+  getColor(): ColorRGBA | null {
+    return null;
+  }
+  withColor(_color: ColorRGBA): Action {
+    return this;
+  }
+  getWidth(): number | null {
+    return null;
+  }
+  withWidth(_width: number): Action {
+    return this;
+  }
+  getFill(): ColorRGBA | null {
+    return null;
+  }
+  withFill(_color: ColorRGBA): Action {
+    return this;
+  }
+  getFontDesc(): string | null {
+    return null;
+  }
+  withFontDesc(_fontDesc: string): Action {
+    return this;
+  }
+  getFontSize(): number | null {
+    return null;
+  }
+  withFontSize(_size: number): Action {
+    return this;
+  }
+}
 
 // ---------- Text ----------
 
-class TextAction implements Action {
+class TextAction extends BaseAction {
   // Bounds depend on Pango layout measurements which need a Cairo context.
   // We cache the bounds the first time draw() runs; getBounds before any
   // paint returns a small fallback around the anchor point.
@@ -254,7 +296,9 @@ class TextAction implements Action {
     public readonly rotation: number, // 0..3 quarter-turns CW
     private readonly style: TextStyle,
     public readonly editorSize?: EditorSize
-  ) {}
+  ) {
+    super();
+  }
 
   draw(cr: Cairo.Context, _scale: number): void {
     if (!this.markup) return;
@@ -325,22 +369,6 @@ class TextAction implements Action {
       },
       this.editorSize
     );
-  }
-
-  getWidth(): number | null {
-    return null;
-  }
-
-  withWidth(_width: number): Action {
-    return this;
-  }
-
-  getFill(): ColorRGBA | null {
-    return null;
-  }
-
-  withFill(_color: ColorRGBA): Action {
-    return this;
   }
 
   getFontDesc(): string {
@@ -424,7 +452,7 @@ export function getTextEditState(
 
 // ---------- Number stamp ----------
 
-class NumberStampAction implements Action {
+class NumberStampAction extends BaseAction {
   constructor(
     public readonly x: number,
     public readonly y: number,
@@ -432,7 +460,9 @@ class NumberStampAction implements Action {
     public readonly variant: StampVariant,
     public readonly rotation: number, // 0..3 quarter-turns CW (affects the digit only)
     public readonly style: NumberStampStyle
-  ) {}
+  ) {
+    super();
+  }
 
   draw(cr: Cairo.Context, _scale: number): void {
     const s = this.style;
@@ -519,16 +549,6 @@ class NumberStampAction implements Action {
     });
   }
 
-  // Number stamp has radius + borderWidth, not a single user-editable
-  // width. Width-tool UI greys out when a stamp is selected.
-  getWidth(): number | null {
-    return null;
-  }
-
-  withWidth(_width: number): Action {
-    return this;
-  }
-
   getFill(): ColorRGBA {
     return this.style.fillColor;
   }
@@ -546,22 +566,6 @@ class NumberStampAction implements Action {
 
   withVariant(variant: StampVariant): Action {
     return new NumberStampAction(this.x, this.y, this.n, variant, this.rotation, this.style);
-  }
-
-  getFontDesc(): string | null {
-    return null;
-  }
-
-  withFontDesc(_fontDesc: string): Action {
-    return this;
-  }
-
-  getFontSize(): number | null {
-    return null;
-  }
-
-  withFontSize(_size: number): Action {
-    return this;
   }
 }
 
@@ -605,11 +609,13 @@ export function setStampVariantOnAll(
 
 // ---------- Pen / Highlighter (multi-point stroke) ----------
 
-class StrokeAction implements Action {
+class StrokeAction extends BaseAction {
   constructor(
     private readonly points: ReadonlyArray<[number, number]>,
     private readonly style: Style
-  ) {}
+  ) {
+    super();
+  }
 
   draw(cr: Cairo.Context, _scale: number): void {
     if (this.points.length < 2) return;
@@ -660,30 +666,6 @@ class StrokeAction implements Action {
   withWidth(width: number): Action {
     return new StrokeAction(this.points, {...this.style, width});
   }
-
-  getFill(): ColorRGBA | null {
-    return null;
-  }
-
-  withFill(_color: ColorRGBA): Action {
-    return this;
-  }
-
-  getFontDesc(): string | null {
-    return null;
-  }
-
-  withFontDesc(_fontDesc: string): Action {
-    return this;
-  }
-
-  getFontSize(): number | null {
-    return null;
-  }
-
-  withFontSize(_size: number): Action {
-    return this;
-  }
 }
 
 class StrokeLiveStroke implements LiveStroke {
@@ -714,14 +696,16 @@ class StrokeLiveStroke implements LiveStroke {
 
 // ---------- Line ----------
 
-class LineAction implements Action {
+class LineAction extends BaseAction {
   constructor(
     private readonly x1: number,
     private readonly y1: number,
     private readonly x2: number,
     private readonly y2: number,
     private readonly style: Style
-  ) {}
+  ) {
+    super();
+  }
 
   draw(cr: Cairo.Context, _scale: number): void {
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
@@ -765,30 +749,6 @@ class LineAction implements Action {
       width,
     });
   }
-
-  getFill(): ColorRGBA | null {
-    return null;
-  }
-
-  withFill(_color: ColorRGBA): Action {
-    return this;
-  }
-
-  getFontDesc(): string | null {
-    return null;
-  }
-
-  withFontDesc(_fontDesc: string): Action {
-    return this;
-  }
-
-  getFontSize(): number | null {
-    return null;
-  }
-
-  withFontSize(_size: number): Action {
-    return this;
-  }
 }
 
 class LineLiveStroke implements LiveStroke {
@@ -822,14 +782,16 @@ class LineLiveStroke implements LiveStroke {
 
 // ---------- Arrow ----------
 
-class ArrowAction implements Action {
+class ArrowAction extends BaseAction {
   constructor(
     private readonly x1: number,
     private readonly y1: number,
     private readonly x2: number,
     private readonly y2: number,
     private readonly style: Style
-  ) {}
+  ) {
+    super();
+  }
 
   draw(cr: Cairo.Context, _scale: number): void {
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
@@ -887,30 +849,6 @@ class ArrowAction implements Action {
       width,
     });
   }
-
-  getFill(): ColorRGBA | null {
-    return null;
-  }
-
-  withFill(_color: ColorRGBA): Action {
-    return this;
-  }
-
-  getFontDesc(): string | null {
-    return null;
-  }
-
-  withFontDesc(_fontDesc: string): Action {
-    return this;
-  }
-
-  getFontSize(): number | null {
-    return null;
-  }
-
-  withFontSize(_size: number): Action {
-    return this;
-  }
 }
 
 class ArrowLiveStroke implements LiveStroke {
@@ -944,7 +882,7 @@ class ArrowLiveStroke implements LiveStroke {
 
 // ---------- Rectangle ----------
 
-class RectAction implements Action {
+class RectAction extends BaseAction {
   constructor(
     private readonly x1: number,
     private readonly y1: number,
@@ -952,7 +890,9 @@ class RectAction implements Action {
     private readonly y2: number,
     private readonly style: Style,
     private readonly fill: ColorRGBA
-  ) {}
+  ) {
+    super();
+  }
 
   draw(cr: Cairo.Context, _scale: number): void {
     const x = Math.min(this.x1, this.x2);
@@ -1013,22 +953,6 @@ class RectAction implements Action {
   withFill(fill: ColorRGBA): Action {
     return new RectAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
   }
-
-  getFontDesc(): string | null {
-    return null;
-  }
-
-  withFontDesc(_fontDesc: string): Action {
-    return this;
-  }
-
-  getFontSize(): number | null {
-    return null;
-  }
-
-  withFontSize(_size: number): Action {
-    return this;
-  }
 }
 
 class RectLiveStroke implements LiveStroke {
@@ -1062,7 +986,7 @@ class RectLiveStroke implements LiveStroke {
 
 // ---------- Oval ----------
 
-class OvalAction implements Action {
+class OvalAction extends BaseAction {
   constructor(
     private readonly x1: number,
     private readonly y1: number,
@@ -1070,7 +994,9 @@ class OvalAction implements Action {
     private readonly y2: number,
     private readonly style: Style,
     private readonly fill: ColorRGBA
-  ) {}
+  ) {
+    super();
+  }
 
   draw(cr: Cairo.Context, _scale: number): void {
     const cx = (this.x1 + this.x2) / 2;
@@ -1140,22 +1066,6 @@ class OvalAction implements Action {
 
   withFill(fill: ColorRGBA): Action {
     return new OvalAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
-  }
-
-  getFontDesc(): string | null {
-    return null;
-  }
-
-  withFontDesc(_fontDesc: string): Action {
-    return this;
-  }
-
-  getFontSize(): number | null {
-    return null;
-  }
-
-  withFontSize(_size: number): Action {
-    return this;
   }
 }
 

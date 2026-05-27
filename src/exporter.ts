@@ -9,7 +9,6 @@ export type ImageFormat = 'png' | 'jpeg';
 export interface FormatInfo {
   ext: string; // canonical extension including the dot
   mime: string;
-  label: string; // file-filter display name
   patterns: string[];
 }
 
@@ -17,13 +16,11 @@ export const FORMATS: Record<ImageFormat, FormatInfo> = {
   png: {
     ext: '.png',
     mime: 'image/png',
-    label: 'PNG image',
     patterns: ['*.png'],
   },
   jpeg: {
     ext: '.jpeg',
     mime: 'image/jpeg',
-    label: 'JPEG image',
     patterns: ['*.jpg', '*.jpeg'],
   },
 };

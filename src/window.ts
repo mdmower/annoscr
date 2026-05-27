@@ -12,6 +12,8 @@ import {CanvasView} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {
+  CANVAS_SIZE_MAX,
+  CANVAS_SIZE_MIN,
   ColorRGBA,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -85,8 +87,6 @@ const SIZE_PRESETS: SizePreset[] = [
 ];
 
 const DEFAULT_PRESET_INDEX = 2;
-const CANVAS_SIZE_MIN = 1;
-const CANVAS_SIZE_MAX = 8192;
 
 interface ToolDef {
   id: ToolId;
@@ -114,7 +114,6 @@ export const AnnoscrWindow = GObject.registerClass(
     private editor: InstanceType<typeof TextEditor>;
     private toolButtons: Map<ToolId, Gtk.ToggleButton> = new Map();
     private resizeToolbar: Gtk.Box;
-    private resizeButton: Gtk.Button;
     // Assigned inside buildStatusBar(), which the constructor calls.
     private statusLabel!: Gtk.Label;
     // Set true just before we explicitly call close() after the user has
@@ -162,7 +161,7 @@ export const AnnoscrWindow = GObject.registerClass(
 
       const openButton = new Gtk.Button({
         icon_name: 'document-open-symbolic',
-        tooltip_text: 'Open image…',
+        tooltip_text: 'Open image… (Ctrl+O)',
       });
       openButton.connect('clicked', () => this.openImageDialog());
       header.pack_start(openButton);
@@ -185,12 +184,12 @@ export const AnnoscrWindow = GObject.registerClass(
 
       // pack_end stacks right-to-left in source order, so to land the buttons
       // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize first.
-      this.resizeButton = new Gtk.Button({
+      const resizeButton = new Gtk.Button({
         icon_name: 'view-fullscreen-symbolic',
         tooltip_text: 'Resize canvas…',
       });
-      this.resizeButton.connect('clicked', () => this.toggleResizeMode());
-      header.pack_end(this.resizeButton);
+      resizeButton.connect('clicked', () => this.toggleResizeMode());
+      header.pack_end(resizeButton);
 
       const rotateRightBtn = new Gtk.Button({
         icon_name: 'object-rotate-right-symbolic',
@@ -758,12 +757,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const dialog = new Gtk.FileDialog({title: 'Open image', modal: true});
 
       const filter = new Gtk.FileFilter({name: 'Images'});
-      filter.add_mime_type('image/png');
-      filter.add_mime_type('image/jpeg');
-      filter.add_mime_type('image/webp');
-      filter.add_mime_type('image/gif');
-      filter.add_mime_type('image/bmp');
-      filter.add_mime_type('image/tiff');
+      for (const mime of IMAGE_MIME_TYPES) filter.add_mime_type(mime);
       const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
       filters.append(filter);
       dialog.set_filters(filters);
@@ -937,6 +931,7 @@ export const AnnoscrWindow = GObject.registerClass(
     private installShortcuts(): void {
       const controller = new Gtk.ShortcutController();
       this.bindShortcut(controller, '<Control>n', () => this.newBlankCanvas());
+      this.bindShortcut(controller, '<Control>o', () => this.openImageDialog());
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
       // Undo/redo are disabled while resize mode is active: a pending region
       // is transient state that hasn't been committed, and rolling history

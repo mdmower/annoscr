@@ -289,16 +289,6 @@ export const CanvasView = GObject.registerClass(
       this.notifyStateChange();
     }
 
-    clearImage(): void {
-      this.history = [{surface: null, actions: []}];
-      this.historyCursor = 0;
-      this.cleanStateRef = this.history[0];
-      this.lastCoalesceKey = null;
-      this.resetTransientState();
-      this.queue_draw();
-      this.notifyStateChange();
-    }
-
     // True when the current state has been modified since the last save,
     // copy, or fresh image load. Undo to the clean point restores it to
     // false (same state object).
@@ -472,91 +462,71 @@ export const CanvasView = GObject.registerClass(
       return cur[index];
     }
 
-    // Replace the selected action's color, pushing a new history state.
-    // No-op if nothing is selected or the action's color isn't editable.
-    replaceSelectedColor(color: ColorRGBA): boolean {
+    private replaceSelectedProperty<T>(
+      get: (a: Action) => T | null,
+      apply: (a: Action, v: T) => Action,
+      value: T,
+      key: string
+    ): boolean {
       const i = this.selectedIndex;
       const cur = this.state.actions;
       if (i < 0 || i >= cur.length) return false;
-      if (cur[i].getColor() === null) return false;
-      const recolored = cur[i].withColor(color);
+      if (get(cur[i]) === null) return false;
+      const updated = apply(cur[i], value);
       this.pushState(
         {
           surface: this.state.surface,
-          actions: cur.map((a, j) => (j === i ? recolored : a)),
+          actions: cur.map((a, j) => (j === i ? updated : a)),
         },
-        `color:${i}`
+        `${key}:${i}`
       );
       this.queue_draw();
       return true;
+    }
+
+    replaceSelectedColor(color: ColorRGBA): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getColor(),
+        (a, v) => a.withColor(v),
+        color,
+        'color'
+      );
     }
 
     replaceSelectedWidth(width: number): boolean {
-      const i = this.selectedIndex;
-      const cur = this.state.actions;
-      if (i < 0 || i >= cur.length) return false;
-      if (cur[i].getWidth() === null) return false;
-      const resized = cur[i].withWidth(width);
-      this.pushState(
-        {
-          surface: this.state.surface,
-          actions: cur.map((a, j) => (j === i ? resized : a)),
-        },
-        `width:${i}`
+      return this.replaceSelectedProperty(
+        (a) => a.getWidth(),
+        (a, v) => a.withWidth(v),
+        width,
+        'width'
       );
-      this.queue_draw();
-      return true;
     }
 
     replaceSelectedFill(fill: ColorRGBA): boolean {
-      const i = this.selectedIndex;
-      const cur = this.state.actions;
-      if (i < 0 || i >= cur.length) return false;
-      if (cur[i].getFill() === null) return false;
-      const refilled = cur[i].withFill(fill);
-      this.pushState(
-        {
-          surface: this.state.surface,
-          actions: cur.map((a, j) => (j === i ? refilled : a)),
-        },
-        `fill:${i}`
+      return this.replaceSelectedProperty(
+        (a) => a.getFill(),
+        (a, v) => a.withFill(v),
+        fill,
+        'fill'
       );
-      this.queue_draw();
-      return true;
     }
 
     replaceSelectedFontDesc(fontDesc: string): boolean {
-      const i = this.selectedIndex;
-      const cur = this.state.actions;
-      if (i < 0 || i >= cur.length) return false;
-      if (cur[i].getFontDesc() === null) return false;
-      const refonted = cur[i].withFontDesc(fontDesc);
-      this.pushState(
-        {
-          surface: this.state.surface,
-          actions: cur.map((a, j) => (j === i ? refonted : a)),
-        },
-        `font:${i}`
+      return this.replaceSelectedProperty(
+        (a) => a.getFontDesc(),
+        (a, v) => a.withFontDesc(v),
+        fontDesc,
+        'font'
       );
-      this.queue_draw();
-      return true;
     }
 
     replaceSelectedFontSize(size: number): boolean {
-      const i = this.selectedIndex;
-      const cur = this.state.actions;
-      if (i < 0 || i >= cur.length) return false;
-      if (cur[i].getFontSize() === null) return false;
-      const resized = cur[i].withFontSize(size);
-      this.pushState(
-        {
-          surface: this.state.surface,
-          actions: cur.map((a, j) => (j === i ? resized : a)),
-        },
-        `fontSize:${i}`
+      return this.replaceSelectedProperty(
+        (a) => a.getFontSize(),
+        (a, v) => a.withFontSize(v),
+        size,
+        'fontSize'
       );
-      this.queue_draw();
-      return true;
     }
 
     private notifyStateChange(): void {

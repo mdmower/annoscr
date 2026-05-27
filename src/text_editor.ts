@@ -1,7 +1,7 @@
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Pango from 'gi://Pango?version=1.0';
-import type {EditorSize} from './actions.js';
+import type {ColorRGBA, EditorSize} from './actions.js';
 
 // Background tint on the live TextView/Frame so the canvas image shows
 // through. Applied once at the display level — collision with other
@@ -15,8 +15,6 @@ const EDITOR_CSS = `
   }
   .annoscr-editor-view {
     padding: 4px 8px;
-  }
-  .annoscr-editor-view {
     caret-color: #333;
   }
   .annoscr-format-btn {
@@ -48,7 +46,7 @@ function installEditorCss(): void {
 }
 
 export interface TextEditorStyle {
-  color: [number, number, number, number];
+  color: ColorRGBA;
   fontDesc: string;
   size: number; // image-space pixels (font height)
 }
@@ -74,7 +72,7 @@ const EDITOR_DEFAULT_WIDTH = 160;
 const EDITOR_MIN_WIDTH = 80;
 const EDITOR_MIN_HEIGHT = 40;
 
-export interface TextEditorCallbacks {
+interface TextEditorCallbacks {
   onCommit: (
     markup: string,
     x: number,

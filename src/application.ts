@@ -3,6 +3,7 @@ import GObject from 'gi://GObject?version=2.0';
 import Gio from 'gi://Gio?version=2.0';
 import Adw from 'gi://Adw?version=1';
 
+import {CANVAS_SIZE_MAX, CANVAS_SIZE_MIN} from './actions.js';
 import {AnnoscrWindow} from './window.js';
 
 const DEFAULT_BLANK_WIDTH = 640;
@@ -49,9 +50,9 @@ export const AnnoscrApplication = GObject.registerClass(
         let w = DEFAULT_BLANK_WIDTH;
         let h = DEFAULT_BLANK_HEIGHT;
         const wv = options.lookup_value('width', GLib.VariantType.new('i'));
-        if (wv) w = Math.max(1, Math.min(8192, wv.get_int32()));
+        if (wv) w = Math.max(CANVAS_SIZE_MIN, Math.min(CANVAS_SIZE_MAX, wv.get_int32()));
         const hv = options.lookup_value('height', GLib.VariantType.new('i'));
-        if (hv) h = Math.max(1, Math.min(8192, hv.get_int32()));
+        if (hv) h = Math.max(CANVAS_SIZE_MIN, Math.min(CANVAS_SIZE_MAX, hv.get_int32()));
         this.initialBlank = {w, h};
       }
       return -1;
