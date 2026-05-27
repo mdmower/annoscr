@@ -142,6 +142,7 @@ export const AnnoscrWindow = GObject.registerClass(
     // refreshStylePicker firing change signals and looping back into the
     // user-edit handlers.
     private updatingPicker: boolean = false;
+    private toastOverlay!: Adw.ToastOverlay;
 
     constructor(app: InstanceType<typeof AnnoscrApplication>) {
       super({
@@ -293,7 +294,8 @@ export const AnnoscrWindow = GObject.registerClass(
       toolbar.add_top_bar(this.buildStyleBar());
       toolbar.set_content(this.stack);
       toolbar.add_bottom_bar(this.buildStatusBar());
-      this.set_content(toolbar);
+      this.toastOverlay = new Adw.ToastOverlay({child: toolbar});
+      this.set_content(this.toastOverlay);
 
       this.canvas.setStateChangeHandler(() => {
         this.refreshStatus();
@@ -778,7 +780,7 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.open(this, null, (_src, result) => {
         try {
           const file = dialog.open_finish(result);
-          if (file) this.loadFile(file);
+          if (file) this.openFile(file);
         } catch (e) {
           // Cancellation surfaces as a Gtk DialogError; ignore those and log the rest.
           if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
@@ -912,11 +914,14 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.present(this);
     }
 
-    private loadFile(file: Gio.File): void {
+    openFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
-      } catch (e) {
-        console.error('loadFile failed', e);
+      } catch {
+        const name = file.get_basename() ?? file.get_uri();
+        this.toastOverlay.add_toast(
+          new Adw.Toast({title: `Could not open "${name}": unsupported file format`})
+        );
       }
     }
 
@@ -934,7 +939,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
         if (!file) return false;
-        this.confirmDiscard('Loading the dropped image', () => this.loadFile(file));
+        this.confirmDiscard('Loading the dropped image', () => this.openFile(file));
         return true;
       });
       this.add_controller(dropTarget);
@@ -1220,7 +1225,7 @@ export const AnnoscrWindow = GObject.registerClass(
             .split(/\r?\n/)
             .find((line) => line && !line.startsWith('#'))
             ?.trim();
-          if (uri) this.loadFile(Gio.File.new_for_uri(uri));
+          if (uri) this.openFile(Gio.File.new_for_uri(uri));
         } catch (e) {
           console.error('paste (uri-list) failed', e);
         }
