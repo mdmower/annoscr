@@ -94,7 +94,7 @@ interface CanvasState {
   actions: ReadonlyArray<Action>;
 }
 
-const HISTORY_CAP = 50;
+const HISTORY_CAP = 100;
 
 // Widget-space hit tolerance for resize edge/corner grabs.
 const HANDLE_HIT_PX = 8;

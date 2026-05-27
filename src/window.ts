@@ -122,19 +122,22 @@ export const AnnoscrWindow = GObject.registerClass(
     private saveButton: Gtk.Button;
     private copyButton: Gtk.Button;
     // Assigned inside buildStyleBar(), which the constructor calls.
+    private styleBar!: Gtk.Box;
     private colorButton!: Gtk.ColorDialogButton;
+    private colorGroup!: Gtk.Box;
+    private fillButton!: Gtk.ColorDialogButton;
+    private fillGroup!: Gtk.Box;
     private widthScale!: Gtk.Scale;
     private widthPreview!: Gtk.DrawingArea;
-    private fillButton!: Gtk.ColorDialogButton;
-    // Variant group wraps label + dropdown so we can hide/show as one unit
-    // (the entire group only exists when the number tool is active).
+    private widthGroup!: Gtk.Box;
     private variantGroup!: Gtk.Box;
     private variantDropdown!: Gtk.DropDown;
-    // Font family group — hidden unless the text tool is active or a
-    // TextAction is selected. Font size spinner shares visibility.
     private fontGroup!: Gtk.Box;
     private fontDropdown!: Gtk.DropDown;
     private fontSizeSpinner!: Gtk.SpinButton;
+    // Ordered (group, separator) pairs for the first-visible-separator logic
+    // in refreshStylePicker.
+    private styleGroupOrder: Array<{group: Gtk.Box; sep: Gtk.Separator}> = [];
     // Guard against the programmatic set_rgba() / set_value() we do in
     // refreshStylePicker firing change signals and looping back into the
     // user-edit handlers.
@@ -357,41 +360,61 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private buildStyleBar(): Gtk.Box {
-      const box = new Gtk.Box({
+      this.styleBar = new Gtk.Box({
         orientation: Gtk.Orientation.HORIZONTAL,
         spacing: 6,
         margin_start: 12,
         margin_end: 12,
         margin_top: 4,
         margin_bottom: 4,
+        // Fixed height so the bar always occupies the same space regardless
+        // of which groups are visible. Without this, hiding/showing groups
+        // resizes the canvas and shifts the image.
+        height_request: WIDTH_MAX + 4,
       });
 
-      const sep = (): Gtk.Separator =>
+      const makeSep = (): Gtk.Separator =>
         new Gtk.Separator({
           orientation: Gtk.Orientation.VERTICAL,
           margin_start: 8,
           margin_end: 8,
         });
 
-      const colorLabel = new Gtk.Label({label: 'Color', css_classes: ['caption']});
-      const dialog = new Gtk.ColorDialog({with_alpha: true});
-      this.colorButton = new Gtk.ColorDialogButton({dialog});
+      const makeGroup = (sep: Gtk.Separator, ...children: Gtk.Widget[]): Gtk.Box => {
+        const g = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
+        g.append(sep);
+        for (const c of children) g.append(c);
+        return g;
+      };
+
+      // Color group
+      const colorSep = makeSep();
+      this.colorButton = new Gtk.ColorDialogButton({
+        dialog: new Gtk.ColorDialog({with_alpha: true}),
+      });
       this.colorButton.connect('notify::rgba', () => this.onColorPicked());
-      box.append(colorLabel);
-      box.append(this.colorButton);
+      this.colorGroup = makeGroup(
+        colorSep,
+        new Gtk.Label({label: 'Color', css_classes: ['caption']}),
+        this.colorButton
+      );
+      this.styleBar.append(this.colorGroup);
 
-      box.append(sep());
-
-      const fillLabel = new Gtk.Label({label: 'Fill', css_classes: ['caption']});
-      const fillDialog = new Gtk.ColorDialog({with_alpha: true});
-      this.fillButton = new Gtk.ColorDialogButton({dialog: fillDialog});
+      // Fill group
+      const fillSep = makeSep();
+      this.fillButton = new Gtk.ColorDialogButton({
+        dialog: new Gtk.ColorDialog({with_alpha: true}),
+      });
       this.fillButton.connect('notify::rgba', () => this.onFillPicked());
-      box.append(fillLabel);
-      box.append(this.fillButton);
+      this.fillGroup = makeGroup(
+        fillSep,
+        new Gtk.Label({label: 'Fill', css_classes: ['caption']}),
+        this.fillButton
+      );
+      this.styleBar.append(this.fillGroup);
 
-      box.append(sep());
-
-      const widthLabel = new Gtk.Label({label: 'Width', css_classes: ['caption']});
+      // Width group
+      const widthSep = makeSep();
       this.widthScale = new Gtk.Scale({
         orientation: Gtk.Orientation.HORIZONTAL,
         adjustment: new Gtk.Adjustment({
@@ -406,46 +429,33 @@ export const AnnoscrWindow = GObject.registerClass(
         width_request: 160,
       });
       this.widthScale.connect('value-changed', () => this.onWidthPicked());
-      // Preview area: draws a horizontal stroke of the current width in
-      // image-space pixels (≡ widget pixels at 1:1). Width clamps to the
-      // preview height so very fat strokes don't overflow.
       this.widthPreview = new Gtk.DrawingArea({
         width_request: 56,
         height_request: WIDTH_MAX + 4,
         valign: Gtk.Align.CENTER,
       });
       this.widthPreview.set_draw_func((_w, cr, w, h) => this.drawWidthPreview(cr, w, h));
+      this.widthGroup = makeGroup(
+        widthSep,
+        new Gtk.Label({label: 'Width', css_classes: ['caption']}),
+        this.widthScale,
+        this.widthPreview
+      );
+      this.styleBar.append(this.widthGroup);
 
-      box.append(widthLabel);
-      box.append(this.widthScale);
-      box.append(this.widthPreview);
-
-      // Variant group — only visible when the number tool is active.
-      // Wrapping label + separator + dropdown in a Box lets us toggle the
-      // whole group's visibility instead of three sibling widgets.
-      this.variantGroup = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 6,
-      });
-      this.variantGroup.append(sep());
-      const variantLabel = new Gtk.Label({label: 'Variant', css_classes: ['caption']});
+      // Variant group
+      const variantSep = makeSep();
       this.variantDropdown = Gtk.DropDown.new_from_strings(['Number', 'Letter']);
       this.variantDropdown.connect('notify::selected', () => this.onVariantPicked());
-      this.variantGroup.append(variantLabel);
-      this.variantGroup.append(this.variantDropdown);
-      box.append(this.variantGroup);
+      this.variantGroup = makeGroup(
+        variantSep,
+        new Gtk.Label({label: 'Variant', css_classes: ['caption']}),
+        this.variantDropdown
+      );
+      this.styleBar.append(this.variantGroup);
 
-      // Font group — visible only when the text tool is active or a
-      // TextAction is selected. Same hide-the-whole-group pattern as Variant.
-      this.fontGroup = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 6,
-      });
-      this.fontGroup.append(sep());
-      const fontLabel = new Gtk.Label({label: 'Font', css_classes: ['caption']});
-      // Labels carry a group suffix ("Liberation Sans · sans") since the
-      // dropdown can't render entries in their own font. Catalogue resolves
-      // lazily on first access and caches for the process lifetime.
+      // Font group
+      const fontSep = makeSep();
       this.fontDropdown = Gtk.DropDown.new_from_strings(getAvailableFonts().map((f) => f.label));
       this.fontDropdown.connect('notify::selected', () => this.onFontDescPicked());
       this.fontSizeSpinner = new Gtk.SpinButton({
@@ -460,18 +470,24 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.fontSizeSpinner.add_css_class('annoscr-font-size');
       this.fontSizeSpinner.connect('value-changed', () => this.onFontSizePicked());
-      const sizeLabel = new Gtk.Label({
-        label: 'Size',
-        css_classes: ['caption'],
-        margin_start: 6,
-      });
-      this.fontGroup.append(fontLabel);
-      this.fontGroup.append(this.fontDropdown);
-      this.fontGroup.append(sizeLabel);
-      this.fontGroup.append(this.fontSizeSpinner);
-      box.append(this.fontGroup);
+      this.fontGroup = makeGroup(
+        fontSep,
+        new Gtk.Label({label: 'Font', css_classes: ['caption']}),
+        this.fontDropdown,
+        new Gtk.Label({label: 'Size', css_classes: ['caption'], margin_start: 6}),
+        this.fontSizeSpinner
+      );
+      this.styleBar.append(this.fontGroup);
 
-      return box;
+      this.styleGroupOrder = [
+        {group: this.colorGroup, sep: colorSep},
+        {group: this.fillGroup, sep: fillSep},
+        {group: this.widthGroup, sep: widthSep},
+        {group: this.variantGroup, sep: variantSep},
+        {group: this.fontGroup, sep: fontSep},
+      ];
+
+      return this.styleBar;
     }
 
     private drawWidthPreview(cr: Cairo.Context, w: number, h: number): void {
@@ -490,49 +506,45 @@ export const AnnoscrWindow = GObject.registerClass(
       cr.stroke();
     }
 
-    // Sync the color picker with whatever color the active context expects:
-    //   - select tool + selected action → that action's color (greyed if no
-    //     action selected or its color isn't editable)
-    //   - drawing tool → that tool's stored color (or default)
-    //   - non-color tool (number / resize) → greyed; picker shows nothing
-    //     meaningful
     private refreshStylePicker(): void {
       if (!this.colorButton) return;
       this.updatingPicker = true;
 
       const color = this.styleTargetColor();
-      this.colorButton.set_sensitive(color !== null);
+      this.colorGroup.set_visible(color !== null);
       if (color !== null) this.colorButton.set_rgba(colorToRgba(color));
 
-      const width = this.styleTargetWidth();
-      this.widthScale.set_sensitive(width !== null);
-      if (width !== null) this.widthScale.set_value(width);
-
       const fill = this.styleTargetFill();
-      this.fillButton.set_sensitive(fill !== null);
+      this.fillGroup.set_visible(fill !== null);
       if (fill !== null) this.fillButton.set_rgba(colorToRgba(fill));
 
-      // Variant is a stamp-specific concept — show the group only when the
-      // number tool is active. Always reflects canvas state, even when
-      // hidden, so when it reappears the selection is correct.
+      const width = this.styleTargetWidth();
+      this.widthGroup.set_visible(width !== null);
+      if (width !== null) this.widthScale.set_value(width);
+
       const tool = this.canvas.getTool();
       this.variantGroup.set_visible(tool === 'number');
       this.variantDropdown.set_selected(this.canvas.getStampVariant() === 'letter' ? 1 : 0);
 
-      // Font is text-only — hide when the target font is null (no text tool
-      // and no TextAction selected). Picker reflects whichever font the
-      // target carries; a family not in the catalogue (e.g. legacy 'Sans
-      // Bold' on existing actions) selects nothing (INVALID).
       const fontDesc = this.styleTargetFontDesc();
       this.fontGroup.set_visible(fontDesc !== null);
       if (fontDesc !== null) {
         const idx = getAvailableFonts().findIndex((f) => f.family === fontDesc);
         this.fontDropdown.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
       }
-
       const fontSize = this.styleTargetFontSize();
       if (fontSize !== null) {
         this.fontSizeSpinner.set_value(fontSize);
+      }
+
+      // Hide the leading separator on the first visible group so there's no
+      // orphan divider at the left edge.
+      let firstVisible = true;
+      for (const {group, sep} of this.styleGroupOrder) {
+        if (group.get_visible()) {
+          sep.set_visible(!firstVisible);
+          firstVisible = false;
+        }
       }
 
       this.updatingPicker = false;
