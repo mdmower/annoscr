@@ -5,8 +5,7 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
-import cairo from 'cairo';
-import type Cairo from 'cairo';
+import Cairo from 'cairo';
 
 import {AnnoscrApplication} from './application.js';
 import {CanvasView} from './canvas_view.js';
@@ -97,7 +96,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private toolButtons: Map<ToolId, Gtk.ToggleButton> = new Map();
     private resizeToolbar: Gtk.Box;
     private resizeButton: Gtk.Button;
-    private statusLabel: Gtk.Label = new Gtk.Label();
+    // Assigned inside buildStatusBar(), which the constructor calls.
+    private statusLabel!: Gtk.Label;
     // Set true just before we explicitly call close() after the user has
     // chosen Discard, so the close-request handler doesn't re-prompt.
     private skipCloseConfirm: boolean = false;
@@ -458,7 +458,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const drawWidth = Math.min(width, h - 2);
       cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
       cr.setLineWidth(drawWidth);
-      cr.setLineCap(cairo.LineCap.ROUND);
+      cr.setLineCap(Cairo.LineCap.ROUND);
       cr.moveTo(8, h / 2);
       cr.lineTo(w - 8, h / 2);
       cr.stroke();

@@ -1,6 +1,4 @@
-import cairo from 'cairo';
-import type Cairo from 'cairo';
-import type {CairoPatternExt} from './globals.js';
+import Cairo from 'cairo';
 
 export type RotateDirection = 'cw' | 'ccw';
 
@@ -13,8 +11,8 @@ export function rotateSurface(
 ): Cairo.ImageSurface {
   const w = src.getWidth();
   const h = src.getHeight();
-  const dst = new cairo.ImageSurface(cairo.Format.ARGB32, h, w);
-  const cr = new cairo.Context(dst);
+  const dst = new Cairo.ImageSurface(Cairo.Format.ARGB32, h, w);
+  const cr = new Cairo.Context(dst);
   if (direction === 'cw') {
     cr.translate(h, 0);
     cr.rotate(Math.PI / 2);
@@ -23,7 +21,7 @@ export function rotateSurface(
     cr.rotate(-Math.PI / 2);
   }
   cr.setSourceSurface(src, 0, 0);
-  (cr.getSource() as unknown as CairoPatternExt).setFilter(cairo.Filter.NEAREST);
+  (cr.getSource() as Cairo.SurfacePattern).setFilter(Cairo.Filter.NEAREST);
   cr.paint();
   return dst;
 }
@@ -43,14 +41,14 @@ export function resizeSurface(
   h: number,
   fill?: [number, number, number, number]
 ): Cairo.ImageSurface {
-  const dst = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
-  const cr = new cairo.Context(dst);
+  const dst = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
+  const cr = new Cairo.Context(dst);
   if (fill && fill[3] > 0) {
     cr.setSourceRGBA(fill[0], fill[1], fill[2], fill[3]);
     cr.paint();
   }
   cr.setSourceSurface(src, -x, -y);
-  (cr.getSource() as unknown as CairoPatternExt).setFilter(cairo.Filter.NEAREST);
+  (cr.getSource() as Cairo.SurfacePattern).setFilter(Cairo.Filter.NEAREST);
   cr.paint();
   return dst;
 }

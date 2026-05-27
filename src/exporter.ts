@@ -1,7 +1,6 @@
 import GLib from 'gi://GLib?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
-import cairo from 'cairo';
-import type Cairo from 'cairo';
+import Cairo from 'cairo';
 
 import type {Action} from './actions.js';
 
@@ -43,8 +42,8 @@ export function renderToSurface(
 ): Cairo.ImageSurface {
   const w = srcSurface.getWidth();
   const h = srcSurface.getHeight();
-  const out = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
-  const cr = new cairo.Context(out);
+  const out = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
+  const cr = new Cairo.Context(out);
   cr.setSourceSurface(srcSurface, 0, 0);
   cr.paint();
   for (const action of actions) {
@@ -63,8 +62,8 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
   // transparent regions don't go black on encoders that ignore the alpha byte.
   const w = surface.getWidth();
   const h = surface.getHeight();
-  const opaque = new cairo.ImageSurface(cairo.Format.ARGB32, w, h);
-  const cr = new cairo.Context(opaque);
+  const opaque = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
+  const cr = new Cairo.Context(opaque);
   cr.setSourceRGB(1, 1, 1);
   cr.paint();
   cr.setSourceSurface(surface, 0, 0);

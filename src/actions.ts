@@ -1,7 +1,6 @@
-import cairo from 'cairo';
+import Cairo from 'cairo';
 import Pango from 'gi://Pango?version=1.0';
 import PangoCairo from 'gi://PangoCairo?version=1.0';
-import type Cairo from 'cairo';
 
 import {getDefaultTextFont} from './font_catalogue.js';
 
@@ -448,8 +447,8 @@ class NumberStampAction implements Action {
     cr.fillPreserve();
 
     cr.setLineWidth(s.borderWidth);
-    cr.setLineCap(cairo.LineCap.BUTT);
-    cr.setLineJoin(cairo.LineJoin.MITER);
+    cr.setLineCap(Cairo.LineCap.BUTT);
+    cr.setLineJoin(Cairo.LineJoin.MITER);
     const [fgr, fgg, fgb, fga] = s.foregroundColor;
     cr.setSourceRGBA(fgr, fgg, fgb, fga);
     cr.stroke();
@@ -614,7 +613,7 @@ class StrokeAction implements Action {
 
   draw(cr: Cairo.Context, _scale: number): void {
     if (this.points.length < 2) return;
-    applyStrokeStyle(cr, this.style, cairo.LineCap.ROUND, cairo.LineJoin.ROUND);
+    applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
     buildSmoothPath(cr, this.points);
     cr.stroke();
   }
@@ -725,7 +724,7 @@ class LineAction implements Action {
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
-    applyStrokeStyle(cr, this.style, cairo.LineCap.ROUND, cairo.LineJoin.ROUND);
+    applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
     cr.moveTo(this.x1, this.y1);
     cr.lineTo(this.x2, this.y2);
     cr.stroke();
@@ -833,7 +832,7 @@ class ArrowAction implements Action {
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
-    applyStrokeStyle(cr, this.style, cairo.LineCap.ROUND, cairo.LineJoin.ROUND);
+    applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
     cr.moveTo(this.x1, this.y1);
     cr.lineTo(this.x2, this.y2);
 
@@ -966,7 +965,7 @@ class RectAction implements Action {
       cr.setSourceRGBA(fr, fg, fb, fa);
       cr.fillPreserve();
     }
-    applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
+    applyStrokeStyle(cr, this.style, Cairo.LineCap.BUTT, Cairo.LineJoin.MITER);
     cr.stroke();
   }
 
@@ -1094,7 +1093,7 @@ class OvalAction implements Action {
       cr.setSourceRGBA(fr, fg, fb, fa);
       cr.fillPreserve();
     }
-    applyStrokeStyle(cr, this.style, cairo.LineCap.BUTT, cairo.LineJoin.MITER);
+    applyStrokeStyle(cr, this.style, Cairo.LineCap.BUTT, Cairo.LineJoin.MITER);
     cr.stroke();
   }
 

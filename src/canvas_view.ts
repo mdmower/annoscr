@@ -1,9 +1,9 @@
 import GObject from 'gi://GObject?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
-import cairo from 'cairo';
-import type Cairo from 'cairo';
-import type {CairoPatternExt} from './globals.js';
+import Cairo from 'cairo';
+
+import type {EditorSize} from './actions.js';
 
 import {
   Action,
@@ -51,7 +51,7 @@ export interface TextEditRequestOptions {
   markup?: string;
   replaceIndex?: number;
   rotation?: number;
-  editorSize?: import('./actions.js').EditorSize;
+  editorSize?: EditorSize;
 }
 
 export type TextEditRequest = (
@@ -108,18 +108,17 @@ let CHECKER_PATTERN: Cairo.SurfacePattern | null = null;
 function getCheckerPattern(): Cairo.SurfacePattern {
   if (CHECKER_PATTERN) return CHECKER_PATTERN;
   const size = CHECKER_CELL * 2;
-  const surf = new cairo.ImageSurface(cairo.Format.ARGB32, size, size);
-  const cr = new cairo.Context(surf);
+  const surf = new Cairo.ImageSurface(Cairo.Format.ARGB32, size, size);
+  const cr = new Cairo.Context(surf);
   cr.setSourceRGB(0.95, 0.95, 0.95);
   cr.paint();
   cr.setSourceRGB(0.85, 0.85, 0.85);
   cr.rectangle(0, 0, CHECKER_CELL, CHECKER_CELL);
   cr.rectangle(CHECKER_CELL, CHECKER_CELL, CHECKER_CELL, CHECKER_CELL);
   cr.fill();
-  const p = new cairo.SurfacePattern(surf);
-  const px = p as unknown as CairoPatternExt;
-  px.setExtend(cairo.Extend.REPEAT);
-  px.setFilter(cairo.Filter.NEAREST);
+  const p = new Cairo.SurfacePattern(surf);
+  p.setExtend(Cairo.Extend.REPEAT);
+  p.setFilter(Cairo.Filter.NEAREST);
   CHECKER_PATTERN = p;
   return p;
 }
@@ -1046,8 +1045,8 @@ export const CanvasView = GObject.registerClass(
       cr.fill();
 
       cr.setSourceSurface(s, 0, 0);
-      (cr.getSource() as unknown as CairoPatternExt).setFilter(
-        t.scale === 1 ? cairo.Filter.NEAREST : cairo.Filter.BILINEAR
+      (cr.getSource() as Cairo.SurfacePattern).setFilter(
+        t.scale === 1 ? Cairo.Filter.NEAREST : Cairo.Filter.BILINEAR
       );
       cr.paint();
 
@@ -1110,7 +1109,7 @@ function drawResizeOverlay(
   cr.setSourceRGBA(0, 0, 0, 0.5);
   cr.rectangle(0, 0, imgW, imgH);
   if (rect) cr.rectangle(rect.x, rect.y, rect.w, rect.h);
-  cr.setFillRule(cairo.FillRule.EVEN_ODD);
+  cr.setFillRule(Cairo.FillRule.EVEN_ODD);
   cr.fill();
 
   // Dashed border around the new region (may extend outside the image).
@@ -1118,8 +1117,8 @@ function drawResizeOverlay(
     cr.setSourceRGBA(1, 1, 1, 0.95);
     cr.setLineWidth(1.5 / scale);
     cr.setDash([6 / scale, 4 / scale], 0);
-    cr.setLineCap(cairo.LineCap.BUTT);
-    cr.setLineJoin(cairo.LineJoin.MITER);
+    cr.setLineCap(Cairo.LineCap.BUTT);
+    cr.setLineJoin(Cairo.LineJoin.MITER);
     cr.rectangle(rect.x, rect.y, rect.w, rect.h);
     cr.stroke();
   }
@@ -1143,8 +1142,8 @@ function drawSelectionBox(
   cr.setSourceRGBA(0.0, 0.6, 1.0, 0.95);
   cr.setLineWidth(lineWidth);
   cr.setDash([dashOn, dashOff], 0);
-  cr.setLineCap(cairo.LineCap.BUTT);
-  cr.setLineJoin(cairo.LineJoin.MITER);
+  cr.setLineCap(Cairo.LineCap.BUTT);
+  cr.setLineJoin(Cairo.LineJoin.MITER);
   cr.rectangle(
     bounds.x1 + ox - pad,
     bounds.y1 + oy - pad,
