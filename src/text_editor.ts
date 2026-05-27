@@ -1,6 +1,7 @@
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Pango from 'gi://Pango?version=1.0';
+import type {EditorSize} from './actions.js';
 
 // Background tint on the live TextView/Frame so the canvas image shows
 // through. Applied once at the display level — collision with other
@@ -11,6 +12,9 @@ const EDITOR_CSS = `
   }
   .annoscr-editor-view, .annoscr-editor-view text {
     background-color: transparent;
+  }
+  .annoscr-editor-view {
+    padding: 4px 8px;
   }
   .annoscr-editor-view {
     caret-color: #333;
@@ -64,6 +68,12 @@ const MARKUP_TAG_REVERSE: Record<string, TagName> = {
   u: 'underline',
 };
 
+// Default and minimum editor dimensions (widget pixels). Default is roughly
+// 2× the original 80 px hard minimum so new edits have comfortable room.
+const EDITOR_DEFAULT_WIDTH = 160;
+const EDITOR_MIN_WIDTH = 80;
+const EDITOR_MIN_HEIGHT = 40;
+
 export interface TextEditorCallbacks {
   onCommit: (
     markup: string,
@@ -71,6 +81,7 @@ export interface TextEditorCallbacks {
     y: number,
     rotation: number,
     style: TextEditorStyle,
+    editorSize: EditorSize,
     replaceIndex?: number
   ) => void;
   onCancel: (replaceIndex?: number) => void;
@@ -80,6 +91,9 @@ export interface TextEditorBeginOptions {
   markup?: string;
   replaceIndex?: number;
   rotation?: number; // 0..3 quarter-turns CW (carried through commit unchanged)
+  // Restore the editor frame to the dimensions it had when this action was
+  // last committed. Undefined → use EDITOR_DEFAULT_WIDTH × natural height.
+  editorSize?: EditorSize;
   // Visual style for the editor preview. Should match what the editor will
   // commit (font + color from the same source the canvas will render with),
   // so the live TextView visually previews placement and sizing.
@@ -105,6 +119,14 @@ export class TextEditor {
   // editor is the source of truth for style during an edit so picker
   // changes flow into both the live preview and the committed action.
   private currentStyle: TextEditorStyle | null = null;
+  // Current editor frame dimensions — seeded from beginAt (action's saved
+  // size or default), updated by the corner-grip drag, and passed through
+  // onCommit so the action records it for future re-edits.
+  private currentSize: EditorSize = {width: EDITOR_DEFAULT_WIDTH, height: -1};
+  // Grip drag baseline — captured on drag-begin so drag-update can apply
+  // relative deltas.
+  private dragStartW: number = 0;
+  private dragStartH: number = 0;
 
   private active: boolean = false;
   private imageX: number = 0;
@@ -127,13 +149,9 @@ export class TextEditor {
       accepts_tab: false,
       hexpand: false,
       vexpand: false,
-      top_margin: 4,
-      bottom_margin: 4,
-      left_margin: 8,
-      right_margin: 8,
     });
     this.view.add_css_class('annoscr-editor-view');
-    this.view.set_size_request(80, -1);
+    this.view.set_size_request(EDITOR_DEFAULT_WIDTH, -1);
 
     this.buffer = this.view.get_buffer();
     this.installTags();
@@ -160,10 +178,60 @@ export class TextEditor {
     this.toolbar.append(this.buttons.italic);
     this.toolbar.append(this.buttons.underline);
 
+    // Corner resize grip — visual indicator only (the drag gesture lives on
+    // the frame so its coordinate origin doesn't move during a resize).
+    const GRIP_SIZE = 14;
+    const grip = new Gtk.DrawingArea({
+      width_request: GRIP_SIZE,
+      height_request: GRIP_SIZE,
+      halign: Gtk.Align.END,
+      valign: Gtk.Align.END,
+      can_focus: false,
+    });
+    grip.set_cursor_from_name('se-resize');
+    grip.set_draw_func((_w, cr, w, h) => {
+      cr.setSourceRGBA(0.3, 0.3, 0.3, 0.5);
+      cr.setLineWidth(1);
+      for (const off of [3, 7, 11]) {
+        cr.moveTo(w, h - off);
+        cr.lineTo(w - off, h);
+        cr.stroke();
+      }
+    });
+
+    const viewOverlay = new Gtk.Overlay();
+    viewOverlay.set_child(this.view);
+    viewOverlay.add_overlay(grip);
+
     const container = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL});
     container.append(this.toolbar);
     container.append(new Gtk.Separator({orientation: Gtk.Orientation.HORIZONTAL}));
-    container.append(this.view);
+    container.append(viewOverlay);
+
+    // Drag gesture on the frame (not the grip) because the grip moves as
+    // the view resizes — which shifts the gesture's coordinate origin and
+    // produces a feedback loop (slower-than-mouse + oscillation). The
+    // frame's position is fixed by margins in the parent overlay, so its
+    // coordinate space is stable. CAPTURE phase + DENIED state for
+    // non-grip-zone drags lets text selection propagate normally.
+    const dragGesture = new Gtk.GestureDrag();
+    dragGesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+    dragGesture.connect('drag-begin', (_g: Gtk.GestureDrag, startX: number, startY: number) => {
+      const fw = this.frame.get_width();
+      const fh = this.frame.get_height();
+      if (startX < fw - GRIP_SIZE || startY < fh - GRIP_SIZE) {
+        dragGesture.set_state(Gtk.EventSequenceState.DENIED);
+        return;
+      }
+      this.dragStartW = this.view.get_width();
+      this.dragStartH = this.view.get_height();
+    });
+    dragGesture.connect('drag-update', (_g: Gtk.GestureDrag, dx: number, dy: number) => {
+      const newW = Math.max(EDITOR_MIN_WIDTH, Math.round(this.dragStartW + dx));
+      const newH = Math.max(EDITOR_MIN_HEIGHT, Math.round(this.dragStartH + dy));
+      this.view.set_size_request(newW, newH);
+      this.currentSize = {width: newW, height: newH};
+    });
 
     this.frame = new Gtk.Frame({
       child: container,
@@ -172,6 +240,7 @@ export class TextEditor {
       visible: false,
     });
     this.frame.add_css_class('annoscr-editor-frame');
+    this.frame.add_controller(dragGesture);
 
     this.installKeyHandler();
     this.installSelectionWatcher();
@@ -238,6 +307,16 @@ export class TextEditor {
     } else {
       this.currentStyle = null;
     }
+    // Restore editor dimensions from the action (re-edit) or use the
+    // default width for new placements. -1 height lets the view grow to
+    // fit content naturally.
+    if (options?.editorSize) {
+      this.currentSize = options.editorSize;
+      this.view.set_size_request(options.editorSize.width, options.editorSize.height);
+    } else {
+      this.currentSize = {width: EDITOR_DEFAULT_WIDTH, height: -1};
+      this.view.set_size_request(EDITOR_DEFAULT_WIDTH, -1);
+    }
     if (options?.markup) {
       this.setBufferFromMarkup(options.markup);
     } else {
@@ -268,19 +347,31 @@ export class TextEditor {
     const replaceIndex = this.replaceIndex;
     const rotation = this.rotation;
     const style = this.currentStyle;
+    // Snapshot the actual allocated size (not the size_request) so re-edits
+    // restore the visual frame rather than a -1 "natural" placeholder.
+    const editorSize: EditorSize = {
+      width: this.view.get_width(),
+      height: this.view.get_height(),
+    };
     this.active = false;
     this.frame.set_visible(false);
     this.replaceIndex = undefined;
     this.rotation = 0;
     this.currentStyle = null;
     if (plainText.trim().length === 0 || !style) {
-      // No content — treat like a cancel so any hidden source action becomes
-      // visible again, rather than silently deleting it.
       this.callbacks.onCancel(replaceIndex);
       return;
     }
     const markup = this.bufferToMarkup();
-    this.callbacks.onCommit(markup, this.imageX, this.imageY, rotation, style, replaceIndex);
+    this.callbacks.onCommit(
+      markup,
+      this.imageX,
+      this.imageY,
+      rotation,
+      style,
+      editorSize,
+      replaceIndex
+    );
   }
 
   cancel(): void {

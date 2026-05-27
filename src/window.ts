@@ -161,19 +161,25 @@ export const AnnoscrWindow = GObject.registerClass(
           iy: number,
           rotation: number,
           style,
+          editorSize,
           replaceIndex?: number
         ) => {
-          // The editor is the source of truth for style during an edit;
-          // pickers update it via refreshStyle so the latest pick lands here.
+          // The editor is the source of truth for style + size during an
+          // edit; pickers update style via refreshStyle and the corner grip
+          // updates editorSize — both land here at commit.
+          const action = makeTextAction(
+            ix,
+            iy,
+            markup,
+            rotation,
+            style.color,
+            style.fontDesc,
+            editorSize
+          );
           if (replaceIndex !== undefined) {
-            this.canvas.replaceAction(
-              replaceIndex,
-              makeTextAction(ix, iy, markup, rotation, style.color, style.fontDesc)
-            );
+            this.canvas.replaceAction(replaceIndex, action);
           } else {
-            this.canvas.addAction(
-              makeTextAction(ix, iy, markup, rotation, style.color, style.fontDesc)
-            );
+            this.canvas.addAction(action);
           }
         },
         onCancel: (replaceIndex?: number) => {

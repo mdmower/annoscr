@@ -50,6 +50,7 @@ export interface TextEditRequestOptions {
   markup?: string;
   replaceIndex?: number;
   rotation?: number;
+  editorSize?: import('./actions.js').EditorSize;
 }
 
 export type TextEditRequest = (
@@ -873,6 +874,7 @@ export const CanvasView = GObject.registerClass(
           markup: state.markup,
           replaceIndex: idx,
           rotation: state.rotation,
+          editorSize: state.editorSize,
         });
       }
     }

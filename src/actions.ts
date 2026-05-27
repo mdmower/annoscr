@@ -105,6 +105,14 @@ export interface TextStyle {
   fontDesc: string; // Pango font description string
 }
 
+// Editor frame dimensions in widget-space pixels — stored on TextAction so
+// re-edits restore the size the user dragged the editor to at commit time.
+// Doesn't affect the rendered output; purely a UX preference per action.
+export interface EditorSize {
+  width: number;
+  height: number;
+}
+
 export interface NumberStampStyle {
   radius: number; // image-space pixels
   // Interior of the circle (the dominant visual color).
@@ -229,7 +237,8 @@ class TextAction implements Action {
     public readonly y: number,
     public readonly markup: string,
     public readonly rotation: number, // 0..3 quarter-turns CW
-    private readonly style: TextStyle
+    private readonly style: TextStyle,
+    public readonly editorSize?: EditorSize
   ) {}
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -262,13 +271,27 @@ class TextAction implements Action {
   }
 
   translate(dx: number, dy: number): Action {
-    return new TextAction(this.x + dx, this.y + dy, this.markup, this.rotation, this.style);
+    return new TextAction(
+      this.x + dx,
+      this.y + dy,
+      this.markup,
+      this.rotation,
+      this.style,
+      this.editorSize
+    );
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const [nx, ny] = rotatePoint(this.x, this.y, direction, oldW, oldH);
     const dr = direction === 'cw' ? 1 : 3;
-    return new TextAction(nx, ny, this.markup, (this.rotation + dr) % 4, this.style);
+    return new TextAction(
+      nx,
+      ny,
+      this.markup,
+      (this.rotation + dr) % 4,
+      this.style,
+      this.editorSize
+    );
   }
 
   getColor(): ColorRGBA {
@@ -276,14 +299,19 @@ class TextAction implements Action {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new TextAction(this.x, this.y, this.markup, this.rotation, {
-      ...this.style,
-      color,
-    });
+    return new TextAction(
+      this.x,
+      this.y,
+      this.markup,
+      this.rotation,
+      {
+        ...this.style,
+        color,
+      },
+      this.editorSize
+    );
   }
 
-  // Text uses a font size, not a stroke width. Width-tool UI greys out
-  // when a TextAction is selected.
   getWidth(): number | null {
     return null;
   }
@@ -305,10 +333,17 @@ class TextAction implements Action {
   }
 
   withFontDesc(fontDesc: string): Action {
-    return new TextAction(this.x, this.y, this.markup, this.rotation, {
-      ...this.style,
-      fontDesc,
-    });
+    return new TextAction(
+      this.x,
+      this.y,
+      this.markup,
+      this.rotation,
+      {
+        ...this.style,
+        fontDesc,
+      },
+      this.editorSize
+    );
   }
 }
 
@@ -318,13 +353,21 @@ export function makeTextAction(
   markup: string,
   rotation: number = 0,
   color: ColorRGBA = DEFAULT_COLOR,
-  fontDesc: string = TEXT_STYLE.fontDesc
+  fontDesc: string = TEXT_STYLE.fontDesc,
+  editorSize?: EditorSize
 ): Action {
-  return new TextAction(x, y, markup, ((rotation % 4) + 4) % 4, {
-    ...TEXT_STYLE,
-    color,
-    fontDesc,
-  });
+  return new TextAction(
+    x,
+    y,
+    markup,
+    ((rotation % 4) + 4) % 4,
+    {
+      ...TEXT_STYLE,
+      color,
+      fontDesc,
+    },
+    editorSize
+  );
 }
 
 export function isTextAction(action: Action): boolean {
@@ -333,13 +376,14 @@ export function isTextAction(action: Action): boolean {
 
 export function getTextEditState(
   action: Action
-): {x: number; y: number; markup: string; rotation: number} | null {
+): {x: number; y: number; markup: string; rotation: number; editorSize?: EditorSize} | null {
   if (!(action instanceof TextAction)) return null;
   return {
     x: action.x,
     y: action.y,
     markup: action.markup,
     rotation: action.rotation,
+    editorSize: action.editorSize,
   };
 }
 
