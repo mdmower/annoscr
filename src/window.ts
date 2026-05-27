@@ -9,6 +9,7 @@ import Cairo from 'cairo';
 
 import {AnnoscrApplication} from './application.js';
 import {CanvasView} from './canvas_view.js';
+import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {
   ColorRGBA,
@@ -68,6 +69,24 @@ const IMAGE_MIME_TYPES = [
   'image/bmp',
   'image/tiff',
 ];
+
+interface SizePreset {
+  label: string;
+  w: number;
+  h: number;
+}
+
+const SIZE_PRESETS: SizePreset[] = [
+  {label: 'Custom', w: 0, h: 0},
+  {label: '640 \u00d7 480', w: 640, h: 480},
+  {label: '800 \u00d7 600', w: 800, h: 600},
+  {label: '1280 \u00d7 720 (HD)', w: 1280, h: 720},
+  {label: '1920 \u00d7 1080 (Full HD)', w: 1920, h: 1080},
+];
+
+const DEFAULT_PRESET_INDEX = 2;
+const CANVAS_SIZE_MIN = 1;
+const CANVAS_SIZE_MAX = 8192;
 
 interface ToolDef {
   id: ToolId;
@@ -133,6 +152,13 @@ export const AnnoscrWindow = GObject.registerClass(
       installWindowCss();
 
       const header = new Adw.HeaderBar();
+
+      const newButton = new Gtk.Button({
+        icon_name: 'document-new-symbolic',
+        tooltip_text: 'New blank canvas… (Ctrl+N)',
+      });
+      newButton.connect('clicked', () => this.newBlankCanvas());
+      header.pack_start(newButton);
 
       const openButton = new Gtk.Button({
         icon_name: 'document-open-symbolic',
@@ -249,7 +275,8 @@ export const AnnoscrWindow = GObject.registerClass(
       const empty = new Adw.StatusPage({
         icon_name: 'image-x-generic-symbolic',
         title: 'Annoscr',
-        description: 'Open an image, paste from the clipboard, or drop a file here.',
+        description:
+          'Create a blank canvas, open an image, paste from the clipboard, or drop a file here.',
       });
 
       this.stack = new Gtk.Stack({
@@ -755,6 +782,130 @@ export const AnnoscrWindow = GObject.registerClass(
       });
     }
 
+    createBlankCanvas(w: number, h: number): void {
+      this.setImage(createBlankSurface(w, h, [1, 1, 1, 1]));
+    }
+
+    private newBlankCanvas(): void {
+      this.confirmDiscard('Creating a blank canvas', () => this.showNewCanvasDialog());
+    }
+
+    private showNewCanvasDialog(): void {
+      const dialog = new Adw.AlertDialog({
+        heading: 'New Blank Canvas',
+        body: 'Set the canvas size and background color.',
+      });
+      dialog.add_response('cancel', 'Cancel');
+      dialog.add_response('create', 'Create');
+      dialog.set_response_appearance('create', Adw.ResponseAppearance.SUGGESTED);
+      dialog.set_default_response('create');
+      dialog.set_close_response('cancel');
+
+      const grid = new Gtk.Grid({
+        row_spacing: 8,
+        column_spacing: 12,
+      });
+
+      grid.attach(
+        new Gtk.Label({label: 'Size', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+        0,
+        0,
+        1,
+        1
+      );
+      const presetDropdown = Gtk.DropDown.new_from_strings(SIZE_PRESETS.map((p) => p.label));
+      presetDropdown.set_hexpand(true);
+      presetDropdown.set_selected(DEFAULT_PRESET_INDEX);
+      grid.attach(presetDropdown, 1, 0, 1, 1);
+
+      grid.attach(
+        new Gtk.Label({label: 'Width', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+        0,
+        1,
+        1,
+        1
+      );
+      const widthSpin = new Gtk.SpinButton({
+        adjustment: new Gtk.Adjustment({
+          lower: CANVAS_SIZE_MIN,
+          upper: CANVAS_SIZE_MAX,
+          step_increment: 1,
+          page_increment: 100,
+        }),
+        digits: 0,
+        width_request: 100,
+      });
+      widthSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].w);
+      grid.attach(widthSpin, 1, 1, 1, 1);
+
+      grid.attach(
+        new Gtk.Label({label: 'Height', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+        0,
+        2,
+        1,
+        1
+      );
+      const heightSpin = new Gtk.SpinButton({
+        adjustment: new Gtk.Adjustment({
+          lower: CANVAS_SIZE_MIN,
+          upper: CANVAS_SIZE_MAX,
+          step_increment: 1,
+          page_increment: 100,
+        }),
+        digits: 0,
+        width_request: 100,
+      });
+      heightSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].h);
+      grid.attach(heightSpin, 1, 2, 1, 1);
+
+      grid.attach(
+        new Gtk.Label({label: 'Fill', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+        0,
+        3,
+        1,
+        1
+      );
+      const fillDialog = new Gtk.ColorDialog({with_alpha: true});
+      const fillBtn = new Gtk.ColorDialogButton({dialog: fillDialog});
+      fillBtn.set_rgba(colorToRgba([1, 1, 1, 1]));
+      grid.attach(fillBtn, 1, 3, 1, 1);
+
+      let updating = false;
+      presetDropdown.connect('notify::selected', () => {
+        if (updating) return;
+        const idx = presetDropdown.get_selected();
+        if (idx > 0 && idx < SIZE_PRESETS.length) {
+          updating = true;
+          widthSpin.set_value(SIZE_PRESETS[idx].w);
+          heightSpin.set_value(SIZE_PRESETS[idx].h);
+          updating = false;
+        }
+      });
+      const syncPreset = (): void => {
+        if (updating) return;
+        const w = Math.round(widthSpin.get_value());
+        const h = Math.round(heightSpin.get_value());
+        const match = SIZE_PRESETS.findIndex((p) => p.w === w && p.h === h);
+        updating = true;
+        presetDropdown.set_selected(match >= 0 ? match : 0);
+        updating = false;
+      };
+      widthSpin.connect('value-changed', syncPreset);
+      heightSpin.connect('value-changed', syncPreset);
+
+      dialog.set_extra_child(grid);
+
+      dialog.connect('response', (_d, response) => {
+        if (response !== 'create') return;
+        const w = Math.round(widthSpin.get_value());
+        const h = Math.round(heightSpin.get_value());
+        const fill = rgbaToColor(fillBtn.get_rgba());
+        this.setImage(createBlankSurface(w, h, fill));
+      });
+
+      dialog.present(this);
+    }
+
     private loadFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
@@ -785,6 +936,7 @@ export const AnnoscrWindow = GObject.registerClass(
 
     private installShortcuts(): void {
       const controller = new Gtk.ShortcutController();
+      this.bindShortcut(controller, '<Control>n', () => this.newBlankCanvas());
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
       // Undo/redo are disabled while resize mode is active: a pending region
       // is transient state that hasn't been committed, and rolling history

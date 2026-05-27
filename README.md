@@ -8,7 +8,7 @@ Annoscr is a reimplementation of a subset of [Gradia](https://github.com/Alexand
 
 **Annotation tools:** Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, Number stamp
 **Transforms:** Rotation, Resize (crop / canvas expansion)
-**I/O:** Open file, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
+**I/O:** Open file, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
 **Editing:** Per-tool color, fill, stroke width, font family, font size; undo/redo; discard confirmation
 
 ## Status
@@ -33,6 +33,8 @@ npm install                    # installs TypeScript as a project devDependency
 meson setup build
 meson compile -C build
 ./build/src/annoscr            # run from the build tree
+./build/src/annoscr --new      # start with a blank 640×480 canvas
+./build/src/annoscr --new --width 1920 --height 1080
 ```
 
 ### Building the .deb

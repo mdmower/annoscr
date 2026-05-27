@@ -52,3 +52,17 @@ export function resizeSurface(
   cr.paint();
   return dst;
 }
+
+export function createBlankSurface(
+  w: number,
+  h: number,
+  fill?: [number, number, number, number]
+): Cairo.ImageSurface {
+  const surface = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
+  if (fill && fill[3] > 0) {
+    const cr = new Cairo.Context(surface);
+    cr.setSourceRGBA(fill[0], fill[1], fill[2], fill[3]);
+    cr.paint();
+  }
+  return surface;
+}
