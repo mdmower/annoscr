@@ -8,6 +8,9 @@ ts_sources = files(
   'text_editor.ts',
   'image_transforms.ts',
   'exporter.ts',
+  'settings.ts',
+  'preferences.ts',
+  'shortcuts_dialog.ts',
 )
 
 ts_outputs = [
@@ -20,6 +23,9 @@ ts_outputs = [
   'text_editor.js',
   'image_transforms.js',
   'exporter.js',
+  'settings.js',
+  'preferences.js',
+  'shortcuts_dialog.js',
 ]
 
 compile_ts = custom_target('compile-ts',
@@ -43,6 +49,7 @@ compile_ts = custom_target('compile-ts',
 launcher_conf = configuration_data()
 launcher_conf.set('gjs', gjs.full_path())
 launcher_conf.set('pkgdatadir', pkgdatadir)
+launcher_conf.set('srcicons', meson.project_source_root() / 'data' / 'icons')
 
 launcher = configure_file(
   input: 'annoscr.in',

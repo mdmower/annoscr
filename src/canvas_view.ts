@@ -1,6 +1,7 @@
 import GObject from 'gi://GObject?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
+import Adw from 'gi://Adw?version=1';
 import Cairo from 'cairo';
 
 import type {EditorSize} from './actions.js';
@@ -31,6 +32,7 @@ import {
 import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
 import type {RotateDirection} from './actions.js';
+import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
 
 export interface ResizeRect {
   x: number;
@@ -257,6 +259,9 @@ export const CanvasView = GObject.registerClass(
       super({hexpand: true, vexpand: true});
       this.set_draw_func(this.onDraw.bind(this));
       this.connect('resize', () => this.maybeApplyInitialZoom());
+      // Repaint the backdrop when the effective light/dark state flips (system
+      // change or the Preferences color-scheme picker).
+      Adw.StyleManager.get_default().connect('notify::dark', () => this.queue_draw());
       this.installPointer();
     }
 
@@ -516,6 +521,38 @@ export const CanvasView = GObject.registerClass(
       }
       this.queue_draw();
       this.notifyStateChange();
+    }
+
+    // Snapshot only the styles the user has actually changed (present in the
+    // per-tool maps), so persisted prefs don't pin a tool to a value that was
+    // merely its static default at save time.
+    exportToolStyles(): ToolStylesSnapshot {
+      const tools: Record<string, ToolStyleEntry> = {};
+      const ensure = (id: ToolId): ToolStyleEntry => (tools[id] ??= {});
+      for (const [id, c] of this.toolColors) ensure(id).color = c;
+      for (const [id, w] of this.toolWidths) ensure(id).width = w;
+      for (const [id, f] of this.toolFills) ensure(id).fill = f;
+      for (const [id, f] of this.toolFontDescs) ensure(id).fontDesc = f;
+      for (const [id, s] of this.toolFontSizes) ensure(id).fontSize = s;
+      const snap: ToolStylesSnapshot = {tools};
+      if (this.toolStampVariant !== DEFAULT_STAMP_VARIANT)
+        snap.stampVariant = this.toolStampVariant;
+      return snap;
+    }
+
+    // Restore a snapshot into the per-tool maps. Called once at startup before
+    // any image exists, so the stamp variant is set directly (not via
+    // setStampVariant, which would rewrite existing stamps and push history).
+    importToolStyles(snap: ToolStylesSnapshot): void {
+      for (const [id, e] of Object.entries(snap.tools ?? {})) {
+        const toolId = id as ToolId;
+        if (e.color) this.toolColors.set(toolId, e.color);
+        if (e.width !== undefined) this.toolWidths.set(toolId, e.width);
+        if (e.fill) this.toolFills.set(toolId, e.fill);
+        if (e.fontDesc) this.toolFontDescs.set(toolId, e.fontDesc);
+        if (e.fontSize !== undefined) this.toolFontSizes.set(toolId, e.fontSize);
+      }
+      if (snap.stampVariant) this.toolStampVariant = snap.stampVariant;
     }
 
     // The currently selected action, if any. Used by the color picker to
@@ -1128,7 +1165,11 @@ export const CanvasView = GObject.registerClass(
       widgetW: number,
       widgetH: number
     ): void {
-      cr.setSourceRGB(0.12, 0.12, 0.12);
+      // Backdrop around the image follows the theme: a deep neutral in dark
+      // mode, a light gray in light mode. The 1px image-bounds border (drawn
+      // below) keeps the image edge visible against either.
+      if (Adw.StyleManager.get_default().get_dark()) cr.setSourceRGB(0.12, 0.12, 0.12);
+      else cr.setSourceRGB(0.92, 0.92, 0.92);
       cr.paint();
 
       const s = this.state.surface;

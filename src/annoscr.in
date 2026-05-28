@@ -4,7 +4,9 @@ set -e
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 if [ -f "$SCRIPT_DIR/main.js" ]; then
-    # Running from build tree
+    # Running from build tree — point the icon theme at the source icons, which
+    # aren't on the default hicolor search path until installed.
+    export ANNOSCR_ICON_PATH="@srcicons@"
     exec @gjs@ -m "$SCRIPT_DIR/main.js" "$@"
 else
     # Installed

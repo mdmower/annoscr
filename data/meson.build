@@ -39,3 +39,19 @@ install_data(
   'icons' / 'hicolor' / 'scalable' / 'apps' / '@0@.svg'.format(app_id),
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',
 )
+
+# Bundled symbolic tool icons (not present in the system theme). Resolved by
+# name via the hicolor theme once installed; from the build tree the launcher
+# adds the source dir to the icon search path.
+install_data(
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-select-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-pen-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-highlighter-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-text-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-number-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-line-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-arrow-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-rect-symbolic.svg',
+  'icons' / 'hicolor' / 'scalable' / 'actions' / 'annoscr-oval-symbolic.svg',
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'actions',
+)

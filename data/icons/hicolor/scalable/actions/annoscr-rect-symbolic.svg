@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <mask id="rectcut">
+      <rect x="2" y="3.2" width="12" height="9.6" rx="2" fill="white"/>
+      <rect x="3.6" y="4.8" width="8.8" height="6.4" rx="1" fill="black"/>
+    </mask>
+  </defs>
+  <rect x="2" y="3.2" width="12" height="9.6" rx="2" fill="#222222" mask="url(#rectcut)"/>
+</svg>

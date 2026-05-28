@@ -100,11 +100,11 @@ export function copySurfaceToClipboard(
 }
 
 // Annoscr-2026-05-22-143015.png
-export function defaultSaveFilename(): string {
+export function defaultSaveFilename(format: ImageFormat = 'png'): string {
   const d = new Date();
   const pad = (n: number): string => String(n).padStart(2, '0');
   const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return `Annoscr-${ts}.png`;
+  return `Annoscr-${ts}${FORMATS[format].ext}`;
 }
 
 // User's Pictures directory if set; else home directory.

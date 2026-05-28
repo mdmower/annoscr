@@ -40,10 +40,21 @@ import {
   formatFromPath,
   saveSurface,
 } from './exporter.js';
+import {getSettings, updateSettings} from './settings.js';
+import {presentPreferences} from './preferences.js';
+import {presentShortcuts} from './shortcuts_dialog.js';
 
 const WINDOW_CSS = `
   .annoscr-font-size > text {
     padding-left: 12px;
+  }
+  .annoscr-keycap {
+    min-width: 1.4em;
+    padding: 1px 6px;
+    border-radius: 6px;
+    border: 1px solid alpha(@window_fg_color, 0.25);
+    background-color: alpha(@window_fg_color, 0.08);
+    font-size: 0.85em;
   }
 `;
 
@@ -96,19 +107,20 @@ const ZOOM_SCROLL_STEP = 0.15;
 interface ToolDef {
   id: ToolId;
   label: string;
+  icon: string;
   accelerator: string;
 }
 
 const TOOLS: ToolDef[] = [
-  {id: 'select', label: 'Select', accelerator: 's'},
-  {id: 'pen', label: 'Pen', accelerator: 'p'},
-  {id: 'highlighter', label: 'Highlight', accelerator: 'h'},
-  {id: 'text', label: 'Text', accelerator: 't'},
-  {id: 'number', label: 'Number', accelerator: 'n'},
-  {id: 'line', label: 'Line', accelerator: 'l'},
-  {id: 'arrow', label: 'Arrow', accelerator: 'a'},
-  {id: 'rect', label: 'Rect', accelerator: 'r'},
-  {id: 'oval', label: 'Oval', accelerator: 'o'},
+  {id: 'select', label: 'Select', icon: 'annoscr-select-symbolic', accelerator: 's'},
+  {id: 'pen', label: 'Pen', icon: 'annoscr-pen-symbolic', accelerator: 'p'},
+  {id: 'highlighter', label: 'Highlight', icon: 'annoscr-highlighter-symbolic', accelerator: 'h'},
+  {id: 'text', label: 'Text', icon: 'annoscr-text-symbolic', accelerator: 't'},
+  {id: 'number', label: 'Number', icon: 'annoscr-number-symbolic', accelerator: 'n'},
+  {id: 'line', label: 'Line', icon: 'annoscr-line-symbolic', accelerator: 'l'},
+  {id: 'arrow', label: 'Arrow', icon: 'annoscr-arrow-symbolic', accelerator: 'a'},
+  {id: 'rect', label: 'Rect', icon: 'annoscr-rect-symbolic', accelerator: 'r'},
+  {id: 'oval', label: 'Oval', icon: 'annoscr-oval-symbolic', accelerator: 'o'},
 ];
 
 export const AnnoscrWindow = GObject.registerClass(
@@ -199,6 +211,21 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.copyButton.connect('clicked', () => this.copyImageToClipboard());
       header.pack_start(this.copyButton);
+
+      // Primary menu — packed first so it lands at the right edge, next to the
+      // window controls (the standard GNOME spot).
+      const menu = new Gio.Menu();
+      menu.append('Preferences', 'win.preferences');
+      menu.append('Keyboard shortcuts', 'win.shortcuts');
+      menu.append('About Annoscr', 'win.about');
+      menu.append('Quit', 'win.quit');
+      const menuButton = new Gtk.MenuButton({
+        icon_name: 'open-menu-symbolic',
+        tooltip_text: 'Main menu',
+        menu_model: menu,
+        primary: true,
+      });
+      header.pack_end(menuButton);
 
       // pack_end stacks right-to-left in source order, so to land the buttons
       // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize first.
@@ -329,17 +356,64 @@ export const AnnoscrWindow = GObject.registerClass(
         this.refreshStatus();
         this.applyPendingScroll();
       });
+      this.restoreToolStyles();
       this.refreshStatus();
       this.refreshStylePicker();
 
+      this.installActions(app);
       this.installDropTarget();
       this.installShortcuts();
       this.installCloseGuard();
     }
 
+    // Restore per-tool styles saved in a previous session, if the user opted in.
+    private restoreToolStyles(): void {
+      const s = getSettings();
+      if (s.rememberToolStyles && s.toolStyles) this.canvas.importToolStyles(s.toolStyles);
+    }
+
+    // Persist per-tool styles on the way out, if the user opted in. Called from
+    // the close guard, the choke point every quit path passes through.
+    private flushSettings(): void {
+      if (getSettings().rememberToolStyles) {
+        updateSettings({toolStyles: this.canvas.exportToolStyles()});
+      }
+    }
+
+    private installActions(app: InstanceType<typeof AnnoscrApplication>): void {
+      const add = (name: string, cb: () => void): void => {
+        const action = new Gio.SimpleAction({name});
+        action.connect('activate', () => cb());
+        this.add_action(action);
+      };
+      add('preferences', () => presentPreferences(this));
+      add('shortcuts', () => presentShortcuts(this));
+      add('about', () => this.showAbout());
+      add('quit', () => this.close());
+      app.set_accels_for_action('win.preferences', ['<Control>comma']);
+      app.set_accels_for_action('win.shortcuts', ['<Control>question']);
+      app.set_accels_for_action('win.quit', ['<Control>q']);
+    }
+
+    private showAbout(): void {
+      const about = new Adw.AboutDialog({
+        application_name: 'Annoscr',
+        application_icon: 'com.cmphys.Annoscr',
+        version: '0.1.0',
+        developer_name: 'Matt Mower',
+        license_type: Gtk.License.GPL_3_0,
+        comments: 'A lightweight screenshot annotation tool for GNOME.',
+      });
+      about.present(this);
+    }
+
     private installCloseGuard(): void {
       this.connect('close-request', () => {
-        if (this.skipCloseConfirm || !this.canvas.isDirty()) return false;
+        // Returning false lets the close proceed — flush prefs at those points.
+        if (this.skipCloseConfirm || !this.canvas.isDirty()) {
+          this.flushSettings();
+          return false;
+        }
         this.confirmDiscard('Closing the window', () => {
           this.skipCloseConfirm = true;
           this.close();
@@ -854,7 +928,7 @@ export const AnnoscrWindow = GObject.registerClass(
     // annotations. `onProceed` runs only when the user explicitly discards,
     // or immediately if the canvas is already clean.
     private confirmDiscard(action: string, onProceed: () => void): void {
-      if (!this.canvas.isDirty()) {
+      if (!getSettings().confirmDiscard || !this.canvas.isDirty()) {
         onProceed();
         return;
       }
@@ -910,7 +984,7 @@ export const AnnoscrWindow = GObject.registerClass(
 
     private showNewCanvasDialog(): void {
       const dialog = new Adw.AlertDialog({
-        heading: 'New Blank Canvas',
+        heading: 'New blank canvas',
         body: 'Set the canvas size and background color.',
       });
       dialog.add_response('cancel', 'Cancel');
@@ -1247,7 +1321,7 @@ export const AnnoscrWindow = GObject.registerClass(
             ? `${tool.label} (${tool.accelerator.toUpperCase()})\nAlt+Click to cycle overlapping`
             : `${tool.label} (${tool.accelerator.toUpperCase()})`;
         const btn = new Gtk.ToggleButton({
-          label: tool.label,
+          icon_name: tool.icon,
           tooltip_text: tooltip,
           active: tool.id === this.canvas.getTool(),
         });
@@ -1350,9 +1424,12 @@ export const AnnoscrWindow = GObject.registerClass(
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
 
+      const settings = getSettings();
       const dialog = new Gtk.FileDialog({title: 'Save image', modal: true});
-      dialog.set_initial_name(defaultSaveFilename());
-      dialog.set_initial_folder(Gio.File.new_for_path(defaultSaveFolderPath()));
+      dialog.set_initial_name(defaultSaveFilename(settings.defaultSaveFormat));
+      dialog.set_initial_folder(
+        Gio.File.new_for_path(settings.defaultSaveFolder || defaultSaveFolderPath())
+      );
 
       // Single combined filter — extension in the filename decides the format.
       // Two separate filters would mislead the user: Gtk.FileDialog doesn't
@@ -1387,12 +1464,13 @@ export const AnnoscrWindow = GObject.registerClass(
         let path = file.get_path();
         if (!path) return;
 
-        const format = formatFromPath(path);
-        // If the user typed a name without an extension, append the canonical
-        // one for the format their filter implied (PNG by default).
+        // If the user typed a name without an extension, fall back to the
+        // configured default format and append its canonical extension;
+        // otherwise the typed extension drives the format.
         const lower = path.toLowerCase();
         const hasKnownExt =
           lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+        const format = hasKnownExt ? formatFromPath(path) : settings.defaultSaveFormat;
         if (!hasKnownExt) path = path + FORMATS[format].ext;
 
         try {

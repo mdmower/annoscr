@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <mask id="digit">
+      <rect width="16" height="16" fill="white"/>
+      <path d="M5.2 7.4 L8.4 4.2 L9.0 4.2 L9.0 10.4 L10.1 10.4 L10.1 11.8 L5.9 11.8 L5.9 10.4 L7.4 10.4 L7.4 7.0 Z" fill="black"/>
+    </mask>
+  </defs>
+  <circle cx="8" cy="8" r="7" fill="#222222" mask="url(#digit)"/>
+</svg>
