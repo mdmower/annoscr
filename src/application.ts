@@ -17,6 +17,7 @@ export const AnnoscrApplication = GObject.registerClass(
   {GTypeName: 'AnnoscrApplication'},
   class extends Adw.Application {
     private initialBlank: {w: number; h: number} | null = null;
+    private initialCapture = false;
 
     constructor() {
       super({
@@ -47,6 +48,14 @@ export const AnnoscrApplication = GObject.registerClass(
         `Canvas height in pixels (default: ${DEFAULT_BLANK_HEIGHT}, requires --new)`,
         'PIXELS'
       );
+      this.add_main_option(
+        'screenshot',
+        0,
+        GLib.OptionFlags.NONE,
+        GLib.OptionArg.NONE,
+        'Capture a screenshot via the desktop portal on startup',
+        null
+      );
     }
 
     vfunc_startup(): void {
@@ -71,6 +80,9 @@ export const AnnoscrApplication = GObject.registerClass(
         if (hv) h = Math.max(CANVAS_SIZE_MIN, Math.min(CANVAS_SIZE_MAX, hv.get_int32()));
         this.initialBlank = {w, h};
       }
+      if (options.contains('screenshot')) {
+        this.initialCapture = true;
+      }
       return -1;
     }
 
@@ -81,6 +93,13 @@ export const AnnoscrApplication = GObject.registerClass(
       if (this.initialBlank) {
         win.createBlankCanvas(this.initialBlank.w, this.initialBlank.h);
         this.initialBlank = null;
+      }
+      if (this.initialCapture) {
+        this.initialCapture = false;
+        // captureScreenshot presents the window itself once capture resolves,
+        // so we skip the present() below to avoid flashing an empty window.
+        win.captureScreenshot();
+        return;
       }
       win.present();
     }

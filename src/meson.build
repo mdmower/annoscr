@@ -11,6 +11,7 @@ ts_sources = files(
   'settings.ts',
   'preferences.ts',
   'shortcuts_dialog.ts',
+  'screenshot.ts',
 )
 
 ts_outputs = [
@@ -26,6 +27,7 @@ ts_outputs = [
   'settings.js',
   'preferences.js',
   'shortcuts_dialog.js',
+  'screenshot.js',
 ]
 
 compile_ts = custom_target('compile-ts',

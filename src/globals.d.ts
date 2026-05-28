@@ -8,3 +8,4 @@ import '@girs/gdkpixbuf-2.0';
 import '@girs/pango-1.0';
 import '@girs/cairo-1.0';
 import '@girs/pangocairo-1.0';
+import '@girs/xdp-1.0';

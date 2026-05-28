@@ -22,6 +22,7 @@ const SECTIONS: Section[] = [
     items: [
       {keys: ['Ctrl', 'N'], desc: 'New blank canvas'},
       {keys: ['Ctrl', 'O'], desc: 'Open image'},
+      {keys: ['Ctrl', 'Shift', 'S'], desc: 'Take screenshot'},
       {keys: ['Ctrl', 'S'], desc: 'Save image'},
       {keys: ['Ctrl', 'C'], desc: 'Copy to clipboard'},
       {keys: ['Ctrl', 'V'], desc: 'Paste image'},

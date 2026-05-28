@@ -20,6 +20,7 @@ Depends:
  gir1.2-adw-1,
  gir1.2-gdkpixbuf-2.0,
  gir1.2-pango-1.0,
+ gir1.2-xdp-1.0,
 Description: Lightweight screenshot annotation tool for GNOME
  Annoscr lets you annotate screenshots with arrows, text, shapes,
  highlighter strokes, and numbered stamps. It also supports basic

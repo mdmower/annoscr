@@ -11,6 +11,7 @@ import {AnnoscrApplication} from './application.js';
 import {CanvasView, ZOOM_MAX, ZOOM_MIN} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
+import {takeScreenshot} from './screenshot.js';
 import {
   CANVAS_SIZE_MAX,
   CANVAS_SIZE_MIN,
@@ -195,6 +196,13 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       openButton.connect('clicked', () => this.openImageDialog());
       header.pack_start(openButton);
+
+      const captureButton = new Gtk.Button({
+        icon_name: 'camera-photo-symbolic',
+        tooltip_text: 'Take screenshot… (Ctrl+Shift+S)',
+      });
+      captureButton.connect('clicked', () => this.captureScreenshot());
+      header.pack_start(captureButton);
 
       this.saveButton = new Gtk.Button({
         icon_name: 'document-save-symbolic',
@@ -1104,6 +1112,31 @@ export const AnnoscrWindow = GObject.registerClass(
       this.confirmDiscard('Opening this image', () => this.openFile(file));
     }
 
+    captureScreenshot(): void {
+      // Unmap the window first so Annoscr isn't in the shot when the user picks
+      // a screen or full-screen region. The short delay gives the compositor
+      // time to actually hide it before the portal's capture UI appears.
+      this.set_visible(false);
+      GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+        takeScreenshot()
+          .then((uri) => {
+            this.set_visible(true);
+            this.present();
+            if (uri) {
+              this.confirmDiscard('Opening the screenshot', () =>
+                this.openFile(Gio.File.new_for_uri(uri))
+              );
+            }
+          })
+          .catch(() => {
+            this.set_visible(true);
+            this.present();
+            this.toastOverlay.add_toast(new Adw.Toast({title: 'Screenshot cancelled'}));
+          });
+        return GLib.SOURCE_REMOVE;
+      });
+    }
+
     openFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
@@ -1239,6 +1272,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const controller = new Gtk.ShortcutController();
       this.bindShortcut(controller, '<Control>n', () => this.newBlankCanvas());
       this.bindShortcut(controller, '<Control>o', () => this.openImageDialog());
+      this.bindShortcut(controller, '<Control><Shift>s', () => this.captureScreenshot());
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
       // Undo/redo are disabled while resize mode is active: a pending region
       // is transient state that hasn't been committed, and rolling history

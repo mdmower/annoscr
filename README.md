@@ -8,7 +8,7 @@ Annoscr is a reimplementation of a subset of [Gradia](https://github.com/Alexand
 
 **Annotation tools:** Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, Number stamp (icon toolbar with tooltips)
 **Transforms:** Rotation, Resize (crop / canvas expansion)
-**I/O:** Open file, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
+**I/O:** Open file, capture a screenshot via the desktop portal, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
 **Editing:** Per-tool color, fill, stroke width, font family, font size; undo/redo; discard confirmation
 **View:** Fit-to-window and 1:1, plus a 25%-400% zoom slider with scrollbars; Ctrl+scroll to zoom at the cursor; Ctrl+0 / Ctrl+1 shortcuts
 **App:** Primary menu with Preferences, a Keyboard shortcuts reference, and About
@@ -24,7 +24,8 @@ In active development.
 
 ```sh
 sudo apt install gjs meson ninja-build nodejs npm \
-    gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gdkpixbuf-2.0 gir1.2-pango-1.0
+    gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gdkpixbuf-2.0 gir1.2-pango-1.0 \
+    gir1.2-xdp-1.0
 ```
 
 `nodejs` and `npm` can alternatively be installed from <https://nodejs.org/en/download/>.
@@ -39,6 +40,7 @@ meson compile -C build
 ./build/src/annoscr shot.png   # open an image file (also used by "Open With")
 ./build/src/annoscr --new      # start with a blank 640×480 canvas
 ./build/src/annoscr --new --width 1920 --height 1080
+./build/src/annoscr --screenshot   # capture via the desktop portal on launch
 ```
 
 ### Building the .deb

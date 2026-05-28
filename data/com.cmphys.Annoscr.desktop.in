@@ -10,3 +10,9 @@ Categories=Graphics;Photography;GTK;
 StartupNotify=true
 MimeType=image/png;image/jpeg;image/webp;image/bmp;image/tiff;
 Keywords=screenshot;annotate;arrow;markup;
+Actions=take-screenshot;
+
+[Desktop Action take-screenshot]
+Name=Take Screenshot
+Exec=annoscr --screenshot
+Icon=camera-photo
