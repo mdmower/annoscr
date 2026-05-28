@@ -10,6 +10,7 @@ Annoscr is a reimplementation of a subset of [Gradia](https://github.com/Alexand
 **Transforms:** Rotation, Resize (crop / canvas expansion)
 **I/O:** Open file, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
 **Editing:** Per-tool color, fill, stroke width, font family, font size; undo/redo; discard confirmation
+**View:** Fit-to-window and 1:1, plus a 25%-400% zoom slider with scrollbars; Ctrl+scroll to zoom at the cursor; Ctrl+0 / Ctrl+1 shortcuts
 
 ## Status
 

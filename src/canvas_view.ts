@@ -39,7 +39,10 @@ export interface ResizeRect {
   h: number;
 }
 
-export type DisplayMode = 'fit' | 'actual';
+// Zoom range for the fixed-zoom slider/keys. Fit mode computes its own scale
+// (capped at 1) outside this range.
+export const ZOOM_MIN = 0.25;
+export const ZOOM_MAX = 4;
 
 interface Transform {
   scale: number;
@@ -163,7 +166,14 @@ export const CanvasView = GObject.registerClass(
     private history: CanvasState[] = [{surface: null, actions: []}];
     private historyCursor: number = 0;
 
-    private mode: DisplayMode = 'fit';
+    // 'fit' auto-scales the image to the viewport (capped at 1:1). 'fixed'
+    // renders at exactly zoomFactor, with scrollbars when it exceeds the view.
+    private mode: 'fit' | 'fixed' = 'fit';
+    private zoomFactor: number = 1;
+
+    // Last known pointer position in widget-local coords, for cursor-anchored
+    // zoom. null when the pointer is outside the widget.
+    private lastPointer: [number, number] | null = null;
 
     private liveStroke: LiveStroke | null = null;
     private currentToolId: ToolId = 'pen';
@@ -238,9 +248,15 @@ export const CanvasView = GObject.registerClass(
     // /selection change) clear it explicitly.
     private lastCoalesceKey: string | null = null;
 
+    // Set on setImage; the initial zoom (1:1 if the image fits the viewport,
+    // else fit) is chosen once the widget has a real allocation. Deferred
+    // because the viewport size isn't known until the first resize.
+    private pendingInitialZoom: boolean = false;
+
     constructor() {
       super({hexpand: true, vexpand: true});
       this.set_draw_func(this.onDraw.bind(this));
+      this.connect('resize', () => this.maybeApplyInitialZoom());
       this.installPointer();
     }
 
@@ -289,10 +305,34 @@ export const CanvasView = GObject.registerClass(
       this.cleanStateRef = this.history[0];
       this.lastCoalesceKey = null;
       this.mode = 'fit';
+      this.zoomFactor = 1;
+      this.pendingInitialZoom = true;
       this.resetTransientState();
       this.updateSizeRequest();
       this.queue_draw();
       this.notifyStateChange();
+      // Decide now if the widget is already allocated; otherwise the resize
+      // signal will do it once the viewport size is known.
+      this.maybeApplyInitialZoom();
+    }
+
+    // Choose the opening zoom for a freshly-loaded image: 1:1 when it fits the
+    // viewport (native, crisp), fit when it's larger. Runs once per load, when
+    // a real allocation is available.
+    private maybeApplyInitialZoom(): void {
+      if (!this.pendingInitialZoom) return;
+      const s = this.state.surface;
+      if (!s) {
+        this.pendingInitialZoom = false;
+        return;
+      }
+      const w = this.get_width();
+      const h = this.get_height();
+      if (w <= 0 || h <= 0) return; // not allocated yet; wait for resize
+      this.pendingInitialZoom = false;
+      if (s.getWidth() <= w && s.getHeight() <= h) {
+        this.setZoom(1); // fits → native size; otherwise stay in fit mode
+      }
     }
 
     // True when the current state has been modified since the last save,
@@ -310,18 +350,38 @@ export const CanvasView = GObject.registerClass(
       this.notifyStateChange();
     }
 
-    setMode(mode: DisplayMode): void {
-      if (this.mode === mode) return;
-      this.mode = mode;
+    setFitMode(): void {
+      if (this.mode === 'fit') return;
+      this.mode = 'fit';
       this.updateSizeRequest();
       this.queue_draw();
       this.notifyStateChange();
     }
 
-    getMode(): DisplayMode {
-      return this.mode;
+    setZoom(factor: number): void {
+      const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, factor));
+      if (this.mode === 'fixed' && this.zoomFactor === clamped) return;
+      this.mode = 'fixed';
+      this.zoomFactor = clamped;
+      this.updateSizeRequest();
+      this.queue_draw();
+      this.notifyStateChange();
     }
 
+    isFitMode(): boolean {
+      return this.mode === 'fit';
+    }
+
+    // Last pointer position in widget-local coords (= content coords inside the
+    // scrolled viewport), or null when the pointer is outside. Used to anchor
+    // Ctrl+scroll zoom on the point under the cursor.
+    getLastPointer(): [number, number] | null {
+      return this.lastPointer;
+    }
+
+    // The current display scale (1 = 100%). In fit mode this is computed from
+    // the widget size; in fixed mode it equals the zoom factor. Null with no
+    // image or before first allocation.
     getZoomScale(): number | null {
       const s = this.state.surface;
       if (!s) return null;
@@ -566,7 +626,10 @@ export const CanvasView = GObject.registerClass(
         return;
       }
       const area = this.displayedArea();
-      this.set_size_request(Math.ceil(area.w), Math.ceil(area.h));
+      this.set_size_request(
+        Math.ceil(area.w * this.zoomFactor),
+        Math.ceil(area.h * this.zoomFactor)
+      );
     }
 
     // Width × height of the current image in source pixels, or null if no
@@ -699,6 +762,7 @@ export const CanvasView = GObject.registerClass(
     private installPointer(): void {
       const motion = new Gtk.EventControllerMotion();
       motion.connect('motion', (_c, x, y) => this.onPointerMotion(x, y));
+      motion.connect('leave', () => (this.lastPointer = null));
       this.add_controller(motion);
 
       const drag = new Gtk.GestureDrag();
@@ -735,6 +799,7 @@ export const CanvasView = GObject.registerClass(
     // advertise themselves before the user even clicks. Other tools keep
     // their cursor from `cursorForTool` (set in setTool / installPointer).
     private onPointerMotion(wx: number, wy: number): void {
+      this.lastPointer = [wx, wy];
       if (this.currentToolId !== 'resize' || !this.state.surface) return;
       if (this.resizeGrab) return; // mid-drag — keep the grab cursor.
       const [ix, iy] = this.widgetToImage(wx, wy);
@@ -1042,7 +1107,10 @@ export const CanvasView = GObject.registerClass(
       const s = this.state.surface;
       if (!s) return {scale: 1, offsetX: 0, offsetY: 0};
       const area = this.displayedArea();
-      const scale = this.mode === 'actual' ? 1 : Math.min(widgetW / area.w, widgetH / area.h, 1);
+      // Fit scales the displayed area to fill the viewport, enlarging a small
+      // image past 1:1 (use the 1:1 button to view at native size instead).
+      const scale =
+        this.mode === 'fixed' ? this.zoomFactor : Math.min(widgetW / area.w, widgetH / area.h);
       const drawW = area.w * scale;
       const drawH = area.h * scale;
       // Image-space (area.x, area.y) lands at the centered top-left of the
@@ -1084,8 +1152,10 @@ export const CanvasView = GObject.registerClass(
       cr.fill();
 
       cr.setSourceSurface(s, 0, 0);
+      // NEAREST at or above 1:1 keeps zoomed-in pixels crisp (pixel-art
+      // friendly); BILINEAR below 1:1 smooths the downscale to avoid moiré.
       (cr.getSource() as Cairo.SurfacePattern).setFilter(
-        t.scale === 1 ? Cairo.Filter.NEAREST : Cairo.Filter.BILINEAR
+        t.scale >= 1 ? Cairo.Filter.NEAREST : Cairo.Filter.BILINEAR
       );
       cr.paint();
 
