@@ -39,7 +39,7 @@ export interface ResizeRect {
   h: number;
 }
 
-type DisplayMode = 'fit' | 'actual';
+export type DisplayMode = 'fit' | 'actual';
 
 interface Transform {
   scale: number;
@@ -288,7 +288,9 @@ export const CanvasView = GObject.registerClass(
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
       this.lastCoalesceKey = null;
+      this.mode = 'fit';
       this.resetTransientState();
+      this.updateSizeRequest();
       this.queue_draw();
       this.notifyStateChange();
     }
@@ -311,7 +313,22 @@ export const CanvasView = GObject.registerClass(
     setMode(mode: DisplayMode): void {
       if (this.mode === mode) return;
       this.mode = mode;
+      this.updateSizeRequest();
       this.queue_draw();
+      this.notifyStateChange();
+    }
+
+    getMode(): DisplayMode {
+      return this.mode;
+    }
+
+    getZoomScale(): number | null {
+      const s = this.state.surface;
+      if (!s) return null;
+      const w = this.get_width();
+      const h = this.get_height();
+      if (w <= 0 || h <= 0) return null;
+      return this.computeTransform(w, h).scale;
     }
 
     hasImage(): boolean {
@@ -534,7 +551,22 @@ export const CanvasView = GObject.registerClass(
     }
 
     private notifyStateChange(): void {
+      this.updateSizeRequest();
       if (this.onStateChange) this.onStateChange();
+    }
+
+    private updateSizeRequest(): void {
+      if (this.mode === 'fit') {
+        this.set_size_request(-1, -1);
+        return;
+      }
+      const s = this.state.surface;
+      if (!s) {
+        this.set_size_request(-1, -1);
+        return;
+      }
+      const area = this.displayedArea();
+      this.set_size_request(Math.ceil(area.w), Math.ceil(area.h));
     }
 
     // Width × height of the current image in source pixels, or null if no
@@ -970,15 +1002,17 @@ export const CanvasView = GObject.registerClass(
       return this.computeTransform(this.get_width(), this.get_height());
     }
 
-    // The "displayed area" in image-space. Normally just (0, 0, imgW, imgH);
-    // during resize mode, the union of image bounds and every action's bounds
-    // (plus a small margin) so orphan annotations are visible and reachable
-    // for rescue. The display transform fits this rectangle into the widget.
+    // The "displayed area" in image-space. In fit mode (non-resize) this is
+    // just the image bounds. In actual (1:1) mode it's the union of image and
+    // action bounds so orphan annotations are scrollable into view. In resize
+    // mode it's the union plus a margin so orphans are visible for rescue.
     private displayedArea(): {x: number; y: number; w: number; h: number} {
       const s = this.state.surface;
       const imgW = s ? s.getWidth() : 0;
       const imgH = s ? s.getHeight() : 0;
-      if (this.currentToolId !== 'resize') return {x: 0, y: 0, w: imgW, h: imgH};
+      if (this.mode === 'fit' && this.currentToolId !== 'resize') {
+        return {x: 0, y: 0, w: imgW, h: imgH};
+      }
 
       let minX = 0,
         minY = 0,
@@ -992,13 +1026,16 @@ export const CanvasView = GObject.registerClass(
         if (b.x2 > maxX) maxX = b.x2;
         if (b.y2 > maxY) maxY = b.y2;
       }
-      const margin = Math.max(20, Math.min(imgW, imgH) * 0.05);
-      return {
-        x: minX - margin,
-        y: minY - margin,
-        w: maxX - minX + 2 * margin,
-        h: maxY - minY + 2 * margin,
-      };
+      if (this.currentToolId === 'resize') {
+        const margin = Math.max(20, Math.min(imgW, imgH) * 0.05);
+        return {
+          x: minX - margin,
+          y: minY - margin,
+          w: maxX - minX + 2 * margin,
+          h: maxY - minY + 2 * margin,
+        };
+      }
+      return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
     }
 
     private computeTransform(widgetW: number, widgetH: number): Transform {

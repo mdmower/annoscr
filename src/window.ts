@@ -116,6 +116,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private resizeToolbar: Gtk.Box;
     // Assigned inside buildStatusBar(), which the constructor calls.
     private statusLabel!: Gtk.Label;
+    private zoomLabel!: Gtk.Label;
+    private zoomControls!: Gtk.Box;
     // Set true just before we explicitly call close() after the user has
     // chosen Discard, so the close-request handler doesn't re-prompt.
     private skipCloseConfirm: boolean = false;
@@ -266,11 +268,20 @@ export const AnnoscrWindow = GObject.registerClass(
         }
       );
 
-      const overlay = new Gtk.Overlay();
-      overlay.set_child(this.canvas);
-      overlay.add_overlay(this.editor.getWidget());
+      const contentOverlay = new Gtk.Overlay();
+      contentOverlay.set_child(this.canvas);
+      contentOverlay.add_overlay(this.editor.getWidget());
+
+      const scrolled = new Gtk.ScrolledWindow({
+        hscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
+        vscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
+      });
+      scrolled.set_child(contentOverlay);
+
       this.resizeToolbar = this.buildResizeToolbar();
-      overlay.add_overlay(this.resizeToolbar);
+      const viewOverlay = new Gtk.Overlay();
+      viewOverlay.set_child(scrolled);
+      viewOverlay.add_overlay(this.resizeToolbar);
 
       const toolBar = this.buildToolBar();
       header.set_title_widget(toolBar);
@@ -286,7 +297,7 @@ export const AnnoscrWindow = GObject.registerClass(
         transition_type: Gtk.StackTransitionType.CROSSFADE,
       });
       this.stack.add_named(empty, 'empty');
-      this.stack.add_named(overlay, 'canvas');
+      this.stack.add_named(viewOverlay, 'canvas');
       this.stack.set_visible_child_name('empty');
 
       const toolbar = new Adw.ToolbarView();
@@ -301,6 +312,7 @@ export const AnnoscrWindow = GObject.registerClass(
         this.refreshStatus();
         this.refreshStylePicker();
       });
+      this.canvas.connect('resize', () => this.refreshStatus());
       this.refreshStatus();
       this.refreshStylePicker();
 
@@ -723,6 +735,39 @@ export const AnnoscrWindow = GObject.registerClass(
         css_classes: ['dim-label', 'caption'],
       });
       box.append(this.statusLabel);
+
+      this.zoomLabel = new Gtk.Label({
+        label: '',
+        css_classes: ['dim-label', 'caption'],
+      });
+      const fitBtn = new Gtk.Button({
+        label: 'Fit',
+        tooltip_text: 'Fit to window (Ctrl+0)',
+        css_classes: ['flat'],
+      });
+      fitBtn.connect('clicked', () => this.setZoomMode('fit'));
+      const oneBtn = new Gtk.Button({
+        label: '1:1',
+        tooltip_text: '1:1 pixel zoom (Ctrl+1)',
+        css_classes: ['flat'],
+      });
+      oneBtn.connect('clicked', () => this.setZoomMode('actual'));
+      const zoomBtnBox = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 0,
+        css_classes: ['linked'],
+      });
+      zoomBtnBox.append(fitBtn);
+      zoomBtnBox.append(oneBtn);
+      this.zoomControls = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+        visible: false,
+      });
+      this.zoomControls.append(this.zoomLabel);
+      this.zoomControls.append(zoomBtnBox);
+      box.append(this.zoomControls);
+
       return box;
     }
 
@@ -731,6 +776,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const img = this.canvas.getImageDimensions();
       if (!img) {
         this.statusLabel.set_label('');
+        this.zoomControls.set_visible(false);
         return;
       }
       const base = `${img.w} × ${img.h} px`;
@@ -738,6 +784,11 @@ export const AnnoscrWindow = GObject.registerClass(
       // U+2003 EM SPACE on either side of the arrow gives breathing room
       // without depending on Pango markup or label padding tricks.
       this.statusLabel.set_label(r ? `${base}\u2003→\u2003${r.w} \u00d7 ${r.h} px` : base);
+      const scale = this.canvas.getZoomScale();
+      if (scale !== null) {
+        this.zoomLabel.set_label(`${Math.round(scale * 100)}%`);
+      }
+      this.zoomControls.set_visible(true);
     }
 
     // Show a destructive-action confirmation if the canvas has unsaved
@@ -935,6 +986,11 @@ export const AnnoscrWindow = GObject.registerClass(
       this.copyButton.set_sensitive(true);
     }
 
+    private setZoomMode(mode: 'fit' | 'actual'): void {
+      this.editor.commitIfActive();
+      this.canvas.setMode(mode);
+    }
+
     private installDropTarget(): void {
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
@@ -976,6 +1032,12 @@ export const AnnoscrWindow = GObject.registerClass(
         if (this.editor.isActive()) return false;
         if (this.canvas.hasImage()) this.copyImageToClipboard();
         return true;
+      });
+      this.bindShortcut(controller, '<Control>0', () => {
+        if (this.canvas.hasImage()) this.setZoomMode('fit');
+      });
+      this.bindShortcut(controller, '<Control>1', () => {
+        if (this.canvas.hasImage()) this.setZoomMode('actual');
       });
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
