@@ -13,21 +13,12 @@ export const AnnoscrApplication = GObject.registerClass(
   {GTypeName: 'AnnoscrApplication'},
   class extends Adw.Application {
     private initialBlank: {w: number; h: number} | null = null;
-    private initialFile: Gio.File | null = null;
 
     constructor() {
       super({
         application_id: 'com.cmphys.Annoscr',
-        flags: Gio.ApplicationFlags.DEFAULT_FLAGS,
+        flags: Gio.ApplicationFlags.HANDLES_OPEN,
       });
-      this.add_main_option(
-        'file',
-        'f'.charCodeAt(0),
-        GLib.OptionFlags.NONE,
-        GLib.OptionArg.FILENAME,
-        'Open an image file',
-        'PATH'
-      );
       this.add_main_option(
         'new',
         0,
@@ -55,14 +46,6 @@ export const AnnoscrApplication = GObject.registerClass(
     }
 
     vfunc_handle_local_options(options: GLib.VariantDict): number {
-      const fv = options.lookup_value('file', GLib.VariantType.new('ay'));
-      if (fv) {
-        const bytes = fv.get_bytestring();
-        if (bytes) {
-          const path = new TextDecoder().decode(bytes);
-          this.initialFile = Gio.File.new_for_commandline_arg(path);
-        }
-      }
       if (options.contains('new')) {
         let w = DEFAULT_BLANK_WIDTH;
         let h = DEFAULT_BLANK_HEIGHT;
@@ -79,14 +62,19 @@ export const AnnoscrApplication = GObject.registerClass(
       const win = (this.active_window ?? new AnnoscrWindow(this)) as InstanceType<
         typeof AnnoscrWindow
       >;
-      if (this.initialFile) {
-        win.openFile(this.initialFile);
-        this.initialFile = null;
-      } else if (this.initialBlank) {
+      if (this.initialBlank) {
         win.createBlankCanvas(this.initialBlank.w, this.initialBlank.h);
         this.initialBlank = null;
       }
       win.present();
+    }
+
+    vfunc_open(files: Gio.File[], _hint: string): void {
+      const win = (this.active_window ?? new AnnoscrWindow(this)) as InstanceType<
+        typeof AnnoscrWindow
+      >;
+      win.present();
+      if (files.length > 0) win.openFileChecked(files[0]);
     }
   }
 );

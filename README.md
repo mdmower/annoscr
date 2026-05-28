@@ -34,6 +34,7 @@ npm install                    # installs TypeScript as a project devDependency
 meson setup build
 meson compile -C build
 ./build/src/annoscr            # run from the build tree
+./build/src/annoscr shot.png   # open an image file (also used by "Open With")
 ./build/src/annoscr --new      # start with a blank 640×480 canvas
 ./build/src/annoscr --new --width 1920 --height 1080
 ```

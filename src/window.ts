@@ -1024,6 +1024,12 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.present(this);
     }
 
+    // Entry point for files handed in from outside (file manager "Open With",
+    // command-line argument). Guards an unsaved canvas before replacing it.
+    openFileChecked(file: Gio.File): void {
+      this.confirmDiscard('Opening this image', () => this.openFile(file));
+    }
+
     openFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
