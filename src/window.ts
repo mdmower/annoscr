@@ -1009,9 +1009,13 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       let group: Gtk.ToggleButton | null = null;
       for (const tool of TOOLS) {
+        const tooltip =
+          tool.id === 'select'
+            ? `${tool.label} (${tool.accelerator.toUpperCase()})\nAlt+Click to cycle overlapping`
+            : `${tool.label} (${tool.accelerator.toUpperCase()})`;
         const btn = new Gtk.ToggleButton({
           label: tool.label,
-          tooltip_text: `${tool.label} (${tool.accelerator.toUpperCase()})`,
+          tooltip_text: tooltip,
           active: tool.id === this.canvas.getTool(),
         });
         if (group) btn.set_group(group);

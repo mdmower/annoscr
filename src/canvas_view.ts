@@ -66,6 +66,10 @@ function isShift(gesture: Gtk.GestureDrag): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
 }
 
+function isAlt(gesture: Gtk.GestureDrag): boolean {
+  return (gesture.get_current_event_state() & Gdk.ModifierType.ALT_MASK) !== 0;
+}
+
 function isDragTool(id: ToolId): boolean {
   return id !== 'select' && id !== 'text' && id !== 'number' && id !== 'resize';
 }
@@ -668,10 +672,10 @@ export const CanvasView = GObject.registerClass(
       const drag = new Gtk.GestureDrag();
       drag.set_button(Gdk.BUTTON_PRIMARY);
 
-      drag.connect('drag-begin', (_g, x, y) => {
+      drag.connect('drag-begin', (g, x, y) => {
         this.dragStartX = x;
         this.dragStartY = y;
-        this.onDragBegin(x, y);
+        this.onDragBegin(x, y, g);
       });
       drag.connect('drag-update', (g, dx, dy) => {
         this.onDragUpdate(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
@@ -708,12 +712,20 @@ export const CanvasView = GObject.registerClass(
       this.set_cursor_from_name(cursorForResizeGrab(grab));
     }
 
-    private onDragBegin(wx: number, wy: number): void {
+    private onDragBegin(wx: number, wy: number, gesture: Gtk.GestureDrag): void {
       if (!this.state.surface) return;
       if (this.currentToolId === 'select') {
         const [ix, iy] = this.widgetToImage(wx, wy);
         const prev = this.selectedIndex;
-        this.selectedIndex = this.hitTest(ix, iy);
+        // If the press lands inside the already-selected action, keep it
+        // selected so double-tap-to-drag on a touchpad doesn't re-run
+        // hit-test and lose the selection on the second tap.
+        const keepCurrent = this.isPointOnSelected(ix, iy);
+        if (!keepCurrent) {
+          this.selectedIndex = isAlt(gesture) ? this.hitTestCycle(ix, iy) : this.hitTest(ix, iy);
+        } else if (isAlt(gesture)) {
+          this.selectedIndex = this.hitTestCycle(ix, iy);
+        }
         this.moving = false;
         this.moveDx = 0;
         this.moveDy = 0;
@@ -888,6 +900,26 @@ export const CanvasView = GObject.registerClass(
         if (bounds && pointInBounds(ix, iy, bounds)) return i;
       }
       return -1;
+    }
+
+    private isPointOnSelected(ix: number, iy: number): boolean {
+      if (this.selectedIndex < 0 || this.selectedIndex >= this.state.actions.length) return false;
+      const bounds = this.state.actions[this.selectedIndex].getBounds();
+      return bounds !== null && pointInBounds(ix, iy, bounds);
+    }
+
+    private hitTestCycle(ix: number, iy: number): number {
+      const acts = this.state.actions;
+      const hits: number[] = [];
+      for (let i = acts.length - 1; i >= 0; i--) {
+        if (i === this.editingActionIndex) continue;
+        const bounds = acts[i].getBounds();
+        if (bounds && pointInBounds(ix, iy, bounds)) hits.push(i);
+      }
+      if (hits.length === 0) return -1;
+      const pos = hits.indexOf(this.selectedIndex);
+      if (pos < 0) return hits[0];
+      return hits[(pos + 1) % hits.length];
     }
 
     // Classify (ix, iy) relative to the current resize region. Edges and
