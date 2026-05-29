@@ -861,6 +861,25 @@ class LineLiveStroke extends EndpointLiveStroke {
 // ---------- Arrow ----------
 
 class ArrowAction extends TwoEndpointAction {
+  // The two arrowhead arm tips. Both draw() and getBounds() need them, so the
+  // geometry lives in one place. The arms run back from the tip (x2, y2) at
+  // ±headAngle off the shaft direction.
+  private arrowheadArms(): [[number, number], [number, number]] {
+    const angle = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
+    const headLen = this.style.width * 5;
+    const headAngle = Math.PI / 6;
+    return [
+      [
+        this.x2 - headLen * Math.cos(angle - headAngle),
+        this.y2 - headLen * Math.sin(angle - headAngle),
+      ],
+      [
+        this.x2 - headLen * Math.cos(angle + headAngle),
+        this.y2 - headLen * Math.sin(angle + headAngle),
+      ],
+    ];
+  }
+
   draw(cr: Cairo.Context, _scale: number): void {
     // Shaft honours the dash style; stroke it on its own.
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
@@ -872,24 +891,27 @@ class ArrowAction extends TwoEndpointAction {
     // dash the shaft set and restore the round cap before stroking it.
     cr.setDash([], 0);
     cr.setLineCap(Cairo.LineCap.ROUND);
-    const angle = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
-    const headLen = this.style.width * 5;
-    const headAngle = Math.PI / 6;
-    cr.moveTo(
-      this.x2 - headLen * Math.cos(angle - headAngle),
-      this.y2 - headLen * Math.sin(angle - headAngle)
-    );
+    const [[ax1, ay1], [ax2, ay2]] = this.arrowheadArms();
+    cr.moveTo(ax1, ay1);
     cr.lineTo(this.x2, this.y2);
-    cr.lineTo(
-      this.x2 - headLen * Math.cos(angle + headAngle),
-      this.y2 - headLen * Math.sin(angle + headAngle)
-    );
+    cr.lineTo(ax2, ay2);
     cr.stroke();
   }
 
-  // Pad by the arrowhead length so the head is hittable on either end.
-  protected boundsPad(): number {
-    return this.style.width * 5;
+  // Tight box around the actual ink: both endpoints plus the two arrowhead arm
+  // tips, padded by half the stroke width for the round caps. Unlike a uniform
+  // pad this leaves no dead space on the tail end or past the tip.
+  getBounds(): Bounds {
+    const [arm1, arm2] = this.arrowheadArms();
+    const xs = [this.x1, this.x2, arm1[0], arm2[0]];
+    const ys = [this.y1, this.y2, arm1[1], arm2[1]];
+    const pad = this.style.width / 2;
+    return {
+      x1: Math.min(...xs) - pad,
+      y1: Math.min(...ys) - pad,
+      x2: Math.max(...xs) + pad,
+      y2: Math.max(...ys) + pad,
+    };
   }
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
