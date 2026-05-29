@@ -14,6 +14,7 @@ import {TOOLS} from './window_constants.js';
 export class ToolBar {
   private toolBox: Gtk.Box;
   private resizeToolbar: Gtk.Box;
+  private applyBtn!: Gtk.Button;
   private toolButtons: Map<ToolId, Gtk.ToggleButton> = new Map();
 
   constructor(
@@ -92,13 +93,13 @@ export class ToolBar {
     });
     const cancelBtn = new Gtk.Button({label: 'Cancel'});
     cancelBtn.connect('clicked', () => this.exitResizeMode(false));
-    const applyBtn = new Gtk.Button({
+    this.applyBtn = new Gtk.Button({
       label: 'Apply',
       css_classes: ['suggested-action'],
     });
-    applyBtn.connect('clicked', () => this.exitResizeMode(true));
+    this.applyBtn.connect('clicked', () => this.exitResizeMode(true));
     box.append(cancelBtn);
-    box.append(applyBtn);
+    box.append(this.applyBtn);
     return box;
   }
 
@@ -118,6 +119,10 @@ export class ToolBar {
     this.canvas.setFitMode();
     this.canvas.setTool('resize');
     this.resizeToolbar.set_visible(true);
+    // Focus Apply so Enter applies the resize (the window's Return shortcut also
+    // applies). Otherwise the first-appended Cancel button holds focus and
+    // activates on Enter, cancelling. Tab still reaches both buttons.
+    this.applyBtn.grab_focus();
   }
 
   exitResizeMode(apply: boolean): void {
