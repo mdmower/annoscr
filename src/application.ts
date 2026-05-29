@@ -71,18 +71,30 @@ export const AnnoscrApplication = GObject.registerClass(
     }
 
     vfunc_handle_local_options(options: GLib.VariantDict): number {
+      const wv = options.lookup_value('width', GLib.VariantType.new('i'));
+      const hv = options.lookup_value('height', GLib.VariantType.new('i'));
       if (options.contains('new')) {
         let w = DEFAULT_BLANK_WIDTH;
         let h = DEFAULT_BLANK_HEIGHT;
-        const wv = options.lookup_value('width', GLib.VariantType.new('i'));
         if (wv) w = Math.max(CANVAS_SIZE_MIN, Math.min(CANVAS_SIZE_MAX, wv.get_int32()));
-        const hv = options.lookup_value('height', GLib.VariantType.new('i'));
         if (hv) h = Math.max(CANVAS_SIZE_MIN, Math.min(CANVAS_SIZE_MAX, hv.get_int32()));
         this.initialBlank = {w, h};
+      } else if (wv || hv) {
+        console.warn('annoscr: --width/--height require --new; ignoring.');
       }
       if (options.contains('screenshot')) {
         this.initialCapture = true;
+        if (options.contains('new')) {
+          console.warn(
+            'annoscr: --new has no effect with --screenshot; the screenshot replaces the canvas.'
+          );
+        }
       }
+      // NOTE: these options are processed on whichever instance runs locally.
+      // On a second invocation while one is already running, the local instance
+      // forwards a bare activate/open to the primary, so the flags are not seen
+      // there — that limitation is inherent to single-instance GApplication
+      // without HANDLES_COMMAND_LINE and is left as documented behavior.
       return -1;
     }
 
@@ -105,6 +117,14 @@ export const AnnoscrApplication = GObject.registerClass(
     }
 
     vfunc_open(files: Gio.File[], _hint: string): void {
+      // A file argument routes here instead of vfunc_activate, so any --new /
+      // --screenshot intent can't be honored — warn and drop it rather than
+      // leaving it stranded for a later activation.
+      if (this.initialBlank || this.initialCapture) {
+        console.warn('annoscr: --new/--screenshot are ignored when a file is opened.');
+        this.initialBlank = null;
+        this.initialCapture = false;
+      }
       const win = (this.active_window ?? new AnnoscrWindow(this)) as InstanceType<
         typeof AnnoscrWindow
       >;

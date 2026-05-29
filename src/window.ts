@@ -959,6 +959,10 @@ export const AnnoscrWindow = GObject.registerClass(
       return box;
     }
 
+    private showToast(title: string): void {
+      this.toastOverlay.add_toast(new Adw.Toast({title}));
+    }
+
     private refreshStatus(): void {
       if (!this.statusLabel) return;
       const img = this.canvas.getImageDimensions();
@@ -1189,7 +1193,7 @@ export const AnnoscrWindow = GObject.registerClass(
           .catch(() => {
             this.set_visible(true);
             this.present();
-            this.toastOverlay.add_toast(new Adw.Toast({title: 'Screenshot cancelled'}));
+            this.showToast('Screenshot cancelled');
           });
         return GLib.SOURCE_REMOVE;
       });
@@ -1198,11 +1202,13 @@ export const AnnoscrWindow = GObject.registerClass(
     openFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
-      } catch {
+      } catch (e) {
+        // Covers both load/decode failures and I/O errors (missing file,
+        // permission denied), so the message stays general rather than always
+        // blaming the file format.
+        console.error('openFile failed', e);
         const name = file.get_basename() ?? file.get_uri();
-        this.toastOverlay.add_toast(
-          new Adw.Toast({title: `Could not open "${name}": unsupported file format`})
-        );
+        this.showToast(`Could not open "${name}"`);
       }
     }
 
@@ -1617,10 +1623,12 @@ export const AnnoscrWindow = GObject.registerClass(
         GdkPixbuf.Pixbuf.new_from_stream_async(stream, null, (_pbSrc, pbResult) => {
           try {
             const pixbuf = GdkPixbuf.Pixbuf.new_from_stream_finish(pbResult);
-            stream.close(null);
             if (pixbuf) this.setImage(loadFromPixbuf(pixbuf));
           } catch (e) {
             console.error('paste (image bytes) failed', e);
+            this.showToast('Could not paste image');
+          } finally {
+            stream.close(null);
           }
         });
       });
@@ -1630,22 +1638,29 @@ export const AnnoscrWindow = GObject.registerClass(
       const mimes: string[] = clipboard.get_formats()?.get_mime_types() ?? [];
       if (!mimes.includes('text/uri-list')) {
         console.log(`paste: nothing usable on clipboard (formats: ${mimes.join(', ') || 'none'})`);
+        this.showToast('Clipboard has no image to paste');
         return;
       }
       clipboard.read_async(['text/uri-list'], GLib.PRIORITY_DEFAULT, null, (_src, result) => {
+        let stream: Gio.InputStream | null = null;
         try {
-          const [stream] = clipboard.read_finish(result);
+          [stream] = clipboard.read_finish(result);
           if (!stream) throw new Error('clipboard read failed');
           const bytes = stream.read_bytes(64 * 1024, null);
-          stream.close(null);
           const text = new TextDecoder().decode(bytes.toArray());
           const uri = text
             .split(/\r?\n/)
             .find((line) => line && !line.startsWith('#'))
             ?.trim();
+          // openFile reports its own failures; only the empty-list case needs
+          // a toast here.
           if (uri) this.openFile(Gio.File.new_for_uri(uri));
+          else this.showToast('Clipboard has no image to paste');
         } catch (e) {
           console.error('paste (uri-list) failed', e);
+          this.showToast('Could not paste image');
+        } finally {
+          stream?.close(null);
         }
       });
     }

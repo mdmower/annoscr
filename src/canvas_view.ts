@@ -271,13 +271,32 @@ export const CanvasView = GObject.registerClass(
     // because the viewport size isn't known until the first resize.
     private pendingInitialZoom: boolean = false;
 
+    // Handler id for the StyleManager::notify::dark connection, held so it can
+    // be disconnected on unrealize (0 = not connected).
+    private darkHandlerId: number = 0;
+
     constructor() {
       super({hexpand: true, vexpand: true});
       this.set_draw_func(this.onDraw.bind(this));
       this.connect('resize', () => this.maybeApplyInitialZoom());
       // Repaint the backdrop when the effective light/dark state flips (system
-      // change or the Preferences color-scheme picker).
-      Adw.StyleManager.get_default().connect('notify::dark', () => this.queue_draw());
+      // change or the Preferences color-scheme picker). The StyleManager is a
+      // process-global singleton, so connect/disconnect on realize/unrealize to
+      // bind the closure to this widget's lifetime instead of the singleton's
+      // (otherwise the handler would pin the canvas for the whole app run). The
+      // draw path reads get_dark() live, so missing notifications while
+      // unrealized is harmless — the next paint picks up the current state.
+      this.connect('realize', () => {
+        if (this.darkHandlerId) return;
+        this.darkHandlerId = Adw.StyleManager.get_default().connect('notify::dark', () =>
+          this.queue_draw()
+        );
+      });
+      this.connect('unrealize', () => {
+        if (!this.darkHandlerId) return;
+        Adw.StyleManager.get_default().disconnect(this.darkHandlerId);
+        this.darkHandlerId = 0;
+      });
       this.installPointer();
     }
 
