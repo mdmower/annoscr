@@ -1090,7 +1090,10 @@ export const CanvasView = GObject.registerClass(
     private onSelectDoubleClick(wx: number, wy: number): void {
       if (!this.state.surface) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      const idx = this.hitTest(ix, iy);
+      // Prefer the current selection when the double-click lands inside it, so a
+      // buried text action selected via Alt+Click still opens for editing.
+      // hitTest alone would return the topmost (likely non-text) action here.
+      const idx = this.isPointOnSelected(ix, iy) ? this.selectedIndex : this.hitTest(ix, iy);
       if (idx < 0) return;
       const action = this.state.actions[idx];
       if (!isTextAction(action)) return;
