@@ -310,6 +310,11 @@ export const AnnoscrWindow = GObject.registerClass(
           // reverts to the tool default / selected action.
           this.refreshStylePicker();
         },
+        onDelete: (replaceIndex: number) => {
+          // Re-edit cleared to empty + confirmed → drop the action (undoable).
+          this.canvas.removeAction(replaceIndex);
+          this.refreshStylePicker();
+        },
       });
       this.canvas.setTextEditRequestHandler(
         (ix: number, iy: number, wx: number, wy: number, options?: TextEditorBeginOptions) => {
@@ -1331,16 +1336,24 @@ export const AnnoscrWindow = GObject.registerClass(
       // is transient state that hasn't been committed, and rolling history
       // out from under it would be confusing (the resize would silently
       // target whatever surface the undo landed on).
+      //
+      // They're also gated while the text editor is open: the focused TextView
+      // consumes Ctrl+Z for its own buffer undo, but once that stack is empty
+      // the event bubbles here and would roll back canvas history mid-edit.
+      // isActive() short-circuits that so canvas history only moves when no
+      // edit is in progress.
+      const editingOrResizing = (): boolean =>
+        this.editor.isActive() || this.canvas.getTool() === 'resize';
       this.bindShortcut(controller, '<Control>z', () => {
-        if (this.canvas.getTool() === 'resize') return;
+        if (editingOrResizing()) return;
         this.canvas.undo();
       });
       this.bindShortcut(controller, '<Control><Shift>z', () => {
-        if (this.canvas.getTool() === 'resize') return;
+        if (editingOrResizing()) return;
         this.canvas.redo();
       });
       this.bindShortcut(controller, '<Control>y', () => {
-        if (this.canvas.getTool() === 'resize') return;
+        if (editingOrResizing()) return;
         this.canvas.redo();
       });
       this.bindShortcut(controller, '<Control>s', () => {

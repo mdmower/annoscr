@@ -754,6 +754,22 @@ export const CanvasView = GObject.registerClass(
       this.queue_draw();
     }
 
+    // Remove an action by index (used when a re-edited text is cleared to
+    // empty and confirmed). Pushes a history entry so the deletion is undoable;
+    // renumbers stamps to match deleteSelected (a no-op when the removed action
+    // isn't a stamp, but keeps the two delete paths consistent).
+    removeAction(index: number): void {
+      const cur = this.state.actions;
+      if (index < 0 || index >= cur.length) return;
+      this.pushState({
+        surface: this.state.surface,
+        actions: renumberStamps(cur.filter((_, i) => i !== index)),
+      });
+      if (this.editingActionIndex === index) this.editingActionIndex = -1;
+      this.selectedIndex = -1;
+      this.queue_draw();
+    }
+
     deleteSelected(): boolean {
       const cur = this.state.actions;
       if (this.selectedIndex < 0 || this.selectedIndex >= cur.length) return false;

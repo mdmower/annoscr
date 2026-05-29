@@ -83,6 +83,10 @@ interface TextEditorCallbacks {
     replaceIndex?: number
   ) => void;
   onCancel: (replaceIndex?: number) => void;
+  // Empty/whitespace-only text committed over an existing action (re-edit) →
+  // the user cleared the box and confirmed, so remove the action. Distinct
+  // from onCancel (Escape / abort), which keeps the original text.
+  onDelete: (replaceIndex: number) => void;
 }
 
 export interface TextEditorBeginOptions {
@@ -136,6 +140,13 @@ export class TextEditor {
   // Guard so the programmatic set_active() in syncButtonStates doesn't
   // re-enter through the buttons' 'toggled' signal.
   private updatingButtons: boolean = false;
+  // True for the duration of a buffer insert. The 'mark-set' watcher resyncs
+  // pendingTags from the cursor context, but during typing the cursor moves
+  // before the insert-applier has set the new run's tags — resyncing then
+  // would read the not-yet-tagged char and clobber the pending set. The guard
+  // suppresses resync mid-insert; explicit cursor moves (click/arrow) still
+  // resync because they don't set this flag.
+  private inserting: boolean = false;
 
   constructor(callbacks: TextEditorCallbacks) {
     this.callbacks = callbacks;
@@ -346,10 +357,14 @@ export class TextEditor {
     const rotation = this.rotation;
     const style = this.currentStyle;
     // Snapshot the actual allocated size (not the size_request) so re-edits
-    // restore the visual frame rather than a -1 "natural" placeholder.
+    // restore the visual frame rather than a -1 "natural" placeholder. Guard
+    // against a never-allocated view reporting 0: fall back to the default
+    // width / natural height so a re-edit can't restore a collapsed frame.
+    const allocW = this.view.get_width();
+    const allocH = this.view.get_height();
     const editorSize: EditorSize = {
-      width: this.view.get_width(),
-      height: this.view.get_height(),
+      width: allocW > 0 ? allocW : EDITOR_DEFAULT_WIDTH,
+      height: allocH > 0 ? allocH : -1,
     };
     this.active = false;
     this.frame.set_visible(false);
@@ -357,7 +372,10 @@ export class TextEditor {
     this.rotation = 0;
     this.currentStyle = null;
     if (plainText.trim().length === 0 || !style) {
-      this.callbacks.onCancel(replaceIndex);
+      // Cleared an existing action and confirmed → delete it; cleared a fresh
+      // placement → nothing was ever added, so just cancel.
+      if (replaceIndex !== undefined) this.callbacks.onDelete(replaceIndex);
+      else this.callbacks.onCancel(replaceIndex);
       return;
     }
     const markup = this.bufferToMarkup();
@@ -414,9 +432,15 @@ export class TextEditor {
   }
 
   private installPendingTagsApplier(): void {
+    // Mark the insert in progress before the default handler runs (and emits
+    // the cursor 'mark-set' the watcher listens for); cleared in the _after
+    // handler below once the new run is tagged.
+    this.buffer.connect('insert-text', () => {
+      this.inserting = true;
+    });
     // `insert-text` default handler does the insert and revalidates the iter
     // to point AFTER the inserted text. Connecting via _after gives us that
-    // post-insert iter so we can apply pending tags to the just-inserted range.
+    // post-insert iter so we can set the just-inserted range's tags.
     this.buffer.connect_after('insert-text', (buf, locationIter, text, _len) => {
       const endOffset = locationIter.get_offset();
       const startOffset = endOffset - [...text].length;
@@ -426,9 +450,14 @@ export class TextEditor {
       // font + color (TextBuffer's left-side tag-inheritance isn't reliable
       // at offset 0 or after explicit removals).
       buf.apply_tag(this.baseTag, start, end);
-      for (const tag of this.pendingTags) {
-        buf.apply_tag_by_name(tag, start, end);
+      // Make pendingTags authoritative for the run: apply the ones that are
+      // set and strip the others, so typed formatting always matches the B/I/U
+      // buttons regardless of the tags GTK inherits across the insertion gap.
+      for (const tag of TAG_NAMES) {
+        if (this.pendingTags.has(tag)) buf.apply_tag_by_name(tag, start, end);
+        else buf.remove_tag_by_name(tag, start, end);
       }
+      this.inserting = false;
     });
   }
 
@@ -493,10 +522,30 @@ export class TextEditor {
   private installSelectionWatcher(): void {
     this.buffer.connect('mark-set', (_buf, _iter, mark) => {
       const name = mark.get_name();
-      if (name === 'insert' || name === 'selection_bound') {
-        this.syncButtonStates();
-      }
+      if (name !== 'insert' && name !== 'selection_bound') return;
+      // Don't resync mid-insert (see the `inserting` guard) — the applier owns
+      // the typed run's tags. Cursor navigation (click/arrow) does resync so
+      // the next-typed formatting follows the insertion point.
+      if (!this.inserting) this.syncPendingToCursor();
+      this.syncButtonStates();
     });
+  }
+
+  // With no selection, align pendingTags to the formatting the user would be
+  // extending: the run to the left of the cursor (empty at the very start).
+  // Leaves pendingTags untouched while a selection exists — there the buttons
+  // reflect the selection via isTagActiveForButton, not pending.
+  private syncPendingToCursor(): void {
+    const [hasSel] = this.buffer.get_selection_bounds();
+    if (hasSel) return;
+    const insert = this.buffer.get_iter_at_mark(this.buffer.get_insert());
+    if (insert.get_offset() === 0) {
+      this.pendingTags = new Set();
+      return;
+    }
+    const prev = insert.copy();
+    prev.backward_char();
+    this.pendingTags = activeTagSet(prev);
   }
 
   private syncButtonStates(): void {
@@ -652,15 +701,24 @@ function decodeEntity(name: string): string {
       // Numeric character references (&#NN; / &#xHH;) are rare in our output
       // but worth a try; unknown entities collapse to empty.
       if (name.startsWith('#x') || name.startsWith('#X')) {
-        const code = parseInt(name.slice(2), 16);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : '';
+        return fromCodePointSafe(parseInt(name.slice(2), 16));
       }
       if (name.startsWith('#')) {
-        const code = parseInt(name.slice(1), 10);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : '';
+        return fromCodePointSafe(parseInt(name.slice(1), 10));
       }
       return '';
   }
+}
+
+// String.fromCodePoint throws RangeError outside 0…0x10FFFF (and parseInt can
+// hand us NaN), so range-check before converting; unrepresentable refs collapse
+// to empty. Our own markup never emits numeric refs, but re-edit shouldn't be
+// able to throw on hand-crafted input either.
+function fromCodePointSafe(code: number): string {
+  if (Number.isInteger(code) && code >= 0 && code <= 0x10ffff) {
+    return String.fromCodePoint(code);
+  }
+  return '';
 }
 
 function keyToTag(keyval: number): TagName | null {
