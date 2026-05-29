@@ -155,7 +155,7 @@ export class ZoomController {
       const sliderZoom = Math.pow(2, this.snapLogValue(sliderVal));
       if (Math.abs(sliderZoom - clamped) > 1e-6) {
         this.updatingZoom = true;
-        this.zoomSlider.set_value(Math.log2(clamped));
+        this.zoomSlider.set_value(this.snapLogValue(Math.log2(clamped)));
         this.updatingZoom = false;
       }
     }
