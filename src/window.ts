@@ -1584,6 +1584,7 @@ export const AnnoscrWindow = GObject.registerClass(
           this.canvas.markClean();
         } catch (e) {
           console.error('saveSurface failed', e);
+          this.showToast('Could not save image');
         }
       });
     }
@@ -1598,6 +1599,7 @@ export const AnnoscrWindow = GObject.registerClass(
         this.canvas.markClean();
       } catch (e) {
         console.error('copySurfaceToClipboard failed', e);
+        this.showToast('Could not copy image');
       }
     }
 

@@ -25,6 +25,11 @@ export const FORMATS: Record<ImageFormat, FormatInfo> = {
   },
 };
 
+// Maps a known image extension to its format. Anything that isn't .jpg/.jpeg
+// falls back to PNG, so callers must only pass paths whose extension they've
+// already confirmed is png/jpg/jpeg (the save dialog appends the default
+// format's extension to any other name before calling this). Don't rely on the
+// fallback to classify an arbitrary path.
 export function formatFromPath(path: string): ImageFormat {
   const lower = path.toLowerCase();
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'jpeg';
@@ -73,7 +78,10 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
   // path stays on the deprecated helper.
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   const pixbuf = Gdk.pixbuf_get_from_surface(opaque, 0, 0, w, h);
-  pixbuf?.savev(path, 'jpeg', ['quality'], ['90']);
+  // A null pixbuf means the read failed; throw so the caller doesn't mistake a
+  // no-op for a successful save (and wrongly mark the canvas clean).
+  if (!pixbuf) throw new Error('Failed to read surface pixels for JPEG encoding');
+  pixbuf.savev(path, 'jpeg', ['quality'], ['90']);
 }
 
 // Put pre-encoded PNG bytes on the clipboard as image/png. Pre-encoding (vs.
@@ -92,7 +100,9 @@ export function copySurfaceToClipboard(
   // deprecated helper until GJS exposes cairo_image_surface_get_data.
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   const pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, w, h);
-  if (!pixbuf) return;
+  // Throw rather than silently no-op so the caller doesn't mark the canvas
+  // clean as if the copy had succeeded.
+  if (!pixbuf) throw new Error('Failed to read surface pixels for clipboard copy');
   const texture = Gdk.Texture.new_for_pixbuf(pixbuf);
   const bytes = texture.save_to_png_bytes();
   const provider = Gdk.ContentProvider.new_for_bytes('image/png', bytes);

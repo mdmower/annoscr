@@ -6,10 +6,13 @@ import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   StampVariant,
+  TOOL_IDS,
   WIDTH_MAX,
   WIDTH_MIN,
 } from './actions.js';
 import {ImageFormat} from './exporter.js';
+
+const TOOL_ID_SET = new Set<string>(TOOL_IDS);
 
 export type ColorScheme = 'system' | 'light' | 'dark';
 
@@ -101,6 +104,9 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
   const tools: Record<string, ToolStyleEntry> = {};
   if (isRecord(v.tools)) {
     for (const [id, raw] of Object.entries(v.tools)) {
+      // Drop unknown tool ids (typos, junk, or a stale id from an old build)
+      // rather than round-tripping them back into settings.json.
+      if (!TOOL_ID_SET.has(id)) continue;
       if (!isRecord(raw)) continue;
       const entry: ToolStyleEntry = {};
       const color = asColor(raw.color);

@@ -102,17 +102,20 @@ export interface LiveStroke {
   draw(cr: Cairo.Context, scale: number): void;
 }
 
-export type ToolId =
-  | 'select'
-  | 'pen'
-  | 'highlighter'
-  | 'line'
-  | 'arrow'
-  | 'rect'
-  | 'oval'
-  | 'text'
-  | 'number'
-  | 'resize';
+export const TOOL_IDS = [
+  'select',
+  'pen',
+  'highlighter',
+  'line',
+  'arrow',
+  'rect',
+  'oval',
+  'text',
+  'number',
+  'resize',
+] as const;
+
+export type ToolId = (typeof TOOL_IDS)[number];
 
 export interface TextStyle {
   color: ColorRGBA;

@@ -53,7 +53,12 @@ export function presentPreferences(parent: Gtk.Window): void {
     active: s.rememberToolStyles,
   });
   rememberRow.connect('notify::active', () => {
-    updateSettings({rememberToolStyles: rememberRow.get_active()});
+    const active = rememberRow.get_active();
+    // Turning the setting off also forgets the already-saved styles, so toggling
+    // it back on starts fresh rather than restoring stale values.
+    updateSettings(
+      active ? {rememberToolStyles: true} : {rememberToolStyles: false, toolStyles: undefined}
+    );
   });
   tools.add(rememberRow);
   page.add(tools);
