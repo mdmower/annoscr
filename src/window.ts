@@ -373,7 +373,12 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     createBlankCanvas(w: number, h: number): void {
-      this.setImage(createBlankSurface(w, h, [1, 1, 1, 1]));
+      // Guards an unsaved canvas before replacing it. Harmless at cold startup
+      // (confirmDiscard proceeds immediately when nothing is dirty); the guard
+      // matters now that `--new` can reach an already-running instance.
+      confirmDiscard(this, 'Creating a blank canvas', this.canvas.isDirty(), () =>
+        this.setImage(createBlankSurface(w, h, [1, 1, 1, 1]))
+      );
     }
 
     private newBlankCanvas(): void {

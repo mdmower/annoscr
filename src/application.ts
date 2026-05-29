@@ -22,7 +22,7 @@ export const AnnoscrApplication = GObject.registerClass(
     constructor() {
       super({
         application_id: 'com.cmphys.Annoscr',
-        flags: Gio.ApplicationFlags.HANDLES_OPEN,
+        flags: Gio.ApplicationFlags.HANDLES_OPEN | Gio.ApplicationFlags.HANDLES_COMMAND_LINE,
       });
       this.add_main_option(
         'new',
@@ -70,7 +70,7 @@ export const AnnoscrApplication = GObject.registerClass(
       }
     }
 
-    vfunc_handle_local_options(options: GLib.VariantDict): number {
+    private applyOptions(options: GLib.VariantDict): void {
       const wv = options.lookup_value('width', GLib.VariantType.new('i'));
       const hv = options.lookup_value('height', GLib.VariantType.new('i'));
       if (options.contains('new')) {
@@ -90,12 +90,28 @@ export const AnnoscrApplication = GObject.registerClass(
           );
         }
       }
-      // NOTE: these options are processed on whichever instance runs locally.
-      // On a second invocation while one is already running, the local instance
-      // forwards a bare activate/open to the primary, so the flags are not seen
-      // there — that limitation is inherent to single-instance GApplication
-      // without HANDLES_COMMAND_LINE and is left as documented behavior.
-      return -1;
+    }
+
+    // HANDLES_COMMAND_LINE routes every CLI invocation here on the PRIMARY
+    // instance — including a second `annoscr --screenshot` fired while a window
+    // is already open. Parsing the flags here (rather than in
+    // handle_local_options, which runs on the transient local process and never
+    // touches the primary's state) is what lets them reach the running instance.
+    vfunc_command_line(cmdline: Gio.ApplicationCommandLine): number {
+      this.applyOptions(cmdline.get_options_dict());
+      // After option parsing GOptionContext leaves only positionals in argv,
+      // with argv[0] the program name. create_file_for_arg resolves each path
+      // against the invoking process's cwd, which may differ from the primary's.
+      const positionals = cmdline.get_arguments().slice(1);
+      if (positionals.length > 0) {
+        this.open(
+          positionals.map((arg) => cmdline.create_file_for_arg(arg)),
+          ''
+        );
+      } else {
+        this.activate();
+      }
+      return 0;
     }
 
     vfunc_activate(): void {
@@ -117,9 +133,10 @@ export const AnnoscrApplication = GObject.registerClass(
     }
 
     vfunc_open(files: Gio.File[], _hint: string): void {
-      // A file argument routes here instead of vfunc_activate, so any --new /
-      // --screenshot intent can't be honored — warn and drop it rather than
-      // leaving it stranded for a later activation.
+      // Reached both from the desktop "Open With" path and from command_line
+      // when positional file args are present. A file takes precedence, so any
+      // --new / --screenshot intent can't be honored — warn and drop it rather
+      // than leaving it stranded for a later activation.
       if (this.initialBlank || this.initialCapture) {
         console.warn('annoscr: --new/--screenshot are ignored when a file is opened.');
         this.initialBlank = null;
