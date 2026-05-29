@@ -12,7 +12,7 @@ import {CanvasView} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
-import {ColorRGBA, TEXT_STYLE, ToolId, defaultColorForTool, makeTextAction} from './actions.js';
+import {ColorRGBA, TEXT_STYLE, defaultColorForTool, makeTextAction} from './actions.js';
 import {TextEditor, TextEditorBeginOptions} from './text_editor.js';
 import {
   FORMATS,
@@ -29,6 +29,7 @@ import {presentShortcuts} from './shortcuts_dialog.js';
 import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
 import {StyleBar} from './style_bar.js';
 import {ZoomController} from './zoom_controller.js';
+import {ToolBar} from './tool_bar.js';
 import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
 
 export const AnnoscrWindow = GObject.registerClass(
@@ -37,8 +38,6 @@ export const AnnoscrWindow = GObject.registerClass(
     private canvas: InstanceType<typeof CanvasView>;
     private stack: Gtk.Stack;
     private editor: InstanceType<typeof TextEditor>;
-    private toolButtons: Map<ToolId, Gtk.ToggleButton> = new Map();
-    private resizeToolbar: Gtk.Box;
     // Set true just before we explicitly call close() after the user has
     // chosen Discard, so the close-request handler doesn't re-prompt.
     private skipCloseConfirm: boolean = false;
@@ -48,6 +47,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private styleBar!: StyleBar;
     // Constructed in the constructor; owns the scrolled view + bottom zoom bar.
     private zoom!: ZoomController;
+    // Constructed in the constructor; owns the tool selector + resize toolbar.
+    private toolbar!: ToolBar;
     private toastOverlay!: Adw.ToastOverlay;
 
     constructor(app: InstanceType<typeof AnnoscrApplication>) {
@@ -120,7 +121,7 @@ export const AnnoscrWindow = GObject.registerClass(
         icon_name: 'view-fullscreen-symbolic',
         tooltip_text: 'Resize canvas…',
       });
-      resizeButton.connect('clicked', () => this.toggleResizeMode());
+      resizeButton.connect('clicked', () => this.toolbar.toggleResizeMode());
       header.pack_end(resizeButton);
 
       const rotateRightBtn = new Gtk.Button({
@@ -210,14 +211,13 @@ export const AnnoscrWindow = GObject.registerClass(
       contentOverlay.add_overlay(this.editor.getWidget());
 
       this.zoom = new ZoomController(this.canvas, this.editor, contentOverlay);
+      this.toolbar = new ToolBar(this.canvas, this.editor);
 
-      this.resizeToolbar = this.buildResizeToolbar();
       const viewOverlay = new Gtk.Overlay();
       viewOverlay.set_child(this.zoom.getScrolled());
-      viewOverlay.add_overlay(this.resizeToolbar);
+      viewOverlay.add_overlay(this.toolbar.getResizeToolbar());
 
-      const toolBar = this.buildToolBar();
-      header.set_title_widget(toolBar);
+      header.set_title_widget(this.toolbar.getWidget());
 
       const empty = new Adw.StatusPage({
         icon_name: 'image-x-generic-symbolic',
@@ -429,7 +429,7 @@ export const AnnoscrWindow = GObject.registerClass(
     private setImage(surface: Cairo.ImageSurface): void {
       // Discard any in-progress text edit or resize — they belonged to the old image.
       this.editor.cancel();
-      if (this.canvas.getTool() === 'resize') this.exitResizeMode(false);
+      if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
       this.canvas.setImage(surface);
       this.stack.set_visible_child_name('canvas');
       this.saveButton.set_sensitive(true);
@@ -512,11 +512,11 @@ export const AnnoscrWindow = GObject.registerClass(
       // editor consumes these in its CAPTURE-phase controller before they
       // reach here, so we never conflict during editing.
       this.bindShortcut(controller, 'Return', () => {
-        if (this.canvas.getTool() === 'resize') this.exitResizeMode(true);
+        if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(true);
       });
       this.bindShortcut(controller, 'Escape', () => {
         if (this.canvas.getTool() === 'resize') {
-          this.exitResizeMode(false);
+          this.toolbar.exitResizeMode(false);
           return true;
         }
         // Deselect when the select tool has something picked. Returning false
@@ -525,105 +525,9 @@ export const AnnoscrWindow = GObject.registerClass(
         return false;
       });
       for (const tool of TOOLS) {
-        this.bindShortcut(controller, tool.accelerator, () => this.selectTool(tool.id));
+        this.bindShortcut(controller, tool.accelerator, () => this.toolbar.selectTool(tool.id));
       }
       this.add_controller(controller);
-    }
-
-    private buildToolBar(): Gtk.Box {
-      const box = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 0,
-        css_classes: ['linked'],
-      });
-      let group: Gtk.ToggleButton | null = null;
-      for (const tool of TOOLS) {
-        const tooltip =
-          tool.id === 'select'
-            ? `${tool.label} (${tool.accelerator.toUpperCase()})\nAlt+Click to cycle overlapping`
-            : `${tool.label} (${tool.accelerator.toUpperCase()})`;
-        const btn = new Gtk.ToggleButton({
-          icon_name: tool.icon,
-          tooltip_text: tooltip,
-          active: tool.id === this.canvas.getTool(),
-        });
-        if (group) btn.set_group(group);
-        else group = btn;
-        btn.connect('toggled', () => {
-          if (btn.get_active()) this.selectTool(tool.id);
-        });
-        this.toolButtons.set(tool.id, btn);
-        box.append(btn);
-      }
-      return box;
-    }
-
-    private selectTool(id: ToolId): void {
-      // Switching to a non-resize tool while in resize mode = "I changed my
-      // mind." Cancel any in-progress region and hide the toolbar inline
-      // (calling exitResizeMode here would recurse — it also calls back into
-      // setActiveTool).
-      if (this.canvas.getTool() === 'resize' && id !== 'resize') {
-        this.canvas.cancelResize();
-        this.resizeToolbar.set_visible(false);
-      }
-      // Commit any in-progress text edit before switching away from the text tool.
-      this.editor.commitIfActive();
-      this.setActiveTool(id);
-    }
-
-    private setActiveTool(id: ToolId): void {
-      this.canvas.setTool(id);
-      const btn = this.toolButtons.get(id);
-      if (btn && !btn.get_active()) btn.set_active(true);
-    }
-
-    private buildResizeToolbar(): Gtk.Box {
-      const box = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 6,
-        halign: Gtk.Align.CENTER,
-        valign: Gtk.Align.START,
-        margin_top: 12,
-        visible: false,
-        css_classes: ['toolbar', 'osd'],
-      });
-      const cancelBtn = new Gtk.Button({label: 'Cancel'});
-      cancelBtn.connect('clicked', () => this.exitResizeMode(false));
-      const applyBtn = new Gtk.Button({
-        label: 'Apply',
-        css_classes: ['suggested-action'],
-      });
-      applyBtn.connect('clicked', () => this.exitResizeMode(true));
-      box.append(cancelBtn);
-      box.append(applyBtn);
-      return box;
-    }
-
-    private toggleResizeMode(): void {
-      if (this.canvas.getTool() === 'resize') {
-        this.exitResizeMode(false);
-      } else {
-        this.enterResizeMode();
-      }
-    }
-
-    private enterResizeMode(): void {
-      if (!this.canvas.hasImage()) return;
-      this.editor.commitIfActive();
-      // Resize needs the whole canvas (image + orphans) visible to drag the
-      // edges; a fixed zoom would leave it cramped behind scrollbars.
-      this.canvas.setFitMode();
-      this.canvas.setTool('resize');
-      this.resizeToolbar.set_visible(true);
-    }
-
-    private exitResizeMode(apply: boolean): void {
-      if (this.canvas.getTool() !== 'resize') return;
-      if (apply) this.canvas.applyResize();
-      else this.canvas.cancelResize();
-      this.resizeToolbar.set_visible(false);
-      this.setActiveTool('select');
     }
 
     private bindShortcut(
