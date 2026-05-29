@@ -253,7 +253,7 @@ export const CanvasView = GObject.registerClass(
     private toolFontSizes: Map<ToolId, number> = new Map();
 
     // Reference-equality marker for "clean": the canvas state that matches
-    // the most recent save / copy / fresh-image-load. If the current state
+    // the most recent save or fresh-image-load. If the current state
     // is the same object, nothing has been modified since. Stays valid
     // across undo/redo because those just move the historyCursor — the
     // underlying state object in `history[i]` doesn't change.
@@ -376,16 +376,17 @@ export const CanvasView = GObject.registerClass(
       }
     }
 
-    // True when the current state has been modified since the last save,
-    // copy, or fresh image load. Undo to the clean point restores it to
-    // false (same state object).
+    // True when the current state has been modified since the last save
+    // or fresh image load. Undo to the clean point restores it to
+    // false (same state object). Copying to the clipboard does not clear
+    // it — only writing the file to disk counts as preserving the work.
     isDirty(): boolean {
       if (!this.cleanStateRef) return this.state.actions.length > 0;
       return this.state !== this.cleanStateRef;
     }
 
     // Pin the current state as the new "clean" reference. Call after a
-    // successful save or clipboard copy.
+    // successful save to disk.
     markClean(): void {
       this.cleanStateRef = this.state;
       this.notifyStateChange();

@@ -35,7 +35,7 @@ export function confirmDiscard(
   }
   const dialog = new Adw.AlertDialog({
     heading: 'Discard changes?',
-    body: `${action} will replace your current work. Save (Ctrl+S) or copy (Ctrl+C) first if you want to keep it.`,
+    body: `${action} will discard your current work. Save (Ctrl+S) first if you want to keep it.`,
   });
   dialog.add_response('cancel', 'Cancel');
   dialog.add_response('discard', 'Discard');

@@ -440,7 +440,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
         if (!file) return false;
-        confirmDiscard(this, 'Loading the dropped image', this.canvas.isDirty(), () =>
+        confirmDiscard(this, 'Opening the dropped image', this.canvas.isDirty(), () =>
           this.openFile(file)
         );
         return true;
@@ -616,7 +616,6 @@ export const AnnoscrWindow = GObject.registerClass(
       if (!surface) return;
       try {
         copySurfaceToClipboard(this.get_clipboard(), surface);
-        this.canvas.markClean();
       } catch (e) {
         console.error('copySurfaceToClipboard failed', e);
         this.showToast('Could not copy image');
