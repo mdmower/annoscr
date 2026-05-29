@@ -257,14 +257,20 @@ export const AnnoscrWindow = GObject.registerClass(
         icon_name: 'object-rotate-right-symbolic',
         tooltip_text: 'Rotate right (90°)',
       });
-      rotateRightBtn.connect('clicked', () => this.canvas.rotate('cw'));
+      rotateRightBtn.connect('clicked', () => {
+        this.editor.commitIfActive();
+        this.canvas.rotate('cw');
+      });
       header.pack_end(rotateRightBtn);
 
       const rotateLeftBtn = new Gtk.Button({
         icon_name: 'object-rotate-left-symbolic',
         tooltip_text: 'Rotate left (90°)',
       });
-      rotateLeftBtn.connect('clicked', () => this.canvas.rotate('ccw'));
+      rotateLeftBtn.connect('clicked', () => {
+        this.editor.commitIfActive();
+        this.canvas.rotate('ccw');
+      });
       header.pack_end(rotateLeftBtn);
 
       this.canvas = new CanvasView();

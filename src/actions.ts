@@ -302,11 +302,23 @@ abstract class BaseAction implements Action {
 
 // ---------- Text ----------
 
+// Shared 1×1 context for measuring Pango layouts at TextAction construction.
+// Pango metrics for an absolute-size font don't depend on the target surface,
+// so one tiny context is enough and matches what draw()/export render at any
+// scale. Created lazily on first use, after GTK is initialized.
+let measureContext: Cairo.Context | null = null;
+function getMeasureContext(): Cairo.Context {
+  if (!measureContext) {
+    measureContext = new Cairo.Context(new Cairo.ImageSurface(Cairo.Format.ARGB32, 1, 1));
+  }
+  return measureContext;
+}
+
 class TextAction extends BaseAction {
-  // Bounds depend on Pango layout measurements which need a Cairo context.
-  // We cache the bounds the first time draw() runs; getBounds before any
-  // paint returns a small fallback around the anchor point.
-  private cachedBounds: Bounds | null = null;
+  // Immutable action ⇒ immutable bounds: measured once at construction (no
+  // mutable cache, no pre-paint fallback). A withX()/translate() clone is a
+  // new instance, so its bounds are recomputed there.
+  private readonly bounds: Bounds;
 
   constructor(
     public readonly x: number,
@@ -317,19 +329,22 @@ class TextAction extends BaseAction {
     public readonly editorSize?: EditorSize
   ) {
     super();
+    const [w, h] = this.buildLayout(getMeasureContext()).get_pixel_size();
+    this.bounds = textBounds(this.x, this.y, w, h, this.rotation);
   }
 
-  draw(cr: Cairo.Context, _scale: number): void {
-    if (!this.markup) return;
+  private buildLayout(cr: Cairo.Context): Pango.Layout {
     const layout = PangoCairo.create_layout(cr);
     const desc = Pango.FontDescription.from_string(this.style.fontDesc);
     desc.set_absolute_size(this.style.size * Pango.SCALE);
     layout.set_font_description(desc);
     layout.set_markup(this.markup, -1);
+    return layout;
+  }
 
-    const [w, h] = layout.get_pixel_size();
-    this.cachedBounds = textBounds(this.x, this.y, w, h, this.rotation);
-
+  draw(cr: Cairo.Context, _scale: number): void {
+    if (!this.markup) return;
+    const layout = this.buildLayout(cr);
     const [r, g, b, a] = this.style.color;
     cr.setSourceRGBA(r, g, b, a);
     cr.save();
@@ -340,12 +355,8 @@ class TextAction extends BaseAction {
     cr.restore();
   }
 
-  getBounds(): Bounds | null {
-    if (this.cachedBounds) return this.cachedBounds;
-    // Fallback for the rare "added but never drawn" case — a tiny clickable
-    // area around the anchor so the action isn't entirely un-hittable.
-    const r = this.style.size;
-    return {x1: this.x, y1: this.y, x2: this.x + r, y2: this.y + r};
+  getBounds(): Bounds {
+    return this.bounds;
   }
 
   translate(dx: number, dy: number): Action {

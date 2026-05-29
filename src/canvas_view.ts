@@ -101,6 +101,15 @@ function pointInBounds(x: number, y: number, b: Bounds): boolean {
   return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2;
 }
 
+// Structural equality for style values (color arrays or scalar primitives).
+// Used to skip no-op edits that would otherwise push an invisible undo step.
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+}
+
 interface CanvasState {
   surface: Cairo.ImageSurface | null;
   actions: ReadonlyArray<Action>;
@@ -610,7 +619,12 @@ export const CanvasView = GObject.registerClass(
       const i = this.selectedIndex;
       const cur = this.state.actions;
       if (i < 0 || i >= cur.length) return false;
-      if (get(cur[i]) === null) return false;
+      const current = get(cur[i]);
+      if (current === null) return false;
+      // Re-picking the value the action already has would push a content-
+      // identical (new-reference) state — an undo step that does nothing
+      // visible. Treat it as applied but skip the push. See P1-03.
+      if (valuesEqual(current, value)) return true;
       const updated = apply(cur[i], value);
       this.pushState(
         {
@@ -879,6 +893,11 @@ export const CanvasView = GObject.registerClass(
     private onDragBegin(wx: number, wy: number, gesture: Gtk.GestureDrag): void {
       if (!this.state.surface) return;
       if (this.currentToolId === 'select') {
+        // A text action is mid-re-edit (hidden, live editor in its place).
+        // Suspend canvas selection until the edit commits/cancels so a press
+        // can't select+delete another action and leave editingActionIndex
+        // stale (which would later replace the wrong action). See P1-02.
+        if (this.editingActionIndex >= 0) return;
         const [ix, iy] = this.widgetToImage(wx, wy);
         const prev = this.selectedIndex;
         // If the press lands inside the already-selected action, keep it
@@ -971,7 +990,9 @@ export const CanvasView = GObject.registerClass(
 
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
-        if (this.moving && this.selectedIndex >= 0) {
+        // Skip a drag that ended back at the origin: translate(0, 0) would
+        // still push a new (content-identical) state. See P1-03.
+        if (this.moving && this.selectedIndex >= 0 && (this.moveDx !== 0 || this.moveDy !== 0)) {
           const cur = this.state.actions;
           const i = this.selectedIndex;
           const dx = this.moveDx;
