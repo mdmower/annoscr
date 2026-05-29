@@ -1177,9 +1177,9 @@ class OvalLiveStroke implements LiveStroke {
   }
 }
 
-// Transparent default fill for rect/oval — outline-only on creation,
-// matching the M14 / M15 behaviour. The user can paint a real fill via
-// the picker afterwards (or before, with the tool active).
+// Transparent default fill for rect/oval — outline-only on creation. The user
+// can paint a real fill via the picker afterwards (or before, with the tool
+// active).
 export const TRANSPARENT_FILL: ColorRGBA = [0, 0, 0, 0];
 
 export function createLiveStroke(
@@ -1216,8 +1216,8 @@ export function createLiveStroke(
 }
 
 // Default per-tool fill. rect/oval start transparent (outline-only);
-// number stamp's fill is the dominant red; resize fills with transparent
-// (matches the M11.5 behaviour). Tools without a fill return null.
+// number stamp's fill is the dominant red; resize fills with transparent.
+// Tools without a fill return null.
 export function defaultFillForTool(toolId: ToolId): ColorRGBA | null {
   switch (toolId) {
     case 'rect':

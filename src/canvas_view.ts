@@ -45,7 +45,7 @@ export interface ResizeRect {
 }
 
 // Zoom range for the fixed-zoom slider/keys. Fit mode computes its own scale
-// (capped at 1) outside this range.
+// outside this range and enlarges a small image past 1:1.
 export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 4;
 
@@ -180,8 +180,9 @@ export const CanvasView = GObject.registerClass(
     private history: CanvasState[] = [{surface: null, actions: []}];
     private historyCursor: number = 0;
 
-    // 'fit' auto-scales the image to the viewport (capped at 1:1). 'fixed'
-    // renders at exactly zoomFactor, with scrollbars when it exceeds the view.
+    // 'fit' auto-scales the image to fill the viewport, enlarging a small image
+    // past 1:1. 'fixed' renders at exactly zoomFactor, with scrollbars when it
+    // exceeds the view.
     private mode: 'fit' | 'fixed' = 'fit';
     private zoomFactor: number = 1;
 
@@ -221,8 +222,8 @@ export const CanvasView = GObject.registerClass(
     private onStateChange: (() => void) | null = null;
 
     // Per-tool current color. Drawing a new action reads from here; the color
-    // picker writes here for the active tool. Number stamp and resize have
-    // no entry (their styling isn't user-editable in M14).
+    // picker writes here for the active tool. select and resize have no
+    // editable color, so they never get an entry.
     private toolColors: Map<ToolId, ColorRGBA> = new Map();
 
     // Per-tool current stroke/outline width. Same lifetime story as
@@ -230,8 +231,8 @@ export const CanvasView = GObject.registerClass(
     // never have an entry here.
     private toolWidths: Map<ToolId, number> = new Map();
 
-    // Per-tool current fill color. Only rect, oval, number, resize have
-    // entries here; everything else has no fill in M16.
+    // Per-tool current fill color. Only rect, oval, number, and resize have an
+    // editable fill; the other tools never get an entry.
     private toolFills: Map<ToolId, ColorRGBA> = new Map();
 
     // Per-tool current dash style. Only line, arrow, rect, oval have entries
@@ -477,8 +478,8 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Current color for the given tool, falling back to the tool's static
-    // default if nothing has been set yet. Returns null for tools that have
-    // no editable color in M14 (number stamp, select, resize).
+    // default if nothing has been set yet. Returns null for select and resize,
+    // which have no editable color.
     getToolColor(toolId: ToolId): ColorRGBA | null {
       if (toolId === 'select' || toolId === 'resize') return null;
       return this.toolColors.get(toolId) ?? defaultColorForTool(toolId);
@@ -526,7 +527,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Current font description for the given tool. Returns null for tools
-    // that don't have an editable font (everything but 'text' in M17).
+    // that don't have an editable font (everything but 'text').
     getToolFontDesc(toolId: ToolId): string | null {
       const def = defaultFontDescForTool(toolId);
       if (def === null) return null;

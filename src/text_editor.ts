@@ -121,10 +121,6 @@ export class TextEditor {
   // editor is the source of truth for style during an edit so picker
   // changes flow into both the live preview and the committed action.
   private currentStyle: TextEditorStyle | null = null;
-  // Current editor frame dimensions — seeded from beginAt (action's saved
-  // size or default), updated by the corner-grip drag, and passed through
-  // onCommit so the action records it for future re-edits.
-  private currentSize: EditorSize = {width: EDITOR_DEFAULT_WIDTH, height: -1};
   // Grip drag baseline — captured on drag-begin so drag-update can apply
   // relative deltas.
   private dragStartW: number = 0;
@@ -239,7 +235,6 @@ export class TextEditor {
       const newW = Math.max(EDITOR_MIN_WIDTH, Math.round(this.dragStartW + dx));
       const newH = Math.max(EDITOR_MIN_HEIGHT, Math.round(this.dragStartH + dy));
       this.view.set_size_request(newW, newH);
-      this.currentSize = {width: newW, height: newH};
     });
 
     this.frame = new Gtk.Frame({
@@ -320,10 +315,8 @@ export class TextEditor {
     // default width for new placements. -1 height lets the view grow to
     // fit content naturally.
     if (options?.editorSize) {
-      this.currentSize = options.editorSize;
       this.view.set_size_request(options.editorSize.width, options.editorSize.height);
     } else {
-      this.currentSize = {width: EDITOR_DEFAULT_WIDTH, height: -1};
       this.view.set_size_request(EDITOR_DEFAULT_WIDTH, -1);
     }
     if (options?.markup) {
