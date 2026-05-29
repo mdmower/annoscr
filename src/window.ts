@@ -13,8 +13,6 @@ import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
 import {
-  CANVAS_SIZE_MAX,
-  CANVAS_SIZE_MIN,
   ColorRGBA,
   DEFAULT_DASH,
   DashStyle,
@@ -48,11 +46,10 @@ import {getSettings, updateSettings} from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
 import {colorToRgba, rgbaToColor} from './gdk_color.js';
+import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
 import {
   DASH_ORDER,
-  DEFAULT_PRESET_INDEX,
   IMAGE_MIME_TYPES,
-  SIZE_PRESETS,
   TOOLS,
   ZOOM_DETENTS,
   ZOOM_SCROLL_STEP,
@@ -344,23 +341,11 @@ export const AnnoscrWindow = GObject.registerClass(
       };
       add('preferences', () => presentPreferences(this));
       add('shortcuts', () => presentShortcuts(this));
-      add('about', () => this.showAbout());
+      add('about', () => showAbout(this));
       add('quit', () => this.close());
       app.set_accels_for_action('win.preferences', ['<Control>comma']);
       app.set_accels_for_action('win.shortcuts', ['<Control>question']);
       app.set_accels_for_action('win.quit', ['<Control>q']);
-    }
-
-    private showAbout(): void {
-      const about = new Adw.AboutDialog({
-        application_name: 'Annoscr',
-        application_icon: 'com.cmphys.Annoscr',
-        version: '0.1.0',
-        developer_name: 'Matt Mower',
-        license_type: Gtk.License.GPL_3_0,
-        comments: 'A lightweight screenshot annotation tool for GNOME.',
-      });
-      about.present(this);
     }
 
     private installCloseGuard(): void {
@@ -370,7 +355,7 @@ export const AnnoscrWindow = GObject.registerClass(
           this.flushSettings();
           return false;
         }
-        this.confirmDiscard('Closing the window', () => {
+        confirmDiscard(this, 'Closing the window', this.canvas.isDirty(), () => {
           this.skipCloseConfirm = true;
           this.close();
         });
@@ -925,28 +910,11 @@ export const AnnoscrWindow = GObject.registerClass(
     // Show a destructive-action confirmation if the canvas has unsaved
     // annotations. `onProceed` runs only when the user explicitly discards,
     // or immediately if the canvas is already clean.
-    private confirmDiscard(action: string, onProceed: () => void): void {
-      if (!getSettings().confirmDiscard || !this.canvas.isDirty()) {
-        onProceed();
-        return;
-      }
-      const dialog = new Adw.AlertDialog({
-        heading: 'Discard changes?',
-        body: `${action} will replace your current work. Save (Ctrl+S) or copy (Ctrl+C) first if you want to keep it.`,
-      });
-      dialog.add_response('cancel', 'Cancel');
-      dialog.add_response('discard', 'Discard');
-      dialog.set_response_appearance('discard', Adw.ResponseAppearance.DESTRUCTIVE);
-      dialog.set_default_response('cancel');
-      dialog.set_close_response('cancel');
-      dialog.connect('response', (_d, response) => {
-        if (response === 'discard') onProceed();
-      });
-      dialog.present(this);
-    }
 
     private openImageDialog(): void {
-      this.confirmDiscard('Opening a new image', () => this.openImageDialogUnchecked());
+      confirmDiscard(this, 'Opening a new image', this.canvas.isDirty(), () =>
+        this.openImageDialogUnchecked()
+      );
     }
 
     private openImageDialogUnchecked(): void {
@@ -977,129 +945,15 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private newBlankCanvas(): void {
-      this.confirmDiscard('Creating a blank canvas', () => this.showNewCanvasDialog());
-    }
-
-    private showNewCanvasDialog(): void {
-      const dialog = new Adw.AlertDialog({
-        heading: 'New blank canvas',
-        body: 'Set the canvas size and background color.',
-      });
-      dialog.add_response('cancel', 'Cancel');
-      dialog.add_response('create', 'Create');
-      dialog.set_response_appearance('create', Adw.ResponseAppearance.SUGGESTED);
-      dialog.set_default_response('create');
-      dialog.set_close_response('cancel');
-
-      const grid = new Gtk.Grid({
-        row_spacing: 8,
-        column_spacing: 12,
-      });
-
-      grid.attach(
-        new Gtk.Label({label: 'Size', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-        0,
-        0,
-        1,
-        1
+      confirmDiscard(this, 'Creating a blank canvas', this.canvas.isDirty(), () =>
+        showNewCanvasDialog(this, (surface) => this.setImage(surface))
       );
-      const presetDropdown = Gtk.DropDown.new_from_strings(SIZE_PRESETS.map((p) => p.label));
-      presetDropdown.set_hexpand(true);
-      presetDropdown.set_selected(DEFAULT_PRESET_INDEX);
-      grid.attach(presetDropdown, 1, 0, 1, 1);
-
-      grid.attach(
-        new Gtk.Label({label: 'Width', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-        0,
-        1,
-        1,
-        1
-      );
-      const widthSpin = new Gtk.SpinButton({
-        adjustment: new Gtk.Adjustment({
-          lower: CANVAS_SIZE_MIN,
-          upper: CANVAS_SIZE_MAX,
-          step_increment: 1,
-          page_increment: 100,
-        }),
-        digits: 0,
-        width_request: 100,
-      });
-      widthSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].w);
-      grid.attach(widthSpin, 1, 1, 1, 1);
-
-      grid.attach(
-        new Gtk.Label({label: 'Height', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-        0,
-        2,
-        1,
-        1
-      );
-      const heightSpin = new Gtk.SpinButton({
-        adjustment: new Gtk.Adjustment({
-          lower: CANVAS_SIZE_MIN,
-          upper: CANVAS_SIZE_MAX,
-          step_increment: 1,
-          page_increment: 100,
-        }),
-        digits: 0,
-        width_request: 100,
-      });
-      heightSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].h);
-      grid.attach(heightSpin, 1, 2, 1, 1);
-
-      grid.attach(
-        new Gtk.Label({label: 'Fill', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-        0,
-        3,
-        1,
-        1
-      );
-      const fillDialog = new Gtk.ColorDialog({with_alpha: true});
-      const fillBtn = new Gtk.ColorDialogButton({dialog: fillDialog});
-      fillBtn.set_rgba(colorToRgba([1, 1, 1, 1]));
-      grid.attach(fillBtn, 1, 3, 1, 1);
-
-      let updating = false;
-      presetDropdown.connect('notify::selected', () => {
-        if (updating) return;
-        const idx = presetDropdown.get_selected();
-        if (idx > 0 && idx < SIZE_PRESETS.length) {
-          updating = true;
-          widthSpin.set_value(SIZE_PRESETS[idx].w);
-          heightSpin.set_value(SIZE_PRESETS[idx].h);
-          updating = false;
-        }
-      });
-      const syncPreset = (): void => {
-        if (updating) return;
-        const w = Math.round(widthSpin.get_value());
-        const h = Math.round(heightSpin.get_value());
-        const match = SIZE_PRESETS.findIndex((p) => p.w === w && p.h === h);
-        updating = true;
-        presetDropdown.set_selected(match >= 0 ? match : 0);
-        updating = false;
-      };
-      widthSpin.connect('value-changed', syncPreset);
-      heightSpin.connect('value-changed', syncPreset);
-
-      dialog.set_extra_child(grid);
-
-      dialog.connect('response', (_d, response) => {
-        if (response !== 'create') return;
-        const w = Math.round(widthSpin.get_value());
-        const h = Math.round(heightSpin.get_value());
-        const fill = rgbaToColor(fillBtn.get_rgba());
-        this.setImage(createBlankSurface(w, h, fill));
-      });
-
-      dialog.present(this);
     }
 
     // Entry point for files handed in from outside (file manager "Open With",
     // command-line argument). Guards an unsaved canvas before replacing it.
     openFileChecked(file: Gio.File): void {
-      this.confirmDiscard('Opening this image', () => this.openFile(file));
+      confirmDiscard(this, 'Opening this image', this.canvas.isDirty(), () => this.openFile(file));
     }
 
     captureScreenshot(): void {
@@ -1113,7 +967,7 @@ export const AnnoscrWindow = GObject.registerClass(
             this.set_visible(true);
             this.present();
             if (uri) {
-              this.confirmDiscard('Opening the screenshot', () =>
+              confirmDiscard(this, 'Opening the screenshot', this.canvas.isDirty(), () =>
                 this.openFile(Gio.File.new_for_uri(uri))
               );
             }
@@ -1254,7 +1108,9 @@ export const AnnoscrWindow = GObject.registerClass(
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
         if (!file) return false;
-        this.confirmDiscard('Loading the dropped image', () => this.openFile(file));
+        confirmDiscard(this, 'Loading the dropped image', this.canvas.isDirty(), () =>
+          this.openFile(file)
+        );
         return true;
       });
       this.add_controller(dropTarget);
@@ -1532,7 +1388,9 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private pasteFromClipboard(): void {
-      this.confirmDiscard('Pasting a new image', () => this.pasteFromClipboardUnchecked());
+      confirmDiscard(this, 'Pasting a new image', this.canvas.isDirty(), () =>
+        this.pasteFromClipboardUnchecked()
+      );
     }
 
     private pasteFromClipboardUnchecked(): void {
