@@ -729,38 +729,48 @@ class StrokeLiveStroke implements LiveStroke {
   }
 }
 
-// ---------- Line ----------
+// ---------- Two-endpoint shapes (line / arrow / rect / oval) ----------
 
-class LineAction extends BaseAction {
+// Shared base for the four shapes defined by two endpoint/corner coordinates
+// plus a stroke Style. Subclasses supply draw() (the shape itself) and
+// rebuild() (a clone with new coords/style, threading any subclass-specific
+// state such as rect/oval fill); the AABB, translate, rotate, and the
+// color/width/dash getters+withers all live here.
+abstract class TwoEndpointAction extends BaseAction {
   constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly x2: number,
-    private readonly y2: number,
-    private readonly style: Style
+    protected readonly x1: number,
+    protected readonly y1: number,
+    protected readonly x2: number,
+    protected readonly y2: number,
+    protected readonly style: Style
   ) {
     super();
   }
 
-  draw(cr: Cairo.Context, _scale: number): void {
-    applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
-    cr.moveTo(this.x1, this.y1);
-    cr.lineTo(this.x2, this.y2);
-    cr.stroke();
+  abstract draw(cr: Cairo.Context, scale: number): void;
+
+  // Clone with new endpoints/style. Subclasses re-thread their own state
+  // (e.g. fill) so the with*/translate/rotate paths below stay state-agnostic.
+  protected abstract rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action;
+
+  // Padding around the endpoint AABB. Defaults to half the stroke width;
+  // arrow widens it to keep the arrowhead hittable.
+  protected boundsPad(): number {
+    return this.style.width / 2;
   }
 
   getBounds(): Bounds {
-    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width / 2);
+    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.boundsPad());
   }
 
   translate(dx: number, dy: number): Action {
-    return new LineAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
+    return this.rebuild(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
     const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
-    return new LineAction(nx1, ny1, nx2, ny2, this.style);
+    return this.rebuild(nx1, ny1, nx2, ny2, this.style);
   }
 
   getColor(): ColorRGBA {
@@ -768,10 +778,7 @@ class LineAction extends BaseAction {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new LineAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      color,
-    });
+    return this.rebuild(this.x1, this.y1, this.x2, this.y2, {...this.style, color});
   }
 
   getWidth(): number {
@@ -779,10 +786,7 @@ class LineAction extends BaseAction {
   }
 
   withWidth(width: number): Action {
-    return new LineAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      width,
-    });
+    return this.rebuild(this.x1, this.y1, this.x2, this.y2, {...this.style, width});
   }
 
   getDash(): DashStyle {
@@ -790,55 +794,73 @@ class LineAction extends BaseAction {
   }
 
   withDash(dash: DashStyle): Action {
-    return new LineAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      dash,
-    });
+    return this.rebuild(this.x1, this.y1, this.x2, this.y2, {...this.style, dash});
   }
 }
 
-class LineLiveStroke implements LiveStroke {
-  private endX: number;
-  private endY: number;
+// ---------- Line ----------
+
+class LineAction extends TwoEndpointAction {
+  draw(cr: Cairo.Context, _scale: number): void {
+    applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
+    cr.moveTo(this.x1, this.y1);
+    cr.lineTo(this.x2, this.y2);
+    cr.stroke();
+  }
+
+  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
+    return new LineAction(x1, y1, x2, y2, style);
+  }
+}
+
+// Shared base for the single-drag live strokes of the two-endpoint shapes.
+// build() turns the current endpoints into the finished Action; the degenerate
+// guard and the optional Shift-to-square (gated on `constrainable`) live here.
+abstract class EndpointLiveStroke implements LiveStroke {
+  protected endX: number;
+  protected endY: number;
 
   constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly style: Style
+    protected readonly x1: number,
+    protected readonly y1: number,
+    protected readonly style: Style
   ) {
     this.endX = x1;
     this.endY = y1;
   }
 
-  extendTo(x: number, y: number, _constrain: boolean): void {
-    this.endX = x;
-    this.endY = y;
+  // Whether Shift snaps the drag to a square/circle. Rect/oval opt in.
+  protected get constrainable(): boolean {
+    return false;
+  }
+
+  protected abstract build(): Action;
+
+  extendTo(x: number, y: number, constrain: boolean): void {
+    [this.endX, this.endY] =
+      constrain && this.constrainable ? constrainSquare(this.x1, this.y1, x, y) : [x, y];
   }
 
   finish(): Action | null {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return null;
-    return new LineAction(this.x1, this.y1, this.endX, this.endY, this.style);
+    return this.build();
   }
 
   draw(cr: Cairo.Context, scale: number): void {
     if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
-    new LineAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
+    this.build().draw(cr, scale);
+  }
+}
+
+class LineLiveStroke extends EndpointLiveStroke {
+  protected build(): Action {
+    return new LineAction(this.x1, this.y1, this.endX, this.endY, this.style);
   }
 }
 
 // ---------- Arrow ----------
 
-class ArrowAction extends BaseAction {
-  constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly x2: number,
-    private readonly y2: number,
-    private readonly style: Style
-  ) {
-    super();
-  }
-
+class ArrowAction extends TwoEndpointAction {
   draw(cr: Cairo.Context, _scale: number): void {
     // Shaft honours the dash style; stroke it on its own.
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
@@ -865,96 +887,34 @@ class ArrowAction extends BaseAction {
     cr.stroke();
   }
 
-  getBounds(): Bounds {
-    // Pad by the arrowhead length so the head is hittable on either end.
-    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width * 5);
+  // Pad by the arrowhead length so the head is hittable on either end.
+  protected boundsPad(): number {
+    return this.style.width * 5;
   }
 
-  translate(dx: number, dy: number): Action {
-    return new ArrowAction(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy, this.style);
-  }
-
-  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
-    const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
-    const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
-    return new ArrowAction(nx1, ny1, nx2, ny2, this.style);
-  }
-
-  getColor(): ColorRGBA {
-    return this.style.color;
-  }
-
-  withColor(color: ColorRGBA): Action {
-    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      color,
-    });
-  }
-
-  getWidth(): number {
-    return this.style.width;
-  }
-
-  withWidth(width: number): Action {
-    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      width,
-    });
-  }
-
-  getDash(): DashStyle {
-    return this.style.dash;
-  }
-
-  withDash(dash: DashStyle): Action {
-    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, {
-      ...this.style,
-      dash,
-    });
+  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
+    return new ArrowAction(x1, y1, x2, y2, style);
   }
 }
 
-class ArrowLiveStroke implements LiveStroke {
-  private endX: number;
-  private endY: number;
-
-  constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly style: Style
-  ) {
-    this.endX = x1;
-    this.endY = y1;
-  }
-
-  extendTo(x: number, y: number, _constrain: boolean): void {
-    this.endX = x;
-    this.endY = y;
-  }
-
-  finish(): Action | null {
-    if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return null;
+class ArrowLiveStroke extends EndpointLiveStroke {
+  protected build(): Action {
     return new ArrowAction(this.x1, this.y1, this.endX, this.endY, this.style);
-  }
-
-  draw(cr: Cairo.Context, scale: number): void {
-    if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
-    new ArrowAction(this.x1, this.y1, this.endX, this.endY, this.style).draw(cr, scale);
   }
 }
 
 // ---------- Rectangle ----------
 
-class RectAction extends BaseAction {
+class RectAction extends TwoEndpointAction {
   constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly x2: number,
-    private readonly y2: number,
-    private readonly style: Style,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
     private readonly fill: ColorRGBA
   ) {
-    super();
+    super(x1, y1, x2, y2, style);
   }
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -972,41 +932,8 @@ class RectAction extends BaseAction {
     cr.stroke();
   }
 
-  getBounds(): Bounds {
-    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width / 2);
-  }
-
-  translate(dx: number, dy: number): Action {
-    return new RectAction(
-      this.x1 + dx,
-      this.y1 + dy,
-      this.x2 + dx,
-      this.y2 + dy,
-      this.style,
-      this.fill
-    );
-  }
-
-  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
-    const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
-    const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
-    return new RectAction(nx1, ny1, nx2, ny2, this.style, this.fill);
-  }
-
-  getColor(): ColorRGBA {
-    return this.style.color;
-  }
-
-  withColor(color: ColorRGBA): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, {...this.style, color}, this.fill);
-  }
-
-  getWidth(): number {
-    return this.style.width;
-  }
-
-  withWidth(width: number): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, {...this.style, width}, this.fill);
+  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
+    return new RectAction(x1, y1, x2, y2, style, this.fill);
   }
 
   getFill(): ColorRGBA {
@@ -1016,57 +943,39 @@ class RectAction extends BaseAction {
   withFill(fill: ColorRGBA): Action {
     return new RectAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
   }
-
-  getDash(): DashStyle {
-    return this.style.dash;
-  }
-
-  withDash(dash: DashStyle): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, {...this.style, dash}, this.fill);
-  }
 }
 
-class RectLiveStroke implements LiveStroke {
-  private endX: number;
-  private endY: number;
-
+class RectLiveStroke extends EndpointLiveStroke {
   constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly style: Style,
+    x1: number,
+    y1: number,
+    style: Style,
     private readonly fill: ColorRGBA
   ) {
-    this.endX = x1;
-    this.endY = y1;
+    super(x1, y1, style);
   }
 
-  extendTo(x: number, y: number, constrain: boolean): void {
-    [this.endX, this.endY] = constrain ? constrainSquare(this.x1, this.y1, x, y) : [x, y];
+  protected get constrainable(): boolean {
+    return true;
   }
 
-  finish(): Action | null {
-    if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return null;
+  protected build(): Action {
     return new RectAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill);
-  }
-
-  draw(cr: Cairo.Context, scale: number): void {
-    if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
-    new RectAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill).draw(cr, scale);
   }
 }
 
 // ---------- Oval ----------
 
-class OvalAction extends BaseAction {
+class OvalAction extends TwoEndpointAction {
   constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly x2: number,
-    private readonly y2: number,
-    private readonly style: Style,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
     private readonly fill: ColorRGBA
   ) {
-    super();
+    super(x1, y1, x2, y2, style);
   }
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -1094,41 +1003,8 @@ class OvalAction extends BaseAction {
     cr.stroke();
   }
 
-  getBounds(): Bounds {
-    return endpointBounds(this.x1, this.y1, this.x2, this.y2, this.style.width / 2);
-  }
-
-  translate(dx: number, dy: number): Action {
-    return new OvalAction(
-      this.x1 + dx,
-      this.y1 + dy,
-      this.x2 + dx,
-      this.y2 + dy,
-      this.style,
-      this.fill
-    );
-  }
-
-  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
-    const [nx1, ny1] = rotatePoint(this.x1, this.y1, direction, oldW, oldH);
-    const [nx2, ny2] = rotatePoint(this.x2, this.y2, direction, oldW, oldH);
-    return new OvalAction(nx1, ny1, nx2, ny2, this.style, this.fill);
-  }
-
-  getColor(): ColorRGBA {
-    return this.style.color;
-  }
-
-  withColor(color: ColorRGBA): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {...this.style, color}, this.fill);
-  }
-
-  getWidth(): number {
-    return this.style.width;
-  }
-
-  withWidth(width: number): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {...this.style, width}, this.fill);
+  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
+    return new OvalAction(x1, y1, x2, y2, style, this.fill);
   }
 
   getFill(): ColorRGBA {
@@ -1138,42 +1014,24 @@ class OvalAction extends BaseAction {
   withFill(fill: ColorRGBA): Action {
     return new OvalAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
   }
-
-  getDash(): DashStyle {
-    return this.style.dash;
-  }
-
-  withDash(dash: DashStyle): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {...this.style, dash}, this.fill);
-  }
 }
 
-class OvalLiveStroke implements LiveStroke {
-  private endX: number;
-  private endY: number;
-
+class OvalLiveStroke extends EndpointLiveStroke {
   constructor(
-    private readonly x1: number,
-    private readonly y1: number,
-    private readonly style: Style,
+    x1: number,
+    y1: number,
+    style: Style,
     private readonly fill: ColorRGBA
   ) {
-    this.endX = x1;
-    this.endY = y1;
+    super(x1, y1, style);
   }
 
-  extendTo(x: number, y: number, constrain: boolean): void {
-    [this.endX, this.endY] = constrain ? constrainSquare(this.x1, this.y1, x, y) : [x, y];
+  protected get constrainable(): boolean {
+    return true;
   }
 
-  finish(): Action | null {
-    if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return null;
+  protected build(): Action {
     return new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill);
-  }
-
-  draw(cr: Cairo.Context, scale: number): void {
-    if (isDegenerate(this.x1, this.y1, this.endX, this.endY)) return;
-    new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill).draw(cr, scale);
   }
 }
 
