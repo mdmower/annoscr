@@ -47,89 +47,17 @@ import {
 import {getSettings, updateSettings} from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
-
-// Maps the dash dropdown's selection index to a DashStyle (and back, via
-// indexOf). Order must match the strings passed to Gtk.DropDown.new_from_strings.
-const DASH_ORDER: DashStyle[] = ['solid', 'dashed', 'dotted'];
-
-const WINDOW_CSS = `
-  .annoscr-font-size > text {
-    padding-left: 12px;
-  }
-  .annoscr-keycap {
-    min-width: 1.4em;
-    padding: 1px 6px;
-    border-radius: 6px;
-    border: 1px solid alpha(@window_fg_color, 0.25);
-    background-color: alpha(@window_fg_color, 0.08);
-    font-size: 0.85em;
-  }
-`;
-
-let windowCssInstalled = false;
-function installWindowCss(): void {
-  if (windowCssInstalled) return;
-  const display = Gdk.Display.get_default();
-  if (!display) return;
-  const provider = new Gtk.CssProvider();
-  provider.load_from_string(WINDOW_CSS);
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  Gtk.StyleContext.add_provider_for_display(
-    display,
-    provider,
-    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-  );
-  windowCssInstalled = true;
-}
-
-const IMAGE_MIME_TYPES = [
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-  'image/bmp',
-  'image/tiff',
-];
-
-interface SizePreset {
-  label: string;
-  w: number;
-  h: number;
-}
-
-const SIZE_PRESETS: SizePreset[] = [
-  {label: 'Custom', w: 0, h: 0},
-  {label: '640 \u00d7 480', w: 640, h: 480},
-  {label: '800 \u00d7 600', w: 800, h: 600},
-  {label: '1280 \u00d7 720 (HD)', w: 1280, h: 720},
-  {label: '1920 \u00d7 1080 (Full HD)', w: 1920, h: 1080},
-];
-
-const DEFAULT_PRESET_INDEX = 2;
-
-// Sticky zoom levels the slider snaps to and Ctrl+/Ctrl- step through.
-const ZOOM_DETENTS = [0.25, 0.5, 1, 2, 4];
-// Multiplicative step per Ctrl+scroll notch (exp of accumulated wheel delta).
-const ZOOM_SCROLL_STEP = 0.15;
-
-interface ToolDef {
-  id: ToolId;
-  label: string;
-  icon: string;
-  accelerator: string;
-}
-
-const TOOLS: ToolDef[] = [
-  {id: 'select', label: 'Select', icon: 'annoscr-select-symbolic', accelerator: 's'},
-  {id: 'pen', label: 'Pen', icon: 'annoscr-pen-symbolic', accelerator: 'p'},
-  {id: 'highlighter', label: 'Highlight', icon: 'annoscr-highlighter-symbolic', accelerator: 'h'},
-  {id: 'text', label: 'Text', icon: 'annoscr-text-symbolic', accelerator: 't'},
-  {id: 'number', label: 'Number', icon: 'annoscr-number-symbolic', accelerator: 'n'},
-  {id: 'line', label: 'Line', icon: 'annoscr-line-symbolic', accelerator: 'l'},
-  {id: 'arrow', label: 'Arrow', icon: 'annoscr-arrow-symbolic', accelerator: 'a'},
-  {id: 'rect', label: 'Rect', icon: 'annoscr-rect-symbolic', accelerator: 'r'},
-  {id: 'oval', label: 'Oval', icon: 'annoscr-oval-symbolic', accelerator: 'o'},
-];
+import {colorToRgba, rgbaToColor} from './gdk_color.js';
+import {
+  DASH_ORDER,
+  DEFAULT_PRESET_INDEX,
+  IMAGE_MIME_TYPES,
+  SIZE_PRESETS,
+  TOOLS,
+  ZOOM_DETENTS,
+  ZOOM_SCROLL_STEP,
+  installWindowCss,
+} from './window_constants.js';
 
 export const AnnoscrWindow = GObject.registerClass(
   {GTypeName: 'AnnoscrWindow'},
@@ -1668,16 +1596,3 @@ export const AnnoscrWindow = GObject.registerClass(
     }
   }
 );
-
-function colorToRgba(c: ColorRGBA): Gdk.RGBA {
-  const rgba = new Gdk.RGBA();
-  rgba.red = c[0];
-  rgba.green = c[1];
-  rgba.blue = c[2];
-  rgba.alpha = c[3];
-  return rgba;
-}
-
-function rgbaToColor(rgba: Gdk.RGBA): ColorRGBA {
-  return [rgba.red, rgba.green, rgba.blue, rgba.alpha];
-}
