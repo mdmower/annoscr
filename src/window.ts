@@ -8,7 +8,7 @@ import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
 import Cairo from 'cairo';
 
 import {AnnoscrApplication} from './application.js';
-import {CanvasView, ZOOM_MAX, ZOOM_MIN} from './canvas_view.js';
+import {CanvasView} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
@@ -28,33 +28,17 @@ import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
 import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
 import {StyleBar} from './style_bar.js';
-import {
-  IMAGE_MIME_TYPES,
-  TOOLS,
-  ZOOM_DETENTS,
-  ZOOM_SCROLL_STEP,
-  installWindowCss,
-} from './window_constants.js';
+import {ZoomController} from './zoom_controller.js';
+import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
 
 export const AnnoscrWindow = GObject.registerClass(
   {GTypeName: 'AnnoscrWindow'},
   class extends Adw.ApplicationWindow {
     private canvas: InstanceType<typeof CanvasView>;
     private stack: Gtk.Stack;
-    private scrolled!: Gtk.ScrolledWindow;
     private editor: InstanceType<typeof TextEditor>;
     private toolButtons: Map<ToolId, Gtk.ToggleButton> = new Map();
     private resizeToolbar: Gtk.Box;
-    // Assigned inside buildStatusBar(), which the constructor calls.
-    private statusLabel!: Gtk.Label;
-    private zoomLabel!: Gtk.Label;
-    private zoomSlider!: Gtk.Scale;
-    private zoomControls!: Gtk.Box;
-    // Guards programmatic zoom-slider updates from re-triggering the handler.
-    private updatingZoom: boolean = false;
-    // Scroll offset to apply after a zoom-driven relayout, so the anchored
-    // point stays under the cursor once the new size is allocated.
-    private pendingScroll: {h: number; v: number} | null = null;
     // Set true just before we explicitly call close() after the user has
     // chosen Discard, so the close-request handler doesn't re-prompt.
     private skipCloseConfirm: boolean = false;
@@ -62,6 +46,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private copyButton: Gtk.Button;
     // Constructed in the constructor; owns the top style-picker bar.
     private styleBar!: StyleBar;
+    // Constructed in the constructor; owns the scrolled view + bottom zoom bar.
+    private zoom!: ZoomController;
     private toastOverlay!: Adw.ToastOverlay;
 
     constructor(app: InstanceType<typeof AnnoscrApplication>) {
@@ -223,16 +209,11 @@ export const AnnoscrWindow = GObject.registerClass(
       contentOverlay.set_child(this.canvas);
       contentOverlay.add_overlay(this.editor.getWidget());
 
-      this.scrolled = new Gtk.ScrolledWindow({
-        hscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
-        vscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
-      });
-      this.scrolled.set_child(contentOverlay);
-      this.installZoomScroll();
+      this.zoom = new ZoomController(this.canvas, this.editor, contentOverlay);
 
       this.resizeToolbar = this.buildResizeToolbar();
       const viewOverlay = new Gtk.Overlay();
-      viewOverlay.set_child(this.scrolled);
+      viewOverlay.set_child(this.zoom.getScrolled());
       viewOverlay.add_overlay(this.resizeToolbar);
 
       const toolBar = this.buildToolBar();
@@ -258,20 +239,20 @@ export const AnnoscrWindow = GObject.registerClass(
       toolbar.add_top_bar(header);
       toolbar.add_top_bar(this.styleBar.getWidget());
       toolbar.set_content(this.stack);
-      toolbar.add_bottom_bar(this.buildStatusBar());
+      toolbar.add_bottom_bar(this.zoom.getStatusBar());
       this.toastOverlay = new Adw.ToastOverlay({child: toolbar});
       this.set_content(this.toastOverlay);
 
       this.canvas.setStateChangeHandler(() => {
-        this.refreshStatus();
+        this.zoom.refresh();
         this.styleBar.refresh();
       });
       this.canvas.connect('resize', () => {
-        this.refreshStatus();
-        this.applyPendingScroll();
+        this.zoom.refresh();
+        this.zoom.applyPendingScroll();
       });
       this.restoreToolStyles();
-      this.refreshStatus();
+      this.zoom.refresh();
       this.styleBar.refresh();
 
       this.installActions(app);
@@ -354,123 +335,8 @@ export const AnnoscrWindow = GObject.registerClass(
       return this.canvas.getToolFontSize('text') ?? TEXT_STYLE.size;
     }
 
-    private buildStatusBar(): Gtk.Box {
-      const box = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 6,
-        margin_start: 12,
-        margin_end: 12,
-        margin_top: 4,
-        margin_bottom: 4,
-      });
-      this.statusLabel = new Gtk.Label({
-        label: '',
-        halign: Gtk.Align.START,
-        hexpand: true,
-        css_classes: ['dim-label', 'caption'],
-      });
-      box.append(this.statusLabel);
-
-      const fitBtn = new Gtk.Button({
-        label: 'Fit',
-        tooltip_text: 'Fit to window (Ctrl+0)',
-        css_classes: ['flat'],
-      });
-      fitBtn.connect('clicked', () => this.setFit());
-      const oneBtn = new Gtk.Button({
-        label: '1:1',
-        tooltip_text: '1:1 pixel zoom (Ctrl+1)',
-        css_classes: ['flat'],
-      });
-      oneBtn.connect('clicked', () => this.zoomToCenter(1));
-      const zoomBtnBox = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 0,
-        css_classes: ['linked'],
-      });
-      zoomBtnBox.append(fitBtn);
-      zoomBtnBox.append(oneBtn);
-
-      // Log2 scale so the doubling detents (25/50/100/200/400) are evenly
-      // spaced. Slider value is log2(zoom); zoom is 2^value.
-      this.zoomSlider = new Gtk.Scale({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        adjustment: new Gtk.Adjustment({
-          lower: Math.log2(ZOOM_MIN),
-          upper: Math.log2(ZOOM_MAX),
-          step_increment: 0.05,
-          page_increment: 1,
-        }),
-        draw_value: false,
-        width_request: 225,
-        valign: Gtk.Align.CENTER,
-      });
-      for (const d of ZOOM_DETENTS) {
-        this.zoomSlider.add_mark(Math.log2(d), Gtk.PositionType.BOTTOM, null);
-      }
-      this.zoomSlider.connect('value-changed', () => this.onZoomSliderChanged());
-
-      this.zoomLabel = new Gtk.Label({
-        label: '',
-        // Pin to a fixed width. If this label resizes as the % text changes
-        // (e.g. "100%" vs "114%" render at different widths in a proportional
-        // font), the hexpand status label to its left absorbs the delta and
-        // shifts the slider ~2px under a held thumb — which crosses the snap
-        // threshold, changes the zoom, resizes the label again, and oscillates
-        // at the frame rate. width_chars=4 was too small for "100%" (wide %),
-        // so the label grew to fit content and varied; 6 leaves headroom.
-        width_chars: 6,
-        max_width_chars: 6,
-        xalign: 1,
-        css_classes: ['dim-label', 'caption'],
-      });
-
-      this.zoomControls = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 6,
-        visible: false,
-      });
-      this.zoomControls.append(zoomBtnBox);
-      this.zoomControls.append(this.zoomSlider);
-      this.zoomControls.append(this.zoomLabel);
-      box.append(this.zoomControls);
-
-      return box;
-    }
-
     private showToast(title: string): void {
       this.toastOverlay.add_toast(new Adw.Toast({title}));
-    }
-
-    private refreshStatus(): void {
-      if (!this.statusLabel) return;
-      const img = this.canvas.getImageDimensions();
-      if (!img) {
-        this.statusLabel.set_label('');
-        this.zoomControls.set_visible(false);
-        return;
-      }
-      const base = `${img.w} \u00d7 ${img.h} px`;
-      const r = this.canvas.getResizeDimensions();
-      // U+2003 EM SPACE on either side of the arrow gives breathing room
-      // without depending on Pango markup or label padding tricks.
-      this.statusLabel.set_label(r ? `${base}\u2003→\u2003${r.w} \u00d7 ${r.h} px` : base);
-      const scale = this.canvas.getZoomScale();
-      if (scale !== null) {
-        this.zoomLabel.set_label(`${Math.round(scale * 100)}%`);
-        const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
-        // Only move the thumb when it doesn't already represent this zoom
-        // (after snapping). Writing during an active drag would fight the
-        // mouse, oscillating the thumb between the raw and snapped positions.
-        const sliderVal = this.zoomSlider.get_value();
-        const sliderZoom = Math.pow(2, this.snapLogValue(sliderVal));
-        if (Math.abs(sliderZoom - clamped) > 1e-6) {
-          this.updatingZoom = true;
-          this.zoomSlider.set_value(Math.log2(clamped));
-          this.updatingZoom = false;
-        }
-      }
-      this.zoomControls.set_visible(true);
     }
 
     // Show a destructive-action confirmation if the canvas has unsaved
@@ -570,106 +436,6 @@ export const AnnoscrWindow = GObject.registerClass(
       this.copyButton.set_sensitive(true);
     }
 
-    private setFit(): void {
-      this.editor.commitIfActive();
-      this.canvas.setFitMode();
-    }
-
-    private setZoomFactor(factor: number): void {
-      this.editor.commitIfActive();
-      this.canvas.setZoom(factor);
-    }
-
-    // Set a fixed zoom while keeping the image point at (anchorX, anchorY) —
-    // widget-local coords, which equal content coords inside the viewport —
-    // pinned under the same on-screen position.
-    private zoomTo(factor: number, anchorX: number, anchorY: number): void {
-      const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, factor));
-      const hadj = this.scrolled.get_hadjustment();
-      const vadj = this.scrolled.get_vadjustment();
-      const oldScale = this.canvas.getZoomScale() ?? 1;
-      const ratio = clamped / oldScale;
-      const hVal = anchorX * ratio - (anchorX - hadj.get_value());
-      const vVal = anchorY * ratio - (anchorY - vadj.get_value());
-      this.setZoomFactor(clamped);
-      // Apply now (correct when zooming out / shrinking) and again after the
-      // relayout grows the scrollable area (needed when zooming in).
-      hadj.set_value(hVal);
-      vadj.set_value(vVal);
-      this.pendingScroll = {h: hVal, v: vVal};
-    }
-
-    // Zoom anchored on the center of the visible viewport (for keyboard/button
-    // zoom, which has no cursor position).
-    private zoomToCenter(factor: number): void {
-      const hadj = this.scrolled.get_hadjustment();
-      const vadj = this.scrolled.get_vadjustment();
-      const cx = hadj.get_value() + hadj.get_page_size() / 2;
-      const cy = vadj.get_value() + vadj.get_page_size() / 2;
-      this.zoomTo(factor, cx, cy);
-    }
-
-    // Step to the next/previous sticky detent from the current scale.
-    private zoomStepDetent(dir: 1 | -1): void {
-      const cur = this.canvas.getZoomScale() ?? 1;
-      let target: number;
-      if (dir > 0) {
-        target = ZOOM_DETENTS.find((d) => d > cur * 1.001) ?? ZOOM_MAX;
-      } else {
-        const below = ZOOM_DETENTS.filter((d) => d < cur * 0.999);
-        target = below.length > 0 ? below[below.length - 1] : ZOOM_MIN;
-      }
-      this.zoomToCenter(target);
-    }
-
-    private applyPendingScroll(): void {
-      if (!this.pendingScroll) return;
-      const {h, v} = this.pendingScroll;
-      this.pendingScroll = null;
-      this.scrolled.get_hadjustment().set_value(h);
-      this.scrolled.get_vadjustment().set_value(v);
-    }
-
-    private onZoomSliderChanged(): void {
-      if (this.updatingZoom) return;
-      // Plain zoom (no scroll anchoring): the slider fires continuously while
-      // dragging, and re-anchoring the scroll on every event yanks the view —
-      // especially as the scrollable size crosses a scrollbar boundary. Let
-      // GTK keep the scroll position; anchoring is for Ctrl+scroll and keys.
-      this.setZoomFactor(Math.pow(2, this.snapLogValue(this.zoomSlider.get_value())));
-    }
-
-    // Snap a log2 slider value to a detent when within the magnet band, so the
-    // slider feels sticky at the marks. Values outside any band pass through.
-    private snapLogValue(v: number): number {
-      for (const d of ZOOM_DETENTS) {
-        const m = Math.log2(d);
-        if (Math.abs(v - m) < 0.15) return m;
-      }
-      return v;
-    }
-
-    // Ctrl+scroll over the canvas zooms (anchored on the cursor) instead of
-    // scrolling. A CAPTURE-phase controller on the scrolled window intercepts
-    // the event before the built-in scroll handling.
-    private installZoomScroll(): void {
-      const scroll = new Gtk.EventControllerScroll();
-      scroll.set_flags(Gtk.EventControllerScrollFlags.BOTH_AXES);
-      scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
-      scroll.connect('scroll', (controller, _dx, dy) => {
-        const state = controller.get_current_event_state();
-        if ((state & Gdk.ModifierType.CONTROL_MASK) === 0) return false;
-        if (!this.canvas.hasImage()) return false;
-        const cur = this.canvas.getZoomScale() ?? 1;
-        const factor = cur * Math.exp(-dy * ZOOM_SCROLL_STEP);
-        const ptr = this.canvas.getLastPointer();
-        if (ptr) this.zoomTo(factor, ptr[0], ptr[1]);
-        else this.zoomToCenter(factor);
-        return true;
-      });
-      this.scrolled.add_controller(scroll);
-    }
-
     private installDropTarget(): void {
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
@@ -724,16 +490,16 @@ export const AnnoscrWindow = GObject.registerClass(
         return true;
       });
       this.bindShortcut(controller, '<Control>0', () => {
-        if (this.canvas.hasImage()) this.setFit();
+        if (this.canvas.hasImage()) this.zoom.setFit();
       });
       this.bindShortcut(controller, '<Control>1', () => {
-        if (this.canvas.hasImage()) this.zoomToCenter(1);
+        if (this.canvas.hasImage()) this.zoom.zoomToCenter(1);
       });
       const zoomIn = (): void => {
-        if (this.canvas.hasImage()) this.zoomStepDetent(1);
+        if (this.canvas.hasImage()) this.zoom.zoomStepDetent(1);
       };
       const zoomOut = (): void => {
-        if (this.canvas.hasImage()) this.zoomStepDetent(-1);
+        if (this.canvas.hasImage()) this.zoom.zoomStepDetent(-1);
       };
       this.bindShortcut(controller, '<Control>plus', zoomIn);
       this.bindShortcut(controller, '<Control>equal', zoomIn);
