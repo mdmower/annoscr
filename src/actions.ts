@@ -6,9 +6,16 @@ import {getDefaultTextFont} from './font_catalogue.js';
 
 export type ColorRGBA = [number, number, number, number];
 
+// Stroke dash style for the discrete-path tools (line / arrow / rect / oval).
+// 'dotted' is a short dash of length == line width (not a round dot); see
+// dashPattern + applyStrokeStyle for the rendering details.
+export type DashStyle = 'solid' | 'dashed' | 'dotted';
+export const DEFAULT_DASH: DashStyle = 'solid';
+
 interface Style {
   color: ColorRGBA;
   width: number;
+  dash: DashStyle;
 }
 
 export interface Bounds {
@@ -43,6 +50,11 @@ export interface Action {
   // alpha === 0 means "no fill" (outline-only).
   getFill(): ColorRGBA | null;
   withFill(color: ColorRGBA): Action;
+  // The action's editable stroke dash style (solid / dashed / dotted), or
+  // null for actions whose stroke doesn't carry one (pen, highlighter, text,
+  // number stamp). Only line / arrow / rect / oval carry it.
+  getDash(): DashStyle | null;
+  withDash(dash: DashStyle): Action;
   // The action's editable font family (Pango font description string), or
   // null for actions that don't carry one. Only TextAction does today.
   getFontDesc(): string | null;
@@ -143,14 +155,15 @@ function stampLabel(n: number, variant: StampVariant): string {
 const DEFAULT_COLOR: ColorRGBA = [0.85, 0.18, 0.18, 1.0];
 const DEFAULT_HIGHLIGHTER_COLOR: ColorRGBA = [1.0, 0.92, 0.1, 0.35];
 
-const PEN_STYLE: Style = {color: DEFAULT_COLOR, width: 4};
+const PEN_STYLE: Style = {color: DEFAULT_COLOR, width: 4, dash: DEFAULT_DASH};
 const HIGHLIGHTER_STYLE: Style = {
   color: DEFAULT_HIGHLIGHTER_COLOR,
   width: 18,
+  dash: DEFAULT_DASH,
 };
-const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
-const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
-const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3};
+const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
+const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
+const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 export const TEXT_STYLE: TextStyle = {
   color: DEFAULT_COLOR,
   size: 24,
@@ -265,6 +278,12 @@ abstract class BaseAction implements Action {
     return null;
   }
   withFill(_color: ColorRGBA): Action {
+    return this;
+  }
+  getDash(): DashStyle | null {
+    return null;
+  }
+  withDash(_dash: DashStyle): Action {
     return this;
   }
   getFontDesc(): string | null {
@@ -479,6 +498,8 @@ class NumberStampAction extends BaseAction {
     cr.setLineWidth(s.borderWidth);
     cr.setLineCap(Cairo.LineCap.BUTT);
     cr.setLineJoin(Cairo.LineJoin.MITER);
+    // The border is always solid; clear any dash a prior action left set.
+    cr.setDash([], 0);
     const [fgr, fgg, fgb, fga] = s.foregroundColor;
     cr.setSourceRGBA(fgr, fgg, fgb, fga);
     cr.stroke();
@@ -749,6 +770,17 @@ class LineAction extends BaseAction {
       width,
     });
   }
+
+  getDash(): DashStyle {
+    return this.style.dash;
+  }
+
+  withDash(dash: DashStyle): Action {
+    return new LineAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      dash,
+    });
+  }
 }
 
 class LineLiveStroke implements LiveStroke {
@@ -794,10 +826,16 @@ class ArrowAction extends BaseAction {
   }
 
   draw(cr: Cairo.Context, _scale: number): void {
+    // Shaft honours the dash style; stroke it on its own.
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
     cr.moveTo(this.x1, this.y1);
     cr.lineTo(this.x2, this.y2);
+    cr.stroke();
 
+    // Arrowhead is always solid — a dashed head reads as broken. Clear any
+    // dash the shaft set and restore the round cap before stroking it.
+    cr.setDash([], 0);
+    cr.setLineCap(Cairo.LineCap.ROUND);
     const angle = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
     const headLen = this.style.width * 5;
     const headAngle = Math.PI / 6;
@@ -847,6 +885,17 @@ class ArrowAction extends BaseAction {
     return new ArrowAction(this.x1, this.y1, this.x2, this.y2, {
       ...this.style,
       width,
+    });
+  }
+
+  getDash(): DashStyle {
+    return this.style.dash;
+  }
+
+  withDash(dash: DashStyle): Action {
+    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, {
+      ...this.style,
+      dash,
     });
   }
 }
@@ -952,6 +1001,14 @@ class RectAction extends BaseAction {
 
   withFill(fill: ColorRGBA): Action {
     return new RectAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
+  }
+
+  getDash(): DashStyle {
+    return this.style.dash;
+  }
+
+  withDash(dash: DashStyle): Action {
+    return new RectAction(this.x1, this.y1, this.x2, this.y2, {...this.style, dash}, this.fill);
   }
 }
 
@@ -1067,6 +1124,14 @@ class OvalAction extends BaseAction {
   withFill(fill: ColorRGBA): Action {
     return new OvalAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
   }
+
+  getDash(): DashStyle {
+    return this.style.dash;
+  }
+
+  withDash(dash: DashStyle): Action {
+    return new OvalAction(this.x1, this.y1, this.x2, this.y2, {...this.style, dash}, this.fill);
+  }
 }
 
 class OvalLiveStroke implements LiveStroke {
@@ -1109,7 +1174,8 @@ export function createLiveStroke(
   y: number,
   color: ColorRGBA,
   width: number,
-  fill: ColorRGBA
+  fill: ColorRGBA,
+  dash: DashStyle
 ): LiveStroke {
   switch (toolId) {
     case 'pen':
@@ -1117,13 +1183,13 @@ export function createLiveStroke(
     case 'highlighter':
       return new StrokeLiveStroke(x, y, {...HIGHLIGHTER_STYLE, color, width});
     case 'line':
-      return new LineLiveStroke(x, y, {...LINE_STYLE, color, width});
+      return new LineLiveStroke(x, y, {...LINE_STYLE, color, width, dash});
     case 'arrow':
-      return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width});
+      return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width, dash});
     case 'rect':
-      return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width}, fill);
+      return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width, dash}, fill);
     case 'oval':
-      return new OvalLiveStroke(x, y, {...SHAPE_STYLE, color, width}, fill);
+      return new OvalLiveStroke(x, y, {...SHAPE_STYLE, color, width, dash}, fill);
     case 'select':
     case 'text':
     case 'number':
@@ -1158,14 +1224,63 @@ export function defaultFillForTool(toolId: ToolId): ColorRGBA | null {
   }
 }
 
+// Default per-tool dash style. Only the discrete-path stroke tools carry one;
+// pen/highlighter (smooth multi-point strokes), text, number, select and
+// resize return null and the dash dropdown hides accordingly.
+export function defaultDashForTool(toolId: ToolId): DashStyle | null {
+  switch (toolId) {
+    case 'line':
+    case 'arrow':
+    case 'rect':
+    case 'oval':
+      return DEFAULT_DASH;
+    case 'pen':
+    case 'highlighter':
+    case 'text':
+    case 'number':
+    case 'select':
+    case 'resize':
+    default:
+      return null;
+  }
+}
+
 // ---------- helpers ----------
+
+// On/off dash lengths in image-space pixels, scaled to the line width so the
+// pattern stays proportional at any stroke size. 'dotted' is a short square
+// dash of length == width (rendered with butt caps, so it reads as a square
+// dot rather than a round one); 'dashed' is a longer dash with a smaller gap.
+// 'solid' returns an empty array (no dashing).
+function dashPattern(dash: DashStyle, width: number): number[] {
+  switch (dash) {
+    case 'dotted':
+      return [width, width];
+    case 'dashed':
+      return [width * 3, width * 2];
+    case 'solid':
+    default:
+      return [];
+  }
+}
 
 function applyStrokeStyle(cr: Cairo.Context, style: Style, cap: number, join: number): void {
   const [r, g, b, a] = style.color;
   cr.setSourceRGBA(r, g, b, a);
   cr.setLineWidth(style.width);
-  cr.setLineCap(cap);
   cr.setLineJoin(join);
+  // Dashed/dotted strokes force butt caps: a round cap extends each dash by
+  // width/2 per end, which closes a width-length gap and turns dots into
+  // pills. Solid strokes keep the caller's chosen cap. Always (re)set the dash
+  // array so a dashed action earlier in the stack can't leak onto this one.
+  const pattern = dashPattern(style.dash, style.width);
+  if (pattern.length > 0) {
+    cr.setLineCap(Cairo.LineCap.BUTT);
+    cr.setDash(pattern, 0);
+  } else {
+    cr.setLineCap(cap);
+    cr.setDash([], 0);
+  }
 }
 
 function isDegenerate(x1: number, y1: number, x2: number, y2: number): boolean {

@@ -16,6 +16,8 @@ import {
   CANVAS_SIZE_MAX,
   CANVAS_SIZE_MIN,
   ColorRGBA,
+  DEFAULT_DASH,
+  DashStyle,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   StampVariant,
@@ -24,6 +26,7 @@ import {
   WIDTH_MAX,
   WIDTH_MIN,
   defaultColorForTool,
+  defaultDashForTool,
   defaultFillForTool,
   defaultFontDescForTool,
   defaultFontSizeForTool,
@@ -44,6 +47,10 @@ import {
 import {getSettings, updateSettings} from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
+
+// Maps the dash dropdown's selection index to a DashStyle (and back, via
+// indexOf). Order must match the strings passed to Gtk.DropDown.new_from_strings.
+const DASH_ORDER: DashStyle[] = ['solid', 'dashed', 'dotted'];
 
 const WINDOW_CSS = `
   .annoscr-font-size > text {
@@ -157,6 +164,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private widthScale!: Gtk.Scale;
     private widthPreview!: Gtk.DrawingArea;
     private widthGroup!: Gtk.Box;
+    private dashGroup!: Gtk.Box;
+    private dashDropdown!: Gtk.DropDown;
     private variantGroup!: Gtk.Box;
     private variantDropdown!: Gtk.DropDown;
     private fontGroup!: Gtk.Box;
@@ -555,6 +564,17 @@ export const AnnoscrWindow = GObject.registerClass(
       );
       this.styleBar.append(this.widthGroup);
 
+      // Dash group — selector index maps to DashStyle via DASH_ORDER below.
+      const dashSep = makeSep();
+      this.dashDropdown = Gtk.DropDown.new_from_strings(['Solid', 'Dashed', 'Dotted']);
+      this.dashDropdown.connect('notify::selected', () => this.onDashPicked());
+      this.dashGroup = makeGroup(
+        dashSep,
+        new Gtk.Label({label: 'Line', css_classes: ['caption']}),
+        this.dashDropdown
+      );
+      this.styleBar.append(this.dashGroup);
+
       // Variant group
       const variantSep = makeSep();
       this.variantDropdown = Gtk.DropDown.new_from_strings(['Number', 'Letter']);
@@ -595,6 +615,7 @@ export const AnnoscrWindow = GObject.registerClass(
         {group: this.colorGroup, sep: colorSep},
         {group: this.fillGroup, sep: fillSep},
         {group: this.widthGroup, sep: widthSep},
+        {group: this.dashGroup, sep: dashSep},
         {group: this.variantGroup, sep: variantSep},
         {group: this.fontGroup, sep: fontSep},
       ];
@@ -633,6 +654,10 @@ export const AnnoscrWindow = GObject.registerClass(
       const width = this.styleTargetWidth();
       this.widthGroup.set_visible(width !== null);
       if (width !== null) this.widthScale.set_value(width);
+
+      const dash = this.styleTargetDash();
+      this.dashGroup.set_visible(dash !== null);
+      if (dash !== null) this.dashDropdown.set_selected(Math.max(0, DASH_ORDER.indexOf(dash)));
 
       const tool = this.canvas.getTool();
       this.variantGroup.set_visible(tool === 'number');
@@ -766,6 +791,15 @@ export const AnnoscrWindow = GObject.registerClass(
       return this.canvas.getToolFill(tool);
     }
 
+    private styleTargetDash(): DashStyle | null {
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        const sel = this.canvas.getSelectedAction();
+        return sel ? sel.getDash() : null;
+      }
+      return this.canvas.getToolDash(tool);
+    }
+
     private onFillPicked(): void {
       if (this.updatingPicker || !this.fillButton) return;
       const fill = rgbaToColor(this.fillButton.get_rgba());
@@ -778,6 +812,19 @@ export const AnnoscrWindow = GObject.registerClass(
         this.canvas.setToolFill(tool, fill);
       }
       this.widthPreview.queue_draw();
+    }
+
+    private onDashPicked(): void {
+      if (this.updatingPicker || !this.dashDropdown) return;
+      const dash = DASH_ORDER[this.dashDropdown.get_selected()] ?? DEFAULT_DASH;
+      const tool = this.canvas.getTool();
+      if (tool === 'select') {
+        // Same select-edit shape as the other pickers; coalesce-by-key keeps a
+        // rapid re-pick to one history entry (see pushState in canvas_view.ts).
+        this.canvas.replaceSelectedDash(dash);
+      } else if (defaultDashForTool(tool) !== null) {
+        this.canvas.setToolDash(tool, dash);
+      }
     }
 
     private onColorPicked(): void {

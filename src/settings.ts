@@ -2,6 +2,7 @@ import GLib from 'gi://GLib?version=2.0';
 
 import {
   ColorRGBA,
+  DashStyle,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   StampVariant,
@@ -19,6 +20,7 @@ export interface ToolStyleEntry {
   color?: ColorRGBA;
   width?: number;
   fill?: ColorRGBA;
+  dash?: DashStyle;
   fontDesc?: string;
   fontSize?: number;
 }
@@ -107,6 +109,9 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
       if (width !== undefined) entry.width = width;
       const fill = asColor(raw.fill);
       if (fill) entry.fill = fill;
+      if (raw.dash === 'solid' || raw.dash === 'dashed' || raw.dash === 'dotted') {
+        entry.dash = raw.dash;
+      }
       if (typeof raw.fontDesc === 'string') entry.fontDesc = raw.fontDesc;
       const fontSize = asClampedNumber(raw.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
       if (fontSize !== undefined) entry.fontSize = fontSize;

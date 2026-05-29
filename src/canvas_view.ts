@@ -10,6 +10,8 @@ import {
   Action,
   Bounds,
   ColorRGBA,
+  DashStyle,
+  DEFAULT_DASH,
   DEFAULT_STAMP_VARIANT,
   LiveStroke,
   StampVariant,
@@ -17,6 +19,7 @@ import {
   TRANSPARENT_FILL,
   createLiveStroke,
   defaultColorForTool,
+  defaultDashForTool,
   defaultFillForTool,
   defaultFontDescForTool,
   defaultFontSizeForTool,
@@ -221,6 +224,10 @@ export const CanvasView = GObject.registerClass(
     // Per-tool current fill color. Only rect, oval, number, resize have
     // entries here; everything else has no fill in M16.
     private toolFills: Map<ToolId, ColorRGBA> = new Map();
+
+    // Per-tool current dash style. Only line, arrow, rect, oval have entries
+    // here; everything else has no editable dash (returns null).
+    private toolDashes: Map<ToolId, DashStyle> = new Map();
 
     // Variant applied to newly-placed number stamps. The Variant dropdown
     // both updates this (so subsequent placements inherit) and rewrites
@@ -478,6 +485,18 @@ export const CanvasView = GObject.registerClass(
       this.toolFills.set(toolId, fill);
     }
 
+    // Current dash style for the given tool. Returns null for tools without an
+    // editable dash (pen, highlighter, text, number, select, resize).
+    getToolDash(toolId: ToolId): DashStyle | null {
+      const def = defaultDashForTool(toolId);
+      if (def === null) return null;
+      return this.toolDashes.get(toolId) ?? def;
+    }
+
+    setToolDash(toolId: ToolId, dash: DashStyle): void {
+      this.toolDashes.set(toolId, dash);
+    }
+
     // Current font description for the given tool. Returns null for tools
     // that don't have an editable font (everything but 'text' in M17).
     getToolFontDesc(toolId: ToolId): string | null {
@@ -532,6 +551,7 @@ export const CanvasView = GObject.registerClass(
       for (const [id, c] of this.toolColors) ensure(id).color = c;
       for (const [id, w] of this.toolWidths) ensure(id).width = w;
       for (const [id, f] of this.toolFills) ensure(id).fill = f;
+      for (const [id, d] of this.toolDashes) ensure(id).dash = d;
       for (const [id, f] of this.toolFontDescs) ensure(id).fontDesc = f;
       for (const [id, s] of this.toolFontSizes) ensure(id).fontSize = s;
       const snap: ToolStylesSnapshot = {tools};
@@ -549,6 +569,7 @@ export const CanvasView = GObject.registerClass(
         if (e.color) this.toolColors.set(toolId, e.color);
         if (e.width !== undefined) this.toolWidths.set(toolId, e.width);
         if (e.fill) this.toolFills.set(toolId, e.fill);
+        if (e.dash) this.toolDashes.set(toolId, e.dash);
         if (e.fontDesc) this.toolFontDescs.set(toolId, e.fontDesc);
         if (e.fontSize !== undefined) this.toolFontSizes.set(toolId, e.fontSize);
       }
@@ -626,6 +647,15 @@ export const CanvasView = GObject.registerClass(
         (a, v) => a.withFill(v),
         fill,
         'fill'
+      );
+    }
+
+    replaceSelectedDash(dash: DashStyle): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getDash(),
+        (a, v) => a.withDash(v),
+        dash,
+        'dash'
       );
     }
 
@@ -894,7 +924,8 @@ export const CanvasView = GObject.registerClass(
       const width =
         this.getToolWidth(this.currentToolId) ?? defaultWidthForTool(this.currentToolId) ?? 1;
       const fill = this.getToolFill(this.currentToolId) ?? TRANSPARENT_FILL;
-      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color, width, fill);
+      const dash = this.getToolDash(this.currentToolId) ?? DEFAULT_DASH;
+      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color, width, fill, dash);
       this.queue_draw();
     }
 
