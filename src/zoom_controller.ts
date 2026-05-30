@@ -84,8 +84,11 @@ export class ZoomController {
     zoomBtnBox.append(fitBtn);
     zoomBtnBox.append(oneBtn);
 
-    // Log2 scale so the doubling detents (25/50/100/200/400) are evenly
-    // spaced. Slider value is log2(zoom); zoom is 2^value.
+    // Log2 scale so equal slider travel doubles or halves the zoom and the
+    // keyboard detents (25/50/100/200/400) sit at even intervals. Slider value
+    // is log2(zoom); zoom is 2^value. No marks: GtkScale's mark feature also
+    // snaps the value to them (baked in before we can intercept it), so the
+    // slider stays free/continuous — exact stops come from Ctrl+/Ctrl- and 1:1.
     this.zoomSlider = new Gtk.Scale({
       orientation: Gtk.Orientation.HORIZONTAL,
       adjustment: new Gtk.Adjustment({
@@ -97,10 +100,8 @@ export class ZoomController {
       draw_value: false,
       width_request: 225,
       valign: Gtk.Align.CENTER,
+      tooltip_text: 'Drag to zoom\nHold Shift to fine-tune',
     });
-    for (const d of ZOOM_DETENTS) {
-      this.zoomSlider.add_mark(Math.log2(d), Gtk.PositionType.BOTTOM, null);
-    }
     this.zoomSlider.connect('value-changed', () => this.onZoomSliderChanged());
 
     this.zoomLabel = new Gtk.Label({
@@ -108,10 +109,10 @@ export class ZoomController {
       // Pin to a fixed width. If this label resizes as the % text changes
       // (e.g. "100%" vs "114%" render at different widths in a proportional
       // font), the hexpand status label to its left absorbs the delta and
-      // shifts the slider ~2px under a held thumb — which crosses the snap
-      // threshold, changes the zoom, resizes the label again, and oscillates
-      // at the frame rate. width_chars=4 was too small for "100%" (wide %),
-      // so the label grew to fit content and varied; 6 leaves headroom.
+      // shifts the slider ~2px under a held thumb — which changes the zoom,
+      // resizes the label again, and oscillates at the frame rate. width_chars=4
+      // was too small for "100%" (wide %), so the label grew to fit content and
+      // varied; 6 leaves headroom.
       width_chars: 6,
       max_width_chars: 6,
       xalign: 1,
@@ -148,14 +149,13 @@ export class ZoomController {
     if (scale !== null) {
       this.zoomLabel.set_label(`${Math.round(scale * 100)}%`);
       const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
-      // Only move the thumb when it doesn't already represent this zoom
-      // (after snapping). Writing during an active drag would fight the
-      // mouse, oscillating the thumb between the raw and snapped positions.
-      const sliderVal = this.zoomSlider.get_value();
-      const sliderZoom = Math.pow(2, this.snapLogValue(sliderVal));
+      // Only move the thumb when it doesn't already represent this zoom.
+      // Writing during an active drag would fight the mouse, oscillating the
+      // thumb against the pointer.
+      const sliderZoom = Math.pow(2, this.zoomSlider.get_value());
       if (Math.abs(sliderZoom - clamped) > 1e-6) {
         this.updatingZoom = true;
-        this.zoomSlider.set_value(this.snapLogValue(Math.log2(clamped)));
+        this.zoomSlider.set_value(Math.log2(clamped));
         this.updatingZoom = false;
       }
     }
@@ -201,7 +201,7 @@ export class ZoomController {
     this.zoomTo(factor, cx, cy);
   }
 
-  // Step to the next/previous sticky detent from the current scale.
+  // Step to the next/previous detent zoom from the current scale (Ctrl+/Ctrl-).
   zoomStepDetent(dir: 1 | -1): void {
     const cur = this.canvas.getZoomScale() ?? 1;
     let target: number;
@@ -228,17 +228,7 @@ export class ZoomController {
     // dragging, and re-anchoring the scroll on every event yanks the view —
     // especially as the scrollable size crosses a scrollbar boundary. Let
     // GTK keep the scroll position; anchoring is for Ctrl+scroll and keys.
-    this.setZoomFactor(Math.pow(2, this.snapLogValue(this.zoomSlider.get_value())));
-  }
-
-  // Snap a log2 slider value to a detent when within the magnet band, so the
-  // slider feels sticky at the marks. Values outside any band pass through.
-  private snapLogValue(v: number): number {
-    for (const d of ZOOM_DETENTS) {
-      const m = Math.log2(d);
-      if (Math.abs(v - m) < 0.15) return m;
-    }
-    return v;
+    this.setZoomFactor(Math.pow(2, this.zoomSlider.get_value()));
   }
 
   // Ctrl+scroll over the canvas zooms (anchored on the cursor) instead of
