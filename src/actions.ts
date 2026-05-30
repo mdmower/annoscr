@@ -27,6 +27,20 @@ export interface Bounds {
 
 export type RotateDirection = 'cw' | 'ccw';
 
+// Handle ids for per-action resize (select tool). Box handles — corners (tl/tr/
+// bl/br) and edge midpoints (t/b/l/r) — cover rect/oval/number-stamp; endpoint
+// handles (p1/p2) cover line/arrow. M30's free-rotate will add its own gizmo on
+// the same grab/preview scaffolding rather than extending this set.
+export type HandleId = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2';
+
+// A single resize handle in image space, ready for the canvas to draw and
+// hit-test.
+export interface ResizeHandle {
+  id: HandleId;
+  x: number;
+  y: number;
+}
+
 export interface Action {
   draw(cr: Cairo.Context, scale: number): void;
   getBounds(): Bounds | null;
@@ -63,6 +77,16 @@ export interface Action {
   // actions that don't carry one. Only TextAction does today.
   getFontSize(): number | null;
   withFontSize(size: number): Action;
+  // Per-action resize handles, in image space, for the select tool to draw and
+  // hit-test — or null for actions that aren't directly resizable (pen,
+  // highlighter, text). Box shapes return 8 handles, line/arrow 2 endpoints,
+  // the number stamp 4 corners.
+  getResizeHandles(): ResizeHandle[] | null;
+  // A new action with `handle` dragged to (ix, iy). `constrain` squares a
+  // corner drag for rect/oval; endpoints (line/arrow) ignore it and the number
+  // stamp is always square. A handle this action doesn't expose returns it
+  // unchanged.
+  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -259,6 +283,10 @@ export const CANVAS_SIZE_MAX = 8192;
 
 const SHAPE_MIN_EXTENT = 2;
 
+// Smallest radius a number stamp can be resized to, so a corner drag can't
+// collapse it to a dot.
+const STAMP_MIN_RADIUS = 4;
+
 abstract class BaseAction implements Action {
   abstract draw(cr: Cairo.Context, scale: number): void;
   abstract getBounds(): Bounds | null;
@@ -299,6 +327,12 @@ abstract class BaseAction implements Action {
     return null;
   }
   withFontSize(_size: number): Action {
+    return this;
+  }
+  getResizeHandles(): ResizeHandle[] | null {
+    return null;
+  }
+  resizeByHandle(_handle: HandleId, _ix: number, _iy: number, _constrain: boolean): Action {
     return this;
   }
 }
@@ -641,6 +675,72 @@ class NumberStampAction extends BaseAction {
       this.style
     );
   }
+
+  // Four corner handles at the circle's bounding square (radius from center).
+  // The stamp is always square, so there are no edge handles to resize one
+  // axis.
+  getResizeHandles(): ResizeHandle[] {
+    const r = this.style.radius;
+    return [
+      {id: 'tl', x: this.x - r, y: this.y - r},
+      {id: 'tr', x: this.x + r, y: this.y - r},
+      {id: 'bl', x: this.x - r, y: this.y + r},
+      {id: 'br', x: this.x + r, y: this.y + r},
+    ];
+  }
+
+  // Resize from a corner with the opposite corner anchored, staying square: the
+  // dragged corner is squared against the anchor, the new radius is half that
+  // side (clamped), and the center shifts to the midpoint so the anchor stays
+  // put. The border width and digit size scale with the radius so the stamp
+  // stays visually proportional at any size. `constrain` is ignored — the stamp
+  // is square either way.
+  resizeByHandle(handle: HandleId, ix: number, iy: number, _constrain: boolean): Action {
+    const r = this.style.radius;
+    let ax: number, ay: number;
+    switch (handle) {
+      case 'br':
+        ax = this.x - r;
+        ay = this.y - r;
+        break;
+      case 'tl':
+        ax = this.x + r;
+        ay = this.y + r;
+        break;
+      case 'tr':
+        ax = this.x - r;
+        ay = this.y + r;
+        break;
+      case 'bl':
+        ax = this.x + r;
+        ay = this.y - r;
+        break;
+      default:
+        return this; // edge / endpoint handles don't apply to a stamp
+    }
+    const [sx, sy] = constrainSquare(ax, ay, ix, iy);
+    const half = Math.max(STAMP_MIN_RADIUS, Math.abs(sx - ax) / 2);
+    const sgnX = Math.sign(sx - ax) || 1;
+    const sgnY = Math.sign(sy - ay) || 1;
+    // Scale border + digit by the same factor as the radius so a bigger circle
+    // gets a proportionally thicker border and larger number (not a thin border
+    // and tiny digit on a huge disc).
+    const k = half / r;
+    return new NumberStampAction(
+      ax + sgnX * half,
+      ay + sgnY * half,
+      this.n,
+      this.groupId,
+      this.variant,
+      this.rotation,
+      {
+        ...this.style,
+        radius: half,
+        borderWidth: this.style.borderWidth * k,
+        fontSize: this.style.fontSize * k,
+      }
+    );
+  }
 }
 
 export function makeNumberStampAction(
@@ -870,6 +970,22 @@ abstract class TwoEndpointAction extends BaseAction {
   withDash(dash: DashStyle): Action {
     return this.rebuild(this.x1, this.y1, this.x2, this.y2, {...this.style, dash});
   }
+
+  // Default per-action resize for the two-endpoint shapes: a handle at each
+  // endpoint, dragged freely (constrain is ignored — lines/arrows don't snap).
+  // Rect/Oval override both with box handles.
+  getResizeHandles(): ResizeHandle[] {
+    return [
+      {id: 'p1', x: this.x1, y: this.y1},
+      {id: 'p2', x: this.x2, y: this.y2},
+    ];
+  }
+
+  resizeByHandle(handle: HandleId, ix: number, iy: number, _constrain: boolean): Action {
+    if (handle === 'p1') return this.rebuild(ix, iy, this.x2, this.y2, this.style);
+    if (handle === 'p2') return this.rebuild(this.x1, this.y1, ix, iy, this.style);
+    return this;
+  }
 }
 
 // ---------- Line ----------
@@ -1039,6 +1155,24 @@ class RectAction extends TwoEndpointAction {
   withFill(fill: ColorRGBA): Action {
     return new RectAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
   }
+
+  getResizeHandles(): ResizeHandle[] {
+    return boxResizeHandles(this.x1, this.y1, this.x2, this.y2);
+  }
+
+  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
+    const [x1, y1, x2, y2] = resizeBox(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      handle,
+      ix,
+      iy,
+      constrain
+    );
+    return this.rebuild(x1, y1, x2, y2, this.style);
+  }
 }
 
 class RectLiveStroke extends EndpointLiveStroke {
@@ -1109,6 +1243,24 @@ class OvalAction extends TwoEndpointAction {
 
   withFill(fill: ColorRGBA): Action {
     return new OvalAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
+  }
+
+  getResizeHandles(): ResizeHandle[] {
+    return boxResizeHandles(this.x1, this.y1, this.x2, this.y2);
+  }
+
+  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
+    const [x1, y1, x2, y2] = resizeBox(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      handle,
+      ix,
+      iy,
+      constrain
+    );
+    return this.rebuild(x1, y1, x2, y2, this.style);
   }
 }
 
@@ -1275,6 +1427,104 @@ function constrainSquare(x1: number, y1: number, x2: number, y2: number): [numbe
   const sx = Math.sign(dx) || 1;
   const sy = Math.sign(dy) || 1;
   return [x1 + sx * size, y1 + sy * size];
+}
+
+// The 8 box handles (4 corners + 4 edge midpoints) of the normalized rectangle
+// spanning (x1,y1)-(x2,y2), in image space. Corners lead so a corner wins over
+// an overlapping edge band when the canvas hit-tests in order.
+function boxResizeHandles(x1: number, y1: number, x2: number, y2: number): ResizeHandle[] {
+  const minX = Math.min(x1, x2);
+  const maxX = Math.max(x1, x2);
+  const minY = Math.min(y1, y2);
+  const maxY = Math.max(y1, y2);
+  const mx = (minX + maxX) / 2;
+  const my = (minY + maxY) / 2;
+  return [
+    {id: 'tl', x: minX, y: minY},
+    {id: 'tr', x: maxX, y: minY},
+    {id: 'bl', x: minX, y: maxY},
+    {id: 'br', x: maxX, y: maxY},
+    {id: 't', x: mx, y: minY},
+    {id: 'b', x: mx, y: maxY},
+    {id: 'l', x: minX, y: my},
+    {id: 'r', x: maxX, y: my},
+  ];
+}
+
+// Resize the normalized box (x1,y1)-(x2,y2) by dragging `handle` to (ix, iy),
+// returning the new normalized box. The opposite edge/corner stays anchored;
+// every moved edge is clamped to SHAPE_MIN_EXTENT from its anchor so the box
+// can't collapse or invert. With `constrain` (Shift) the result is squared: a
+// corner squares against its anchor, while a side matches the perpendicular
+// dimension to the dragged one, centered on the box's midpoint. Mirrors the
+// canvas Resize tool's applyResizeGrab edge logic.
+// eslint-disable-next-line complexity
+function resizeBox(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  handle: HandleId,
+  ix: number,
+  iy: number,
+  constrain: boolean
+): [number, number, number, number] {
+  let minX = Math.min(x1, x2);
+  let maxX = Math.max(x1, x2);
+  let minY = Math.min(y1, y2);
+  let maxY = Math.max(y1, y2);
+
+  const movedLeft = handle === 'l' || handle === 'tl' || handle === 'bl';
+  const movedRight = handle === 'r' || handle === 'tr' || handle === 'br';
+  const movedTop = handle === 't' || handle === 'tl' || handle === 'tr';
+  const movedBottom = handle === 'b' || handle === 'bl' || handle === 'br';
+  const movedX = movedLeft || movedRight;
+  const movedY = movedTop || movedBottom;
+
+  if (constrain && movedX && movedY) {
+    // Corner + Shift → square against the anchored (opposite) corner, assigning
+    // the squared corner to whichever two edges this handle drives.
+    const ax = movedLeft ? maxX : minX;
+    const ay = movedTop ? maxY : minY;
+    const [sx, sy] = constrainSquare(ax, ay, ix, iy);
+    if (movedLeft) minX = sx;
+    else maxX = sx;
+    if (movedTop) minY = sy;
+    else maxY = sy;
+  } else {
+    if (movedLeft) minX = ix;
+    if (movedRight) maxX = ix;
+    if (movedTop) minY = iy;
+    if (movedBottom) maxY = iy;
+  }
+
+  // Clamp each moved edge against its fixed opposite so the box keeps at least
+  // SHAPE_MIN_EXTENT and never inverts. A handle never moves both x edges (or
+  // both y edges), so these are independent.
+  if (movedLeft) minX = Math.min(minX, maxX - SHAPE_MIN_EXTENT);
+  if (movedRight) maxX = Math.max(maxX, minX + SHAPE_MIN_EXTENT);
+  if (movedTop) minY = Math.min(minY, maxY - SHAPE_MIN_EXTENT);
+  if (movedBottom) maxY = Math.max(maxY, minY + SHAPE_MIN_EXTENT);
+
+  // Side + Shift → match the perpendicular dimension to the (clamped) dragged
+  // one, centered on the box's current midpoint, so a single-axis drag still
+  // yields a square/circle. `movedX !== movedY` is true only for a side (a
+  // corner moves both axes and is handled above).
+  if (constrain && movedX !== movedY) {
+    if (movedX) {
+      const w = maxX - minX;
+      const cy = (minY + maxY) / 2;
+      minY = cy - w / 2;
+      maxY = cy + w / 2;
+    } else {
+      const h = maxY - minY;
+      const cx = (minX + maxX) / 2;
+      minX = cx - h / 2;
+      maxX = cx + h / 2;
+    }
+  }
+
+  return [minX, minY, maxX, maxY];
 }
 
 // Connects each adjacent pair of points with a quadratic that passes through

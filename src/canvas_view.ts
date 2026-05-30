@@ -11,6 +11,7 @@ import {
   Bounds,
   ColorRGBA,
   DashStyle,
+  HandleId,
   DEFAULT_DASH,
   DEFAULT_STAMP_VARIANT,
   LiveStroke,
@@ -180,6 +181,14 @@ function cursorForResizeGrab(grab: ResizeGrab): string {
   }
 }
 
+// Cursor for a per-action resize handle. Box handles reuse the directional
+// resize cursors (the ids overlap the resize tool's); endpoints aren't
+// directional (free drag), so they get a crosshair for precise placement.
+function cursorForHandle(id: HandleId): string {
+  if (id === 'p1' || id === 'p2') return 'crosshair';
+  return cursorForResizeGrab(id);
+}
+
 export const CanvasView = GObject.registerClass(
   {GTypeName: 'CanvasView'},
   class extends Gtk.DrawingArea {
@@ -245,6 +254,15 @@ export const CanvasView = GObject.registerClass(
     // Tracks which edges/corners of the resize region the active drag is
     // grabbing. null when not currently dragging in resize mode.
     private resizeGrab: ResizeGrab | null = null;
+
+    // Per-action resize (select tool, single selection). `actionGrab` is the
+    // handle the active drag is moving; `resizePreview` is the reshaped action
+    // shown live during the drag (committed in one history entry at drag-end).
+    // Both null when no per-action resize is in progress. Distinct from the
+    // resize-tool fields above, which reshape the whole canvas. This grab/
+    // preview scaffolding is what M30's free-rotate will reuse.
+    private actionGrab: HandleId | null = null;
+    private resizePreview: Action | null = null;
 
     private onTextEditRequest: TextEditRequest | null = null;
     private onStateChange: (() => void) | null = null;
@@ -375,6 +393,8 @@ export const CanvasView = GObject.registerClass(
       this.resetHoverDig();
       this.resizeRegion = null;
       this.resizeGrab = null;
+      this.actionGrab = null;
+      this.resizePreview = null;
     }
 
     // Clear the dig/aim state so a stale candidate doesn't linger across tool
@@ -513,6 +533,8 @@ export const CanvasView = GObject.registerClass(
         this.resizeRegion = null;
       }
       this.resizeGrab = null;
+      this.actionGrab = null;
+      this.resizePreview = null;
       this.set_cursor_from_name(cursorForTool(toolId));
       this.queue_draw();
       this.notifyStateChange();
@@ -1177,10 +1199,14 @@ export const CanvasView = GObject.registerClass(
       // Select tool: track which action the next click will hit (the hover
       // candidate) so it can be outlined and dug into with Alt+scroll.
       if (this.currentToolId === 'select' && this.state.surface) {
+        if (this.actionGrab) return; // mid-resize — keep the grab cursor.
         const [ix, iy] = this.widgetToImage(wx, wy);
         const prev = this.hoverCandidate;
         this.resolveCandidate(ix, iy);
         if (this.hoverCandidate !== prev) this.queue_draw();
+        // A resize handle of the lone selection advertises itself before the
+        // drag; everywhere else falls back to the default arrow.
+        this.set_cursor_from_name(this.handleCursorAt(ix, iy));
         return;
       }
       if (this.currentToolId !== 'resize' || !this.state.surface) return;
@@ -1319,6 +1345,12 @@ export const CanvasView = GObject.registerClass(
         // can't select+delete another action and leave editingActionIndex
         // stale (which would later replace the wrong action). See P1-02.
         if (this.editingActionIndex >= 0) return;
+        // A handle of the lone selected action takes priority over move /
+        // reselection, so a corner/endpoint drag reshapes instead of moving.
+        if (this.tryBeginActionResize(wx, wy)) {
+          this.queue_draw();
+          return;
+        }
         this.onSelectPress(wx, wy, gesture);
         return;
       }
@@ -1353,6 +1385,22 @@ export const CanvasView = GObject.registerClass(
 
     private onDragUpdate(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
+        // Per-action resize: reshape the lone selected action live from the
+        // grabbed handle. Shift squares a corner (rect/oval); endpoints ignore
+        // it. Takes precedence over the move path below.
+        if (this.actionGrab) {
+          const i = this.soleSelectedIndex();
+          if (i < 0) return;
+          const [ix, iy] = this.widgetToImage(wx, wy);
+          this.resizePreview = this.state.actions[i].resizeByHandle(
+            this.actionGrab,
+            ix,
+            iy,
+            constrain
+          );
+          this.queue_draw();
+          return;
+        }
         // A Shift-click toggle never moves; nothing to drag with no selection.
         if (this.shiftToggleDrag || this.selectedIndices.size === 0) return;
         const t = this.currentTransform();
@@ -1394,6 +1442,24 @@ export const CanvasView = GObject.registerClass(
 
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
+        // Per-action resize: commit the reshaped action in one history entry.
+        // A null preview (a click on a handle without a drag) or a drag that
+        // returned to the original geometry pushes nothing.
+        if (this.actionGrab) {
+          const i = this.soleSelectedIndex();
+          const preview = this.resizePreview;
+          this.actionGrab = null;
+          this.resizePreview = null;
+          if (i >= 0 && preview && !this.actionHandlesEqual(preview, this.state.actions[i])) {
+            const cur = this.state.actions;
+            this.pushState({
+              surface: this.state.surface,
+              actions: cur.map((a, j) => (j === i ? preview : a)),
+            });
+          }
+          this.queue_draw();
+          return;
+        }
         // A Shift-click toggle gesture only adjusts membership — no move push.
         if (this.shiftToggleDrag) {
           this.shiftToggleDrag = false;
@@ -1517,6 +1583,80 @@ export const CanvasView = GObject.registerClass(
         if (bounds && pointInBounds(ix, iy, bounds)) hits.push(i);
       }
       return hits;
+    }
+
+    // The single selected action's index when exactly one is selected (and
+    // valid), else -1. Per-action resize handles only show for a lone
+    // selection — a multi-selection still moves/restyles as a group, but
+    // reshaping needs one unambiguous target (M30's rotate gizmo will gate the
+    // same way). The set's sole member, read without spreading.
+    private soleSelectedIndex(): number {
+      if (this.selectedIndices.size !== 1) return -1;
+      const i = this.selectedIndices.values().next().value ?? -1;
+      return i >= 0 && i < this.state.actions.length ? i : -1;
+    }
+
+    // The id of the resize handle of `action` within `tol` (image-space px) of
+    // (ix, iy), or null. Square hit region matching the drawn handles; the
+    // handle list leads with corners so a corner wins over an overlapping edge.
+    private hitTestActionHandle(
+      action: Action,
+      ix: number,
+      iy: number,
+      tol: number
+    ): HandleId | null {
+      const handles = action.getResizeHandles();
+      if (!handles) return null;
+      for (const h of handles) {
+        if (Math.abs(ix - h.x) <= tol && Math.abs(iy - h.y) <= tol) return h.id;
+      }
+      return null;
+    }
+
+    // Whether two actions have identical resize-handle positions — i.e. the
+    // same geometry. Used to skip a resize drag that ended where it started
+    // (or a click on a handle without a drag), which would otherwise push a
+    // content-identical, do-nothing undo step. Handle positions encode the full
+    // geometry of every resizable type (box corners/edges, line endpoints,
+    // stamp center+radius). See P1-03.
+    private actionHandlesEqual(a: Action, b: Action): boolean {
+      const ha = a.getResizeHandles();
+      const hb = b.getResizeHandles();
+      if (!ha || !hb || ha.length !== hb.length) return false;
+      return ha.every((h, k) => h.id === hb[k].id && h.x === hb[k].x && h.y === hb[k].y);
+    }
+
+    // Cursor name for hovering (ix, iy) in select mode: a directional/endpoint
+    // resize cursor when over a handle of the lone selection, else 'default'.
+    private handleCursorAt(ix: number, iy: number): string {
+      const i = this.soleSelectedIndex();
+      if (i < 0) return 'default';
+      const action = this.state.actions[i];
+      if (!action.getResizeHandles()) return 'default';
+      const tol = HANDLE_HIT_PX / this.currentTransform().scale;
+      const handle = this.hitTestActionHandle(action, ix, iy, tol);
+      return handle ? cursorForHandle(handle) : 'default';
+    }
+
+    // Begin a per-action resize if the press lands on a handle of the lone
+    // selected action. Returns true when it grabs (the caller then skips the
+    // normal select/move path). Handles take priority over move + reselection,
+    // so a corner drag reshapes rather than moves. Non-resizable selections
+    // (text/pen/highlighter return null handles) never grab.
+    private tryBeginActionResize(wx: number, wy: number): boolean {
+      const i = this.soleSelectedIndex();
+      if (i < 0) return false;
+      const action = this.state.actions[i];
+      if (!action.getResizeHandles()) return false;
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      const tol = HANDLE_HIT_PX / this.currentTransform().scale;
+      const handle = this.hitTestActionHandle(action, ix, iy, tol);
+      if (!handle) return false;
+      this.actionGrab = handle;
+      this.resizePreview = null; // set on first drag-update; null = no movement yet
+      this.moving = false;
+      this.shiftToggleDrag = false;
+      return true;
     }
 
     // Topmost selected action whose bounds contain (ix, iy), or -1 if the
@@ -1648,11 +1788,33 @@ export const CanvasView = GObject.registerClass(
       if (this.selectedIndices.size === 0) return;
       const ox = this.moving ? this.moveDx : 0;
       const oy = this.moving ? this.moveDy : 0;
+      const sole = this.soleSelectedIndex();
       for (const i of this.selectedIndices) {
         if (i < 0 || i >= acts.length || i === this.editingActionIndex) continue;
+        // Mid-resize: frame the live preview's bounds (no move offset — a resize
+        // and a move can't happen in the same gesture).
+        if (this.actionGrab && this.resizePreview && i === sole) {
+          const b = this.resizePreview.getBounds();
+          if (b) drawSelectionBox(cr, b, scale, 0, 0);
+          continue;
+        }
         const bounds = acts[i].getBounds();
         if (bounds) drawSelectionBox(cr, bounds, scale, ox, oy);
       }
+    }
+
+    // Resize handles for the lone selected action (when resizable). Drawn at the
+    // live preview's positions mid-resize so they track the drag. Hidden during
+    // a move (clutter) and while a text re-edit is open.
+    private drawResizeHandles(cr: Cairo.Context, scale: number): void {
+      if (this.moving) return;
+      const i = this.soleSelectedIndex();
+      if (i < 0 || i === this.editingActionIndex) return;
+      const action =
+        this.actionGrab && this.resizePreview ? this.resizePreview : this.state.actions[i];
+      const handles = action.getResizeHandles();
+      if (!handles) return;
+      for (const h of handles) drawResizeHandle(cr, h.x, h.y, scale);
     }
 
     // The hover candidate — the action the next click acts on — outlined in
@@ -1665,7 +1827,7 @@ export const CanvasView = GObject.registerClass(
       acts: ReadonlyArray<Action>,
       scale: number
     ): void {
-      if (this.currentToolId !== 'select' || this.moving) return;
+      if (this.currentToolId !== 'select' || this.moving || this.actionGrab) return;
       const i = this.hoverCandidate;
       if (i < 0 || i >= acts.length || i === this.editingActionIndex) return;
       if (this.selectedIndices.size === 1 && this.selectedIndices.has(i)) return;
@@ -1750,9 +1912,13 @@ export const CanvasView = GObject.registerClass(
       cr.paint();
 
       const acts = this.state.actions;
+      const sole = this.soleSelectedIndex();
       for (let i = 0; i < acts.length; i++) {
         if (i === this.editingActionIndex) continue;
-        if (this.moving && this.selectedIndices.has(i)) {
+        if (this.actionGrab && this.resizePreview && i === sole) {
+          // Mid-resize: render the reshaped preview in the stored action's place.
+          this.resizePreview.draw(cr, t.scale);
+        } else if (this.moving && this.selectedIndices.has(i)) {
           cr.save();
           cr.translate(this.moveDx, this.moveDy);
           acts[i].draw(cr, t.scale);
@@ -1764,6 +1930,7 @@ export const CanvasView = GObject.registerClass(
       if (this.liveStroke) this.liveStroke.draw(cr, t.scale);
 
       this.drawSelectionBoxes(cr, acts, t.scale);
+      this.drawResizeHandles(cr, t.scale);
       this.drawHoverCandidate(cr, acts, t.scale);
       this.drawGroupBadges(cr, acts, t.scale);
 
@@ -1842,6 +2009,24 @@ function drawSelectionBox(
     bounds.x2 - bounds.x1 + 2 * pad,
     bounds.y2 - bounds.y1 + 2 * pad
   );
+  cr.stroke();
+  cr.restore();
+}
+
+// A per-action resize handle: a small white square with a blue border (same
+// blue as the selection box), centered on (x, y). Sized in widget pixels via
+// 1/scale so it's a constant on-screen size at any zoom, and matched to
+// HANDLE_HIT_PX so the visible square is also the hit target.
+function drawResizeHandle(cr: Cairo.Context, x: number, y: number, scale: number): void {
+  const half = HANDLE_HIT_PX / 2 / scale;
+  cr.save();
+  cr.setDash([], 0);
+  cr.setLineJoin(Cairo.LineJoin.MITER);
+  cr.rectangle(x - half, y - half, 2 * half, 2 * half);
+  cr.setSourceRGBA(1, 1, 1, 1);
+  cr.fillPreserve();
+  cr.setSourceRGBA(0.0, 0.5, 1.0, 0.95);
+  cr.setLineWidth(1 / scale);
   cr.stroke();
   cr.restore();
 }

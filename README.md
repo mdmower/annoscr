@@ -9,7 +9,7 @@ Annoscr is a reimplementation of a subset of [Gradia](https://github.com/Alexand
 **Annotation tools:** Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, Number stamp (icon toolbar with tooltips)
 **Transforms:** Rotation, Resize (crop / canvas expansion)
 **I/O:** Open file, capture a screenshot via the desktop portal, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
-**Editing:** Per-tool color, fill, stroke width, line style (solid/dashed/dotted), font family, font size; select one or several annotations (Shift+Click) to move, delete, duplicate (Ctrl+D), or restyle them together; undo/redo; discard confirmation
+**Editing:** Per-tool color, fill, stroke width, line style (solid/dashed/dotted), font family, font size; select one or several annotations (Shift+Click) to move, delete, duplicate (Ctrl+D), or restyle them together; resize a single selected line, arrow, rectangle, oval, or number stamp by dragging its handles (Shift squares a rect/oval corner or side); undo/redo; discard confirmation
 **Number stamps:** per-group numbering with a Number/Letter variant per group; pick or reassign groups from the style bar, start a new group with Ctrl+G, and selecting a stamp badges the rest of its group on-canvas
 **View:** Fit-to-window and 1:1, plus a continuous 25%-400% zoom slider with scrollbars (Shift-drag to fine-tune); Ctrl+scroll to zoom at the cursor; Ctrl+/Ctrl- step the 25/50/100/200/400% detents; Ctrl+0 / Ctrl+1 shortcuts
 **App:** Primary menu with Preferences, a Keyboard shortcuts reference, and About
