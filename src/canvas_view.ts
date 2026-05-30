@@ -127,6 +127,11 @@ const SCROLL_DIG_STEP = 1;
 // zoomed out — same convention as Photoshop / GIMP.
 const CHECKER_CELL = 8;
 
+// Diagonal nudge applied to cloned actions, in widget pixels — converted to
+// image space through the current scale so the offset looks the same at any
+// zoom. South-of-east (down-right), enough to read as a distinct copy.
+const CLONE_OFFSET_PX = 16;
+
 let CHECKER_PATTERN: Cairo.SurfacePattern | null = null;
 function getCheckerPattern(): Cairo.SurfacePattern {
   if (CHECKER_PATTERN) return CHECKER_PATTERN;
@@ -864,6 +869,36 @@ export const CanvasView = GObject.registerClass(
         actions: survivors,
       });
       this.selectedIndices.clear();
+      this.queue_draw();
+      return true;
+    }
+
+    // Duplicate every selected action, nudged diagonally down-right, and leave
+    // the clones selected — so clone-then-drag works and a repeated clone steps
+    // further away. The same offset is applied to each, so a multi-selection
+    // keeps its relative layout. Renumbers stamps so a cloned stamp takes the
+    // next number (the gap-free 1..N invariant deleteSelected also maintains).
+    // One history entry.
+    cloneSelected(): boolean {
+      const cur = this.state.actions;
+      if (this.selectedIndices.size === 0) return false;
+      // Document order so appended clones (and any stamp renumbering) follow the
+      // visual stacking rather than selection-insertion order.
+      const indices = [...this.selectedIndices]
+        .sort((a, b) => a - b)
+        .filter((i) => i >= 0 && i < cur.length);
+      if (indices.length === 0) return false;
+      const scale = this.currentTransform().scale;
+      const off = Math.max(1, Math.round(CLONE_OFFSET_PX / scale));
+      const clones = indices.map((i) => cur[i].translate(off, off));
+      // Select the clones (the trailing entries) before pushState so the state-
+      // change notification refreshes the style bar against the new selection.
+      this.selectedIndices.clear();
+      for (let k = 0; k < clones.length; k++) this.selectedIndices.add(cur.length + k);
+      this.pushState({
+        surface: this.state.surface,
+        actions: renumberStamps([...cur, ...clones]),
+      });
       this.queue_draw();
       return true;
     }

@@ -90,6 +90,9 @@ export class StyleBar {
   private dashDropdown!: Gtk.DropDown;
   private variantGroup!: Gtk.Box;
   private variantDropdown!: Gtk.DropDown;
+  // Select-mode action (not a style picker): duplicates the current selection.
+  // Visible only when the select tool has something selected.
+  private duplicateGroup!: Gtk.Box;
   private fontGroup!: Gtk.Box;
   private fontLabel!: Gtk.Label;
   private fontDropdown!: Gtk.DropDown;
@@ -140,6 +143,19 @@ export class StyleBar {
       for (const c of children) g.append(c);
       return g;
     };
+
+    // Duplicate group — a select-mode action, not a style picker. Leads the
+    // bar so it sits left of the per-property controls. Ctrl+D is the keyboard
+    // equivalent (window.ts).
+    const duplicateSep = makeSep();
+    const duplicateBtn = new Gtk.Button({
+      icon_name: 'edit-copy-symbolic',
+      tooltip_text: 'Duplicate selection (Ctrl+D)',
+      valign: Gtk.Align.CENTER,
+    });
+    duplicateBtn.connect('clicked', () => this.canvas.cloneSelected());
+    this.duplicateGroup = makeGroup(duplicateSep, duplicateBtn);
+    styleBar.append(this.duplicateGroup);
 
     // Color group
     const colorSep = makeSep();
@@ -234,6 +250,7 @@ export class StyleBar {
     styleBar.append(this.fontGroup);
 
     this.styleGroupOrder = [
+      {group: this.duplicateGroup, sep: duplicateSep},
       {group: this.colorGroup, sep: colorSep},
       {group: this.fillGroup, sep: fillSep},
       {group: this.widthGroup, sep: widthSep},
@@ -306,6 +323,14 @@ export class StyleBar {
   refresh(): void {
     if (!this.colorGroup) return;
     this.updatingPicker = true;
+
+    // Duplicate is a select-mode action on the current selection — show it only
+    // when the select tool has something picked (and not during a text edit).
+    this.duplicateGroup.set_visible(
+      this.canvas.getTool() === 'select' &&
+        !this.editor.isActive() &&
+        this.canvas.getSelectedActions().length > 0
+    );
 
     const color = this.styleTargetColor();
     this.colorGroup.set_visible(color !== null);

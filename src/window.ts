@@ -513,6 +513,12 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>KP_Subtract', zoomOut);
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
+      // Duplicate the selection. Guarded so the chord falls through when nothing
+      // is selected (or the editor is open) rather than swallowing the event.
+      this.bindShortcut(controller, '<Control>d', () => {
+        if (this.editor.isActive()) return false;
+        return this.canvas.cloneSelected();
+      });
       // Shift+Space toggles the aimed item in/out of the selection — the
       // keyboard twin of Shift+Click. Shift avoids bare Space activating a
       // focused tool button; the editor captures it while typing.
