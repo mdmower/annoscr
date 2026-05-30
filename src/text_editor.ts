@@ -92,7 +92,7 @@ interface TextEditorCallbacks {
 export interface TextEditorBeginOptions {
   markup?: string;
   replaceIndex?: number;
-  rotation?: number; // 0..3 quarter-turns CW (carried through commit unchanged)
+  rotation?: number; // free angle in radians, CW (carried through commit unchanged)
   // Restore the editor frame to the dimensions it had when this action was
   // last committed. Undefined → use EDITOR_DEFAULT_WIDTH × natural height.
   editorSize?: EditorSize;

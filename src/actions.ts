@@ -41,6 +41,18 @@ export interface ResizeHandle {
   y: number;
 }
 
+// The selection box of a rotatable action: a rectangle centered at (cx, cy)
+// with half-extents (halfW, halfH), rotated by `angle` radians. Text returns a
+// tilted box; the number stamp returns an upright square (angle 0) around its
+// circle. Drives the oriented selection box and the rotate gizmo's anchor.
+export interface OrientedBounds {
+  cx: number;
+  cy: number;
+  halfW: number;
+  halfH: number;
+  angle: number;
+}
+
 export interface Action {
   draw(cr: Cairo.Context, scale: number): void;
   getBounds(): Bounds | null;
@@ -87,6 +99,19 @@ export interface Action {
   // stamp is always square. A handle this action doesn't expose returns it
   // unchanged.
   resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action;
+  // The free-rotation angle (radians, CW, pivot = center), or null for actions
+  // that don't rotate freely (only text + number stamp do). Drives the rotate
+  // gizmo's direction.
+  getRotation(): number | null;
+  withRotation(rotation: number): Action;
+  // The oriented selection box (rotated rectangle), or null for actions that
+  // use the plain axis-aligned `getBounds()` box. Only the freely-rotatable
+  // types return one.
+  getOrientedBounds(): OrientedBounds | null;
+  // Whether (ix, iy) is inside the action for hit-testing. Defaults to the AABB
+  // (`getBounds()`); rotated text overrides it with a precise rotated-rect test
+  // so its loose bounding box doesn't grab clicks far from the tilted text.
+  containsPoint(ix: number, iy: number): boolean;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -101,21 +126,41 @@ function rotatePoint(
   return direction === 'cw' ? [oldH - y, x] : [y, oldW - x];
 }
 
-// 90° AABB of a rotated text run anchored at (x, y) with original layout
-// dimensions w × h and `rotation` quarter-turns CW (0..3).
+// Normalize a free-rotation angle (radians) to [0, 2π) so stored angles stay
+// bounded under repeated rotation and compare equal for no-op detection.
+function normalizeAngle(a: number): number {
+  const twoPi = 2 * Math.PI;
+  return ((a % twoPi) + twoPi) % twoPi;
+}
+
+// AABB of a text run whose unrotated layout rect is [x, y, x+w, y+h], rotated
+// by `rotation` radians about its center. Rotate the four corners and take the
+// min/max — works for any angle (rotation 0 returns the plain rect).
 function textBounds(x: number, y: number, w: number, h: number, rotation: number): Bounds {
-  switch (((rotation % 4) + 4) % 4) {
-    case 0:
-      return {x1: x, y1: y, x2: x + w, y2: y + h};
-    case 1:
-      return {x1: x - h, y1: y, x2: x, y2: y + w};
-    case 2:
-      return {x1: x - w, y1: y - h, x2: x, y2: y};
-    case 3:
-      return {x1: x, y1: y - w, x2: x + h, y2: y};
-    default:
-      return {x1: x, y1: y, x2: x, y2: y};
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const [px, py] of [
+    [x, y],
+    [x + w, y],
+    [x + w, y + h],
+    [x, y + h],
+  ]) {
+    const dx = px - cx;
+    const dy = py - cy;
+    const rx = cx + dx * cos - dy * sin;
+    const ry = cy + dx * sin + dy * cos;
+    if (rx < minX) minX = rx;
+    if (rx > maxX) maxX = rx;
+    if (ry < minY) minY = ry;
+    if (ry > maxY) maxY = ry;
   }
+  return {x1: minX, y1: minY, x2: maxX, y2: maxY};
 }
 
 export interface LiveStroke {
@@ -335,6 +380,19 @@ abstract class BaseAction implements Action {
   resizeByHandle(_handle: HandleId, _ix: number, _iy: number, _constrain: boolean): Action {
     return this;
   }
+  getRotation(): number | null {
+    return null;
+  }
+  withRotation(_rotation: number): Action {
+    return this;
+  }
+  getOrientedBounds(): OrientedBounds | null {
+    return null;
+  }
+  containsPoint(ix: number, iy: number): boolean {
+    const b = this.getBounds();
+    return b !== null && ix >= b.x1 && ix <= b.x2 && iy >= b.y1 && iy <= b.y2;
+  }
 }
 
 // ---------- Text ----------
@@ -354,19 +412,25 @@ function getMeasureContext(): Cairo.Context {
 class TextAction extends BaseAction {
   // Immutable action ⇒ immutable bounds: measured once at construction (no
   // mutable cache, no pre-paint fallback). A withX()/translate() clone is a
-  // new instance, so its bounds are recomputed there.
+  // new instance, so its bounds are recomputed there. The unrotated layout
+  // size (w, h) is kept too — draw, bounds, the oriented box, and the precise
+  // hit-test all need it, and it's free here since we measure for bounds anyway.
   private readonly bounds: Bounds;
+  private readonly w: number;
+  private readonly h: number;
 
   constructor(
     public readonly x: number,
     public readonly y: number,
     public readonly markup: string,
-    public readonly rotation: number, // 0..3 quarter-turns CW
+    public readonly rotation: number, // free angle in radians, CW, pivot = center
     private readonly style: TextStyle,
     public readonly editorSize?: EditorSize
   ) {
     super();
     const [w, h] = this.buildLayout(getMeasureContext()).get_pixel_size();
+    this.w = w;
+    this.h = h;
     this.bounds = textBounds(this.x, this.y, w, h, this.rotation);
   }
 
@@ -385,8 +449,11 @@ class TextAction extends BaseAction {
     const [r, g, b, a] = this.style.color;
     cr.setSourceRGBA(r, g, b, a);
     cr.save();
-    cr.translate(this.x, this.y);
-    if (this.rotation !== 0) cr.rotate((this.rotation * Math.PI) / 2);
+    // Rotate about the layout's center so the text spins in place, then draw
+    // from the (unrotated) top-left in that rotated frame.
+    cr.translate(this.x + this.w / 2, this.y + this.h / 2);
+    if (this.rotation !== 0) cr.rotate(this.rotation);
+    cr.translate(-this.w / 2, -this.h / 2);
     cr.moveTo(0, 0);
     PangoCairo.show_layout(cr, layout);
     cr.restore();
@@ -408,16 +475,60 @@ class TextAction extends BaseAction {
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
-    const [nx, ny] = rotatePoint(this.x, this.y, direction, oldW, oldH);
-    const dr = direction === 'cw' ? 1 : 3;
+    // Map the layout center through the 90° image rotation, then re-anchor the
+    // (unchanged-size) layout around the new center and add ±90° of spin.
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const [ncx, ncy] = rotatePoint(cx, cy, direction, oldW, oldH);
+    const dr = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
     return new TextAction(
-      nx,
-      ny,
+      ncx - this.w / 2,
+      ncy - this.h / 2,
       this.markup,
-      (this.rotation + dr) % 4,
+      normalizeAngle(this.rotation + dr),
       this.style,
       this.editorSize
     );
+  }
+
+  getRotation(): number {
+    return this.rotation;
+  }
+
+  withRotation(rotation: number): Action {
+    return new TextAction(
+      this.x,
+      this.y,
+      this.markup,
+      normalizeAngle(rotation),
+      this.style,
+      this.editorSize
+    );
+  }
+
+  getOrientedBounds(): OrientedBounds {
+    return {
+      cx: this.x + this.w / 2,
+      cy: this.y + this.h / 2,
+      halfW: this.w / 2,
+      halfH: this.h / 2,
+      angle: this.rotation,
+    };
+  }
+
+  // Precise hit-test against the actual rotated rectangle (not the loose AABB):
+  // map the point into the layout's local, unrotated frame and test the rect.
+  containsPoint(ix: number, iy: number): boolean {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const dx = ix - cx;
+    const dy = iy - cy;
+    const cos = Math.cos(this.rotation);
+    const sin = Math.sin(this.rotation);
+    // Inverse rotation (−angle): rotate the offset back to the upright frame.
+    const lx = dx * cos + dy * sin;
+    const ly = -dx * sin + dy * cos;
+    return Math.abs(lx) <= this.w / 2 && Math.abs(ly) <= this.h / 2;
   }
 
   getColor(): ColorRGBA {
@@ -489,7 +600,7 @@ export function makeTextAction(
     x,
     y,
     markup,
-    ((rotation % 4) + 4) % 4,
+    normalizeAngle(rotation),
     {
       ...TEXT_STYLE,
       color,
@@ -530,7 +641,7 @@ class NumberStampAction extends BaseAction {
     // pinned to the same group across relabels.
     public readonly groupId: number,
     public readonly variant: StampVariant,
-    public readonly rotation: number, // 0..3 quarter-turns CW (affects the digit only)
+    public readonly rotation: number, // free angle in radians, CW (affects the digit only)
     public readonly style: NumberStampStyle
   ) {
     super();
@@ -568,7 +679,7 @@ class NumberStampAction extends BaseAction {
     cr.setSourceRGBA(fgr, fgg, fgb, fga);
     cr.save();
     cr.translate(this.x, this.y);
-    if (this.rotation !== 0) cr.rotate((this.rotation * Math.PI) / 2);
+    if (this.rotation !== 0) cr.rotate(this.rotation);
     cr.moveTo(-textW / 2, -textH / 2);
     PangoCairo.show_layout(cr, layout);
     cr.restore();
@@ -599,14 +710,14 @@ class NumberStampAction extends BaseAction {
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const [nx, ny] = rotatePoint(this.x, this.y, direction, oldW, oldH);
-    const dr = direction === 'cw' ? 1 : 3;
+    const dr = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
     return new NumberStampAction(
       nx,
       ny,
       this.n,
       this.groupId,
       this.variant,
-      (this.rotation + dr) % 4,
+      normalizeAngle(this.rotation + dr),
       this.style
     );
   }
@@ -674,6 +785,30 @@ class NumberStampAction extends BaseAction {
       this.rotation,
       this.style
     );
+  }
+
+  getRotation(): number {
+    return this.rotation;
+  }
+
+  withRotation(rotation: number): Action {
+    return new NumberStampAction(
+      this.x,
+      this.y,
+      this.n,
+      this.groupId,
+      this.variant,
+      normalizeAngle(rotation),
+      this.style
+    );
+  }
+
+  // Upright square (angle 0) around the circle — the box itself doesn't tilt
+  // (a circle is rotation-invariant), but the gizmo reads the digit's angle
+  // from getRotation() so it still tracks the rotation.
+  getOrientedBounds(): OrientedBounds {
+    const half = this.style.radius + this.style.borderWidth / 2;
+    return {cx: this.x, cy: this.y, halfW: half, halfH: half, angle: 0};
   }
 
   // Four corner handles at the circle's bounding square (radius from center).
@@ -752,7 +887,7 @@ export function makeNumberStampAction(
   rotation: number = 0,
   style: NumberStampStyle = NUMBER_STAMP_STYLE
 ): Action {
-  return new NumberStampAction(x, y, n, groupId, variant, ((rotation % 4) + 4) % 4, style);
+  return new NumberStampAction(x, y, n, groupId, variant, normalizeAngle(rotation), style);
 }
 
 export function isNumberStampAction(action: Action): boolean {
@@ -1117,24 +1252,57 @@ class ArrowLiveStroke extends EndpointLiveStroke {
 
 // ---------- Rectangle ----------
 
-class RectAction extends TwoEndpointAction {
+// Shared base for the two filled, freely-rotatable box shapes (rect / oval).
+// Stored (x1,y1,x2,y2) is the UNROTATED box; it's drawn rotated by `rotation`
+// radians about its center. All the rotation, fill, oriented-bounds, hit-test,
+// and oriented-resize logic lives here; subclasses supply only their outline
+// path (buildPath) and a constructor (make). Resize handles + the rotate gizmo
+// coexist: handles ride the rotated box, resize works in the box's local frame.
+abstract class RotatableBoxAction extends TwoEndpointAction {
   constructor(
     x1: number,
     y1: number,
     x2: number,
     y2: number,
     style: Style,
-    private readonly fill: ColorRGBA
+    protected readonly fill: ColorRGBA,
+    protected readonly rotation: number
   ) {
     super(x1, y1, x2, y2, style);
   }
 
+  // Build the outline path centered at the origin in the local frame, spanning
+  // ±halfW × ±halfH. The base sets up the translate/rotate and the fill/stroke.
+  protected abstract buildPath(cr: Cairo.Context, halfW: number, halfH: number): void;
+
+  // Construct a new instance of the concrete type with all state.
+  protected abstract make(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    fill: ColorRGBA,
+    rotation: number
+  ): Action;
+
+  private center(): [number, number] {
+    return [(this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2];
+  }
+
+  private halfExtents(): [number, number] {
+    return [Math.abs(this.x2 - this.x1) / 2, Math.abs(this.y2 - this.y1) / 2];
+  }
+
   draw(cr: Cairo.Context, _scale: number): void {
-    const x = Math.min(this.x1, this.x2);
-    const y = Math.min(this.y1, this.y2);
-    const w = Math.abs(this.x2 - this.x1);
-    const h = Math.abs(this.y2 - this.y1);
-    cr.rectangle(x, y, w, h);
+    const [cx, cy] = this.center();
+    const [hW, hH] = this.halfExtents();
+    if (hW <= 0 || hH <= 0) return;
+    cr.save();
+    cr.translate(cx, cy);
+    if (this.rotation !== 0) cr.rotate(this.rotation);
+    this.buildPath(cr, hW, hH);
+    cr.restore();
     if (this.fill[3] > 0) {
       const [fr, fg, fb, fa] = this.fill;
       cr.setSourceRGBA(fr, fg, fb, fa);
@@ -1145,7 +1313,50 @@ class RectAction extends TwoEndpointAction {
   }
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return new RectAction(x1, y1, x2, y2, style, this.fill);
+    return this.make(x1, y1, x2, y2, style, this.fill, this.rotation);
+  }
+
+  getBounds(): Bounds {
+    const pad = this.boundsPad();
+    if (this.rotation === 0) return endpointBounds(this.x1, this.y1, this.x2, this.y2, pad);
+    const [cx, cy] = this.center();
+    const minX = Math.min(this.x1, this.x2);
+    const maxX = Math.max(this.x1, this.x2);
+    const minY = Math.min(this.y1, this.y2);
+    const maxY = Math.max(this.y1, this.y2);
+    let bx1 = Infinity,
+      by1 = Infinity,
+      bx2 = -Infinity,
+      by2 = -Infinity;
+    for (const [px, py] of [
+      [minX, minY],
+      [maxX, minY],
+      [maxX, maxY],
+      [minX, maxY],
+    ]) {
+      const [rx, ry] = rotateAboutPoint(px, py, cx, cy, this.rotation);
+      if (rx < bx1) bx1 = rx;
+      if (rx > bx2) bx2 = rx;
+      if (ry < by1) by1 = ry;
+      if (ry > by2) by2 = ry;
+    }
+    return {x1: bx1 - pad, y1: by1 - pad, x2: bx2 + pad, y2: by2 + pad};
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const [cx, cy] = this.center();
+    const [hW, hH] = this.halfExtents();
+    const [ncx, ncy] = rotatePoint(cx, cy, direction, oldW, oldH);
+    const dr = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
+    return this.make(
+      ncx - hW,
+      ncy - hH,
+      ncx + hW,
+      ncy + hH,
+      this.style,
+      this.fill,
+      normalizeAngle(this.rotation + dr)
+    );
   }
 
   getFill(): ColorRGBA {
@@ -1153,25 +1364,97 @@ class RectAction extends TwoEndpointAction {
   }
 
   withFill(fill: ColorRGBA): Action {
-    return new RectAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
+    return this.make(this.x1, this.y1, this.x2, this.y2, this.style, fill, this.rotation);
   }
 
-  getResizeHandles(): ResizeHandle[] {
-    return boxResizeHandles(this.x1, this.y1, this.x2, this.y2);
+  getRotation(): number {
+    return this.rotation;
   }
 
-  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
-    const [x1, y1, x2, y2] = resizeBox(
+  withRotation(rotation: number): Action {
+    return this.make(
       this.x1,
       this.y1,
       this.x2,
       this.y2,
+      this.style,
+      this.fill,
+      normalizeAngle(rotation)
+    );
+  }
+
+  getOrientedBounds(): OrientedBounds {
+    const [cx, cy] = this.center();
+    const [hW, hH] = this.halfExtents();
+    return {cx, cy, halfW: hW, halfH: hH, angle: this.rotation};
+  }
+
+  // Hit-test against the (rotated) bounding rectangle: inverse-rotate the point
+  // into the local frame and test the padded box. For rotation 0 this is exactly
+  // the AABB test, so unrotated selection is unchanged; rotated, it's the tilted
+  // box (not the loose AABB). The oval uses the same box as the rect — the
+  // "precision" here is the orientation, not an exact ellipse boundary.
+  containsPoint(ix: number, iy: number): boolean {
+    const [cx, cy] = this.center();
+    const [hW, hH] = this.halfExtents();
+    const pad = this.boundsPad();
+    const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
+    return Math.abs(lx - cx) <= hW + pad && Math.abs(ly - cy) <= hH + pad;
+  }
+
+  getResizeHandles(): ResizeHandle[] {
+    const local = boxResizeHandles(this.x1, this.y1, this.x2, this.y2);
+    if (this.rotation === 0) return local;
+    const [cx, cy] = this.center();
+    return local.map((h) => {
+      const [rx, ry] = rotateAboutPoint(h.x, h.y, cx, cy, this.rotation);
+      return {id: h.id, x: rx, y: ry};
+    });
+  }
+
+  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
+    const [x1, y1, x2, y2] = resizeOrientedBox(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.rotation,
       handle,
       ix,
       iy,
       constrain
     );
-    return this.rebuild(x1, y1, x2, y2, this.style);
+    return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation);
+  }
+}
+
+class RectAction extends RotatableBoxAction {
+  constructor(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    fill: ColorRGBA,
+    rotation: number = 0
+  ) {
+    super(x1, y1, x2, y2, style, fill, rotation);
+  }
+
+  protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
+    cr.rectangle(-halfW, -halfH, 2 * halfW, 2 * halfH);
+  }
+
+  protected make(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    fill: ColorRGBA,
+    rotation: number
+  ): Action {
+    return new RectAction(x1, y1, x2, y2, style, fill, rotation);
   }
 }
 
@@ -1196,71 +1479,40 @@ class RectLiveStroke extends EndpointLiveStroke {
 
 // ---------- Oval ----------
 
-class OvalAction extends TwoEndpointAction {
+class OvalAction extends RotatableBoxAction {
   constructor(
     x1: number,
     y1: number,
     x2: number,
     y2: number,
     style: Style,
-    private readonly fill: ColorRGBA
+    fill: ColorRGBA,
+    rotation: number = 0
   ) {
-    super(x1, y1, x2, y2, style);
+    super(x1, y1, x2, y2, style, fill, rotation);
   }
 
-  draw(cr: Cairo.Context, _scale: number): void {
-    const cx = (this.x1 + this.x2) / 2;
-    const cy = (this.y1 + this.y2) / 2;
-    const rx = Math.abs(this.x2 - this.x1) / 2;
-    const ry = Math.abs(this.y2 - this.y1) / 2;
-    if (rx <= 0 || ry <= 0) return;
-
-    // Scale-and-arc trick: build the path under a scaled CTM, then restore
-    // BEFORE stroking so the line width isn't scaled with the ellipse axes.
+  protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
+    // Scale-and-arc trick: build the path under a scaled CTM, then restore so
+    // the line width isn't scaled with the ellipse axes (stroking happens in the
+    // base after the outer restore, in unscaled space).
     cr.save();
-    cr.translate(cx, cy);
-    cr.scale(rx, ry);
+    cr.scale(halfW, halfH);
     cr.newSubPath();
     cr.arc(0, 0, 1, 0, 2 * Math.PI);
     cr.restore();
-
-    if (this.fill[3] > 0) {
-      const [fr, fg, fb, fa] = this.fill;
-      cr.setSourceRGBA(fr, fg, fb, fa);
-      cr.fillPreserve();
-    }
-    applyStrokeStyle(cr, this.style, Cairo.LineCap.BUTT, Cairo.LineJoin.MITER);
-    cr.stroke();
   }
 
-  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return new OvalAction(x1, y1, x2, y2, style, this.fill);
-  }
-
-  getFill(): ColorRGBA {
-    return this.fill;
-  }
-
-  withFill(fill: ColorRGBA): Action {
-    return new OvalAction(this.x1, this.y1, this.x2, this.y2, this.style, fill);
-  }
-
-  getResizeHandles(): ResizeHandle[] {
-    return boxResizeHandles(this.x1, this.y1, this.x2, this.y2);
-  }
-
-  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
-    const [x1, y1, x2, y2] = resizeBox(
-      this.x1,
-      this.y1,
-      this.x2,
-      this.y2,
-      handle,
-      ix,
-      iy,
-      constrain
-    );
-    return this.rebuild(x1, y1, x2, y2, this.style);
+  protected make(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    fill: ColorRGBA,
+    rotation: number
+  ): Action {
+    return new OvalAction(x1, y1, x2, y2, style, fill, rotation);
   }
 }
 
@@ -1525,6 +1777,88 @@ function resizeBox(
   }
 
   return [minX, minY, maxX, maxY];
+}
+
+// Rotate (px, py) by `angle` radians (CW, screen y-down) about (cx, cy).
+function rotateAboutPoint(
+  px: number,
+  py: number,
+  cx: number,
+  cy: number,
+  angle: number
+): [number, number] {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = px - cx;
+  const dy = py - cy;
+  return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+}
+
+// Resize a rotated box. The stored (x1,y1,x2,y2) is the box's UNROTATED extent;
+// it's drawn rotated by `rotation` about its center. Dragging a handle resizes
+// along the box's own (local) axes while the opposite edge/corner stays pinned
+// in image space: inverse-rotate the cursor into the local frame, run the plain
+// axis-aligned resizeBox there, then place the result so the invariant anchor
+// point keeps its world position (the center shifts, the angle is unchanged).
+// Returns the new unrotated box. rotation 0 is just resizeBox.
+function resizeOrientedBox(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  rotation: number,
+  handle: HandleId,
+  ix: number,
+  iy: number,
+  constrain: boolean
+): [number, number, number, number] {
+  if (rotation === 0) return resizeBox(x1, y1, x2, y2, handle, ix, iy, constrain);
+
+  const oldMinX = Math.min(x1, x2);
+  const oldMaxX = Math.max(x1, x2);
+  const oldMinY = Math.min(y1, y2);
+  const oldMaxY = Math.max(y1, y2);
+  const ocx = (oldMinX + oldMaxX) / 2;
+  const ocy = (oldMinY + oldMaxY) / 2;
+
+  // Cursor into the local (unrotated) frame about the old center.
+  const [lx, ly] = rotateAboutPoint(ix, iy, ocx, ocy, -rotation);
+  const [nx1, ny1, nx2, ny2] = resizeBox(
+    oldMinX,
+    oldMinY,
+    oldMaxX,
+    oldMaxY,
+    handle,
+    lx,
+    ly,
+    constrain
+  );
+  const hW = (nx2 - nx1) / 2;
+  const hH = (ny2 - ny1) / 2;
+  const nLocalCx = (nx1 + nx2) / 2;
+  const nLocalCy = (ny1 + ny2) / 2;
+
+  // The point that resizeBox leaves invariant in local coords: the fixed x edge
+  // (and y edge) for a corner, or the fixed edge + perpendicular center for a
+  // side. Its world position must not move.
+  const movedLeft = handle === 'l' || handle === 'tl' || handle === 'bl';
+  const movedRight = handle === 'r' || handle === 'tr' || handle === 'br';
+  const movedTop = handle === 't' || handle === 'tl' || handle === 'tr';
+  const movedBottom = handle === 'b' || handle === 'bl' || handle === 'br';
+  const ax = movedLeft || movedRight ? (movedLeft ? oldMaxX : oldMinX) : ocx;
+  const ay = movedTop || movedBottom ? (movedTop ? oldMaxY : oldMinY) : ocy;
+
+  // World position of that anchor (old center + rotation) stays fixed; solve for
+  // the new center that re-rotating the resized box about it keeps the anchor there.
+  const [wax, way] = rotateAboutPoint(ax, ay, ocx, ocy, rotation);
+  const offx = ax - nLocalCx;
+  const offy = ay - nLocalCy;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const ncx = wax - (offx * cos - offy * sin);
+  const ncy = way - (offx * sin + offy * cos);
+
+  return [ncx - hW, ncy - hH, ncx + hW, ncy + hH];
 }
 
 // Connects each adjacent pair of points with a quadratic that passes through

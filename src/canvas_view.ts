@@ -12,6 +12,7 @@ import {
   ColorRGBA,
   DashStyle,
   HandleId,
+  OrientedBounds,
   DEFAULT_DASH,
   DEFAULT_STAMP_VARIANT,
   LiveStroke,
@@ -97,10 +98,6 @@ function normalizeRegion(r: {x1: number; y1: number; x2: number; y2: number}): R
   return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
 }
 
-function pointInBounds(x: number, y: number, b: Bounds): boolean {
-  return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2;
-}
-
 // Structural equality for style values (color arrays or scalar primitives).
 // Used to skip no-op edits that would otherwise push an invisible undo step.
 function valuesEqual(a: unknown, b: unknown): boolean {
@@ -119,6 +116,12 @@ const HISTORY_CAP = 100;
 
 // Widget-space hit tolerance for resize edge/corner grabs.
 const HANDLE_HIT_PX = 8;
+
+// Rotate gizmo: the handle sits this many widget px past the selection box edge
+// (along the action's "up" direction), on a short connector stick. Shift snaps
+// the angle to multiples of ROTATE_SNAP.
+const ROTATE_ARM_PX = 22;
+const ROTATE_SNAP = Math.PI / 12; // 15°
 
 // Accumulated scroll delta required to dig one step deeper in the hit-stack.
 // A plain mouse wheel reports ~1.0 per notch (so one notch = one step); the
@@ -181,12 +184,50 @@ function cursorForResizeGrab(grab: ResizeGrab): string {
   }
 }
 
-// Cursor for a per-action resize handle. Box handles reuse the directional
-// resize cursors (the ids overlap the resize tool's); endpoints aren't
-// directional (free drag), so they get a crosshair for precise placement.
-function cursorForHandle(id: HandleId): string {
+// The outward direction (radians, CW, y-down) of a box handle on an unrotated
+// box: east = 0, increasing clockwise.
+function handleBaseAngle(id: HandleId): number {
+  switch (id) {
+    case 'r':
+      return 0;
+    case 'br':
+      return Math.PI / 4;
+    case 'b':
+      return Math.PI / 2;
+    case 'bl':
+      return (3 * Math.PI) / 4;
+    case 'l':
+      return Math.PI;
+    case 'tl':
+      return (-3 * Math.PI) / 4;
+    case 't':
+      return -Math.PI / 2;
+    case 'tr':
+      return -Math.PI / 4;
+    default:
+      return 0; // p1/p2 — handled by the caller before this is reached
+  }
+}
+
+// Cursor for a per-action resize handle on a box rotated by `rotation`. Box
+// handles map to one of the four directional resize cursors, snapped to the
+// handle's actual (rotated) outward direction so a tilted box gets sensible
+// cursors; endpoints aren't directional (free drag) → crosshair.
+function cursorForHandle(id: HandleId, rotation: number): string {
   if (id === 'p1' || id === 'p2') return 'crosshair';
-  return cursorForResizeGrab(id);
+  if (rotation === 0) return cursorForResizeGrab(id);
+  let a = handleBaseAngle(id) + rotation;
+  a = ((a % Math.PI) + Math.PI) % Math.PI; // fold to [0, π); resize cursors are symmetric
+  switch (Math.round(a / (Math.PI / 4)) % 4) {
+    case 1:
+      return 'nwse-resize';
+    case 2:
+      return 'ns-resize';
+    case 3:
+      return 'nesw-resize';
+    default:
+      return 'ew-resize';
+  }
 }
 
 export const CanvasView = GObject.registerClass(
@@ -255,14 +296,15 @@ export const CanvasView = GObject.registerClass(
     // grabbing. null when not currently dragging in resize mode.
     private resizeGrab: ResizeGrab | null = null;
 
-    // Per-action resize (select tool, single selection). `actionGrab` is the
-    // handle the active drag is moving; `resizePreview` is the reshaped action
-    // shown live during the drag (committed in one history entry at drag-end).
-    // Both null when no per-action resize is in progress. Distinct from the
-    // resize-tool fields above, which reshape the whole canvas. This grab/
-    // preview scaffolding is what M30's free-rotate will reuse.
+    // Per-action reshape (select tool, single selection). `actionGrab` is the
+    // resize handle being dragged; `rotateGrab` is true while dragging the
+    // rotate gizmo; `actionPreview` is the live reshaped/rotated action shown
+    // during either drag (committed in one history entry at drag-end). All
+    // inert when no per-action reshape is in progress. Distinct from the
+    // resize-tool fields above, which reshape the whole canvas.
     private actionGrab: HandleId | null = null;
-    private resizePreview: Action | null = null;
+    private rotateGrab: boolean = false;
+    private actionPreview: Action | null = null;
 
     private onTextEditRequest: TextEditRequest | null = null;
     private onStateChange: (() => void) | null = null;
@@ -394,7 +436,8 @@ export const CanvasView = GObject.registerClass(
       this.resizeRegion = null;
       this.resizeGrab = null;
       this.actionGrab = null;
-      this.resizePreview = null;
+      this.rotateGrab = false;
+      this.actionPreview = null;
     }
 
     // Clear the dig/aim state so a stale candidate doesn't linger across tool
@@ -534,7 +577,8 @@ export const CanvasView = GObject.registerClass(
       }
       this.resizeGrab = null;
       this.actionGrab = null;
-      this.resizePreview = null;
+      this.rotateGrab = false;
+      this.actionPreview = null;
       this.set_cursor_from_name(cursorForTool(toolId));
       this.queue_draw();
       this.notifyStateChange();
@@ -1199,13 +1243,13 @@ export const CanvasView = GObject.registerClass(
       // Select tool: track which action the next click will hit (the hover
       // candidate) so it can be outlined and dug into with Alt+scroll.
       if (this.currentToolId === 'select' && this.state.surface) {
-        if (this.actionGrab) return; // mid-resize — keep the grab cursor.
+        if (this.actionGrab || this.rotateGrab) return; // mid-reshape — keep the cursor.
         const [ix, iy] = this.widgetToImage(wx, wy);
         const prev = this.hoverCandidate;
         this.resolveCandidate(ix, iy);
         if (this.hoverCandidate !== prev) this.queue_draw();
-        // A resize handle of the lone selection advertises itself before the
-        // drag; everywhere else falls back to the default arrow.
+        // A resize handle or rotate gizmo of the lone selection advertises
+        // itself before the drag; everywhere else falls back to the arrow.
         this.set_cursor_from_name(this.handleCursorAt(ix, iy));
         return;
       }
@@ -1346,8 +1390,9 @@ export const CanvasView = GObject.registerClass(
         // stale (which would later replace the wrong action). See P1-02.
         if (this.editingActionIndex >= 0) return;
         // A handle of the lone selected action takes priority over move /
-        // reselection, so a corner/endpoint drag reshapes instead of moving.
-        if (this.tryBeginActionResize(wx, wy)) {
+        // reselection, so a corner/endpoint drag reshapes, and the rotate
+        // gizmo rotates, instead of moving.
+        if (this.tryBeginActionResize(wx, wy) || this.tryBeginActionRotate(wx, wy)) {
           this.queue_draw();
           return;
         }
@@ -1392,12 +1437,27 @@ export const CanvasView = GObject.registerClass(
           const i = this.soleSelectedIndex();
           if (i < 0) return;
           const [ix, iy] = this.widgetToImage(wx, wy);
-          this.resizePreview = this.state.actions[i].resizeByHandle(
+          this.actionPreview = this.state.actions[i].resizeByHandle(
             this.actionGrab,
             ix,
             iy,
             constrain
           );
+          this.queue_draw();
+          return;
+        }
+        // Per-action rotate: spin the lone selected action so its gizmo points
+        // at the cursor (up = 0). Shift snaps to ROTATE_SNAP increments.
+        if (this.rotateGrab) {
+          const i = this.soleSelectedIndex();
+          if (i < 0) return;
+          const action = this.state.actions[i];
+          const ob = action.getOrientedBounds();
+          if (!ob) return;
+          const [ix, iy] = this.widgetToImage(wx, wy);
+          let angle = Math.atan2(ix - ob.cx, -(iy - ob.cy));
+          if (constrain) angle = Math.round(angle / ROTATE_SNAP) * ROTATE_SNAP;
+          this.actionPreview = action.withRotation(angle);
           this.queue_draw();
           return;
         }
@@ -1442,24 +1502,10 @@ export const CanvasView = GObject.registerClass(
 
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
-        // Per-action resize: commit the reshaped action in one history entry.
-        // A null preview (a click on a handle without a drag) or a drag that
-        // returned to the original geometry pushes nothing.
-        if (this.actionGrab) {
-          const i = this.soleSelectedIndex();
-          const preview = this.resizePreview;
-          this.actionGrab = null;
-          this.resizePreview = null;
-          if (i >= 0 && preview && !this.actionHandlesEqual(preview, this.state.actions[i])) {
-            const cur = this.state.actions;
-            this.pushState({
-              surface: this.state.surface,
-              actions: cur.map((a, j) => (j === i ? preview : a)),
-            });
-          }
-          this.queue_draw();
-          return;
-        }
+        // Per-action resize/rotate: commit the reshaped/rotated action in one
+        // history entry (a click without a drag, or a drag back to the original,
+        // pushes nothing).
+        if (this.commitActionReshape()) return;
         // A Shift-click toggle gesture only adjusts membership — no move push.
         if (this.shiftToggleDrag) {
           this.shiftToggleDrag = false;
@@ -1579,8 +1625,7 @@ export const CanvasView = GObject.registerClass(
       const hits: number[] = [];
       for (let i = acts.length - 1; i >= 0; i--) {
         if (i === this.editingActionIndex) continue;
-        const bounds = acts[i].getBounds();
-        if (bounds && pointInBounds(ix, iy, bounds)) hits.push(i);
+        if (acts[i].containsPoint(ix, iy)) hits.push(i);
       }
       return hits;
     }
@@ -1627,15 +1672,98 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Cursor name for hovering (ix, iy) in select mode: a directional/endpoint
-    // resize cursor when over a handle of the lone selection, else 'default'.
+    // resize cursor over a resize handle, 'grab' over the rotate gizmo (which
+    // sits outside the box, so it's checked first), else 'default'.
     private handleCursorAt(ix: number, iy: number): string {
       const i = this.soleSelectedIndex();
       if (i < 0) return 'default';
       const action = this.state.actions[i];
-      if (!action.getResizeHandles()) return 'default';
-      const tol = HANDLE_HIT_PX / this.currentTransform().scale;
-      const handle = this.hitTestActionHandle(action, ix, iy, tol);
-      return handle ? cursorForHandle(handle) : 'default';
+      const scale = this.currentTransform().scale;
+      const tol = HANDLE_HIT_PX / scale;
+      const g = this.rotateGizmo(action, scale);
+      if (g && Math.abs(ix - g.hx) <= tol && Math.abs(iy - g.hy) <= tol) return 'grab';
+      if (action.getResizeHandles()) {
+        const handle = this.hitTestActionHandle(action, ix, iy, tol);
+        if (handle) return cursorForHandle(handle, action.getOrientedBounds()?.angle ?? 0);
+      }
+      return 'default';
+    }
+
+    // Geometry of the rotate gizmo for `action` in image space, or null for a
+    // non-rotatable action: the pivot (center), the connector stick's base on
+    // the box edge, and the draggable handle. The direction is the action's
+    // content rotation (so the gizmo tracks a rotated stamp/text), the distance
+    // its up-extent plus a fixed widget-px arm.
+    private rotateGizmo(
+      action: Action,
+      scale: number
+    ): {cx: number; cy: number; ex: number; ey: number; hx: number; hy: number} | null {
+      const ob = action.getOrientedBounds();
+      const rot = action.getRotation();
+      if (!ob || rot === null) return null;
+      // Local "up" (0,-1) rotated by rot (Cairo's positive = CW) → (sin, -cos).
+      const ux = Math.sin(rot);
+      const uy = -Math.cos(rot);
+      const edge = ob.halfH + 6 / scale; // just past the box edge
+      const arm = edge + ROTATE_ARM_PX / scale; // the draggable handle
+      return {
+        cx: ob.cx,
+        cy: ob.cy,
+        ex: ob.cx + ux * edge,
+        ey: ob.cy + uy * edge,
+        hx: ob.cx + ux * arm,
+        hy: ob.cy + uy * arm,
+      };
+    }
+
+    // Begin a per-action rotation if the press lands on the rotate gizmo of the
+    // lone selected (rotatable) action. Checked after tryBeginActionResize, but
+    // the gizmo sits outside the box so they never overlap.
+    private tryBeginActionRotate(wx: number, wy: number): boolean {
+      const i = this.soleSelectedIndex();
+      if (i < 0) return false;
+      const action = this.state.actions[i];
+      const scale = this.currentTransform().scale;
+      const g = this.rotateGizmo(action, scale);
+      if (!g) return false;
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      const tol = HANDLE_HIT_PX / scale;
+      if (Math.abs(ix - g.hx) > tol || Math.abs(iy - g.hy) > tol) return false;
+      this.rotateGrab = true;
+      this.actionPreview = null; // set on first drag-update; null = no rotation yet
+      this.moving = false;
+      this.shiftToggleDrag = false;
+      return true;
+    }
+
+    // Commit an in-progress per-action resize or rotate at drag-end, pushing one
+    // history entry only if the geometry (resize) or angle (rotate) actually
+    // changed — so a click on a handle/gizmo without a drag, or a drag back to
+    // the original, pushes nothing (P1-03). Returns true if a reshape was in
+    // progress, so onDragEnd consumes the gesture.
+    private commitActionReshape(): boolean {
+      const wasResize = this.actionGrab !== null;
+      if (!wasResize && !this.rotateGrab) return false;
+      const i = this.soleSelectedIndex();
+      const preview = this.actionPreview;
+      this.actionGrab = null;
+      this.rotateGrab = false;
+      this.actionPreview = null;
+      if (i >= 0 && preview) {
+        const stored = this.state.actions[i];
+        const changed = wasResize
+          ? !this.actionHandlesEqual(preview, stored)
+          : preview.getRotation() !== stored.getRotation();
+        if (changed) {
+          const cur = this.state.actions;
+          this.pushState({
+            surface: this.state.surface,
+            actions: cur.map((a, j) => (j === i ? preview : a)),
+          });
+        }
+      }
+      this.queue_draw();
+      return true;
     }
 
     // Begin a per-action resize if the press lands on a handle of the lone
@@ -1653,7 +1781,7 @@ export const CanvasView = GObject.registerClass(
       const handle = this.hitTestActionHandle(action, ix, iy, tol);
       if (!handle) return false;
       this.actionGrab = handle;
-      this.resizePreview = null; // set on first drag-update; null = no movement yet
+      this.actionPreview = null; // set on first drag-update; null = no movement yet
       this.moving = false;
       this.shiftToggleDrag = false;
       return true;
@@ -1667,8 +1795,7 @@ export const CanvasView = GObject.registerClass(
       let best = -1;
       for (const i of this.selectedIndices) {
         if (i < 0 || i >= acts.length || i <= best) continue;
-        const bounds = acts[i].getBounds();
-        if (bounds && pointInBounds(ix, iy, bounds)) best = i;
+        if (acts[i].containsPoint(ix, iy)) best = i;
       }
       return best;
     }
@@ -1786,35 +1913,58 @@ export const CanvasView = GObject.registerClass(
       scale: number
     ): void {
       if (this.selectedIndices.size === 0) return;
-      const ox = this.moving ? this.moveDx : 0;
-      const oy = this.moving ? this.moveDy : 0;
       const sole = this.soleSelectedIndex();
+      const grabbing = this.actionGrab !== null || this.rotateGrab;
       for (const i of this.selectedIndices) {
         if (i < 0 || i >= acts.length || i === this.editingActionIndex) continue;
-        // Mid-resize: frame the live preview's bounds (no move offset — a resize
-        // and a move can't happen in the same gesture).
-        if (this.actionGrab && this.resizePreview && i === sole) {
-          const b = this.resizePreview.getBounds();
-          if (b) drawSelectionBox(cr, b, scale, 0, 0);
-          continue;
+        // Mid-reshape: frame the live preview (no move offset — a reshape and a
+        // move can't share a gesture). Otherwise the stored action, shifted by
+        // any in-progress move. Rotatable actions draw an oriented box (text
+        // tilts; the stamp's stays an upright square); everything else the AABB.
+        let action: Action = acts[i];
+        let ox = this.moving ? this.moveDx : 0;
+        let oy = this.moving ? this.moveDy : 0;
+        if (grabbing && this.actionPreview && i === sole) {
+          action = this.actionPreview;
+          ox = 0;
+          oy = 0;
         }
-        const bounds = acts[i].getBounds();
-        if (bounds) drawSelectionBox(cr, bounds, scale, ox, oy);
+        const ob = action.getOrientedBounds();
+        if (ob) {
+          drawOrientedSelectionBox(cr, ob, scale, ox, oy);
+        } else {
+          const bounds = action.getBounds();
+          if (bounds) drawSelectionBox(cr, bounds, scale, ox, oy);
+        }
       }
     }
 
     // Resize handles for the lone selected action (when resizable). Drawn at the
     // live preview's positions mid-resize so they track the drag. Hidden during
-    // a move (clutter) and while a text re-edit is open.
+    // a move or a rotate (clutter) and while a text re-edit is open.
     private drawResizeHandles(cr: Cairo.Context, scale: number): void {
-      if (this.moving) return;
+      if (this.moving || this.rotateGrab) return;
       const i = this.soleSelectedIndex();
       if (i < 0 || i === this.editingActionIndex) return;
       const action =
-        this.actionGrab && this.resizePreview ? this.resizePreview : this.state.actions[i];
+        this.actionGrab && this.actionPreview ? this.actionPreview : this.state.actions[i];
       const handles = action.getResizeHandles();
       if (!handles) return;
       for (const h of handles) drawResizeHandle(cr, h.x, h.y, scale);
+    }
+
+    // The rotate gizmo (a connector stick + round handle) for the lone selected
+    // rotatable action. Drawn at the preview's angle mid-rotate so it tracks the
+    // drag; hidden during a move or a resize, and while a text re-edit is open.
+    private drawRotateGizmo(cr: Cairo.Context, scale: number): void {
+      if (this.moving || this.actionGrab) return;
+      const i = this.soleSelectedIndex();
+      if (i < 0 || i === this.editingActionIndex) return;
+      const action =
+        this.rotateGrab && this.actionPreview ? this.actionPreview : this.state.actions[i];
+      const g = this.rotateGizmo(action, scale);
+      if (!g) return;
+      drawRotateGizmo(cr, g.ex, g.ey, g.hx, g.hy, scale);
     }
 
     // The hover candidate — the action the next click acts on — outlined in
@@ -1827,7 +1977,8 @@ export const CanvasView = GObject.registerClass(
       acts: ReadonlyArray<Action>,
       scale: number
     ): void {
-      if (this.currentToolId !== 'select' || this.moving || this.actionGrab) return;
+      if (this.currentToolId !== 'select' || this.moving || this.actionGrab || this.rotateGrab)
+        return;
       const i = this.hoverCandidate;
       if (i < 0 || i >= acts.length || i === this.editingActionIndex) return;
       if (this.selectedIndices.size === 1 && this.selectedIndices.has(i)) return;
@@ -1915,9 +2066,10 @@ export const CanvasView = GObject.registerClass(
       const sole = this.soleSelectedIndex();
       for (let i = 0; i < acts.length; i++) {
         if (i === this.editingActionIndex) continue;
-        if (this.actionGrab && this.resizePreview && i === sole) {
-          // Mid-resize: render the reshaped preview in the stored action's place.
-          this.resizePreview.draw(cr, t.scale);
+        if ((this.actionGrab || this.rotateGrab) && this.actionPreview && i === sole) {
+          // Mid-reshape (resize or rotate): render the preview in the stored
+          // action's place.
+          this.actionPreview.draw(cr, t.scale);
         } else if (this.moving && this.selectedIndices.has(i)) {
           cr.save();
           cr.translate(this.moveDx, this.moveDy);
@@ -1931,6 +2083,7 @@ export const CanvasView = GObject.registerClass(
 
       this.drawSelectionBoxes(cr, acts, t.scale);
       this.drawResizeHandles(cr, t.scale);
+      this.drawRotateGizmo(cr, t.scale);
       this.drawHoverCandidate(cr, acts, t.scale);
       this.drawGroupBadges(cr, acts, t.scale);
 
@@ -1984,6 +2137,57 @@ function drawResizeOverlay(
     cr.stroke();
   }
 
+  cr.restore();
+}
+
+// An oriented (rotated) selection box: same solid-blue look as drawSelectionBox
+// but tilted to the action's angle. ox/oy is the in-progress move offset.
+function drawOrientedSelectionBox(
+  cr: Cairo.Context,
+  ob: OrientedBounds,
+  scale: number,
+  ox: number,
+  oy: number
+): void {
+  const pad = 4 / scale;
+  cr.save();
+  cr.setSourceRGBA(0.0, 0.5, 1.0, 0.95); // solid blue
+  cr.setLineWidth(1.5 / scale);
+  cr.setDash([], 0);
+  cr.setLineCap(Cairo.LineCap.BUTT);
+  cr.setLineJoin(Cairo.LineJoin.MITER);
+  cr.translate(ob.cx + ox, ob.cy + oy);
+  cr.rotate(ob.angle);
+  cr.rectangle(-ob.halfW - pad, -ob.halfH - pad, 2 * (ob.halfW + pad), 2 * (ob.halfH + pad));
+  cr.stroke();
+  cr.restore();
+}
+
+// The rotate gizmo: a connector stick from the box edge (ex, ey) to a round
+// white handle at (hx, hy), in the same blue as the selection box.
+function drawRotateGizmo(
+  cr: Cairo.Context,
+  ex: number,
+  ey: number,
+  hx: number,
+  hy: number,
+  scale: number
+): void {
+  cr.save();
+  cr.setSourceRGBA(0.0, 0.5, 1.0, 0.95);
+  cr.setLineWidth(1.5 / scale);
+  cr.setDash([], 0);
+  cr.setLineCap(Cairo.LineCap.ROUND);
+  cr.moveTo(ex, ey);
+  cr.lineTo(hx, hy);
+  cr.stroke();
+  const r = HANDLE_HIT_PX / 2 / scale;
+  cr.newSubPath();
+  cr.arc(hx, hy, r, 0, 2 * Math.PI);
+  cr.setSourceRGBA(1, 1, 1, 1);
+  cr.fillPreserve();
+  cr.setSourceRGBA(0.0, 0.5, 1.0, 0.95);
+  cr.stroke();
   cr.restore();
 }
 
