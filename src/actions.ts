@@ -490,6 +490,11 @@ class NumberStampAction extends BaseAction {
     public readonly x: number,
     public readonly y: number,
     public readonly n: number,
+    // Stable id of the stamp's group. Numbering runs independently per group;
+    // the dropdown shows a gap-free ordinal label derived from the set of
+    // present ids, but this id itself is never reused so placement state stays
+    // pinned to the same group across relabels.
+    public readonly groupId: number,
     public readonly variant: StampVariant,
     public readonly rotation: number, // 0..3 quarter-turns CW (affects the digit only)
     public readonly style: NumberStampStyle
@@ -551,6 +556,7 @@ class NumberStampAction extends BaseAction {
       this.x + dx,
       this.y + dy,
       this.n,
+      this.groupId,
       this.variant,
       this.rotation,
       this.style
@@ -564,6 +570,7 @@ class NumberStampAction extends BaseAction {
       nx,
       ny,
       this.n,
+      this.groupId,
       this.variant,
       (this.rotation + dr) % 4,
       this.style
@@ -578,10 +585,18 @@ class NumberStampAction extends BaseAction {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new NumberStampAction(this.x, this.y, this.n, this.variant, this.rotation, {
-      ...this.style,
-      foregroundColor: color,
-    });
+    return new NumberStampAction(
+      this.x,
+      this.y,
+      this.n,
+      this.groupId,
+      this.variant,
+      this.rotation,
+      {
+        ...this.style,
+        foregroundColor: color,
+      }
+    );
   }
 
   getFill(): ColorRGBA {
@@ -589,18 +604,42 @@ class NumberStampAction extends BaseAction {
   }
 
   withFill(color: ColorRGBA): Action {
-    return new NumberStampAction(this.x, this.y, this.n, this.variant, this.rotation, {
-      ...this.style,
-      fillColor: color,
-    });
+    return new NumberStampAction(
+      this.x,
+      this.y,
+      this.n,
+      this.groupId,
+      this.variant,
+      this.rotation,
+      {
+        ...this.style,
+        fillColor: color,
+      }
+    );
   }
 
   withNumber(n: number): Action {
-    return new NumberStampAction(this.x, this.y, n, this.variant, this.rotation, this.style);
+    return new NumberStampAction(
+      this.x,
+      this.y,
+      n,
+      this.groupId,
+      this.variant,
+      this.rotation,
+      this.style
+    );
   }
 
   withVariant(variant: StampVariant): Action {
-    return new NumberStampAction(this.x, this.y, this.n, variant, this.rotation, this.style);
+    return new NumberStampAction(
+      this.x,
+      this.y,
+      this.n,
+      this.groupId,
+      variant,
+      this.rotation,
+      this.style
+    );
   }
 }
 
@@ -608,38 +647,73 @@ export function makeNumberStampAction(
   x: number,
   y: number,
   n: number,
+  groupId: number,
   variant: StampVariant = DEFAULT_STAMP_VARIANT,
   rotation: number = 0,
   style: NumberStampStyle = NUMBER_STAMP_STYLE
 ): Action {
-  return new NumberStampAction(x, y, n, variant, ((rotation % 4) + 4) % 4, style);
+  return new NumberStampAction(x, y, n, groupId, variant, ((rotation % 4) + 4) % 4, style);
 }
 
 export function isNumberStampAction(action: Action): boolean {
   return action instanceof NumberStampAction;
 }
 
-// Walk an action list and reassign `n` to surviving NumberStampActions in
-// the order they appear, starting from 1. Used by deleteSelected so that
-// "1, 2, 3" with "2" removed becomes "1, 2" rather than "1, 3".
+// The stamp's group id, or null for non-stamp actions. Lets callers filter a
+// mixed action list by group without reaching into the class.
+export function numberStampGroup(action: Action): number | null {
+  return action instanceof NumberStampAction ? action.groupId : null;
+}
+
+// The stamp's variant, or null for non-stamp actions.
+export function numberStampVariant(action: Action): StampVariant | null {
+  return action instanceof NumberStampAction ? action.variant : null;
+}
+
+// Move a stamp into a different group, adopting that group's variant so a
+// group stays uniformly Number or Letter. Non-stamp actions pass through.
+export function reassignStamp(action: Action, groupId: number, variant: StampVariant): Action {
+  if (!(action instanceof NumberStampAction)) return action;
+  return new NumberStampAction(
+    action.x,
+    action.y,
+    action.n,
+    groupId,
+    variant,
+    action.rotation,
+    action.style
+  );
+}
+
+// Walk an action list and reassign `n` to surviving NumberStampActions, with a
+// counter kept independently per group. So deleting "2" from group A's
+// "1, 2, 3" leaves "1, 2", and each group numbers from 1 regardless of the
+// others' interleaving in document order. Unchanged stamps keep their identity
+// (same reference) so clean-state detection isn't tripped by a no-op renumber.
 export function renumberStamps(actions: ReadonlyArray<Action>): Action[] {
-  let count = 0;
+  const counts = new Map<number, number>();
   return actions.map((a) => {
     if (a instanceof NumberStampAction) {
-      count++;
-      return a.withNumber(count);
+      const next = (counts.get(a.groupId) ?? 0) + 1;
+      counts.set(a.groupId, next);
+      return a.n === next ? a : a.withNumber(next);
     }
     return a;
   });
 }
 
-// Rewrite every NumberStampAction in the list with the given variant.
-// Non-stamp actions pass through. Used by the global variant toggle.
-export function setStampVariantOnAll(
+// Rewrite the variant of every stamp in one group. Non-matching actions pass
+// through unchanged (same reference), so a no-op flip doesn't dirty the state.
+export function setStampVariantInGroup(
   actions: ReadonlyArray<Action>,
+  groupId: number,
   variant: StampVariant
 ): Action[] {
-  return actions.map((a) => (a instanceof NumberStampAction ? a.withVariant(variant) : a));
+  return actions.map((a) =>
+    a instanceof NumberStampAction && a.groupId === groupId && a.variant !== variant
+      ? a.withVariant(variant)
+      : a
+  );
 }
 
 // ---------- Pen / Highlighter (multi-point stroke) ----------

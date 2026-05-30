@@ -519,6 +519,19 @@ export const AnnoscrWindow = GObject.registerClass(
         if (this.editor.isActive()) return false;
         return this.canvas.cloneSelected();
       });
+      // Start a new stamp group: with the number tool, bump the placement group
+      // so the next stamp restarts at 1; with the select tool, move the selected
+      // stamps into a fresh group. Falls through otherwise.
+      this.bindShortcut(controller, '<Control>g', () => {
+        if (this.editor.isActive()) return false;
+        const tool = this.canvas.getTool();
+        if (tool === 'number') {
+          this.canvas.newPlacementGroup();
+          return true;
+        }
+        if (tool === 'select') return this.canvas.reassignSelectedGroup('new');
+        return false;
+      });
       // Shift+Space toggles the aimed item in/out of the selection — the
       // keyboard twin of Shift+Click. Shift avoids bare Space activating a
       // focused tool button; the editor captures it while typing.

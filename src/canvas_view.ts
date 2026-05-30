@@ -28,9 +28,12 @@ import {
   isTextAction,
   getTextEditState,
   makeNumberStampAction,
+  numberStampGroup,
   numberStampStyle,
+  numberStampVariant,
+  reassignStamp,
   renumberStamps,
-  setStampVariantOnAll,
+  setStampVariantInGroup,
 } from './actions.js';
 import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
@@ -264,10 +267,17 @@ export const CanvasView = GObject.registerClass(
     // here; everything else has no editable dash (returns null).
     private toolDashes: Map<ToolId, DashStyle> = new Map();
 
-    // Variant applied to newly-placed number stamps. The Variant dropdown
-    // both updates this (so subsequent placements inherit) and rewrites
-    // every existing stamp via setStampVariant().
-    private toolStampVariant: StampVariant = DEFAULT_STAMP_VARIANT;
+    // Stamp groups. Stamps carry a stable groupId; numbering runs per group.
+    // `placementGroupId` is the group new stamps land in (number tool); it is
+    // tool state, not document state — undo/redo never changes it. `nextGroupId`
+    // mints fresh stable ids (monotonic, never reused). `groupVariants` holds a
+    // group's chosen Number/Letter even while it has no stamps yet (the freshly
+    // created placement group), falling back to `defaultStampVariant` — the
+    // remembered, persisted preference that also seeds new groups.
+    private placementGroupId: number = 1;
+    private nextGroupId: number = 2;
+    private groupVariants: Map<number, StampVariant> = new Map();
+    private defaultStampVariant: StampVariant = DEFAULT_STAMP_VARIANT;
 
     // Per-tool current font description. Only 'text' has an entry today;
     // other tools have no editable font and return null from getToolFontDesc.
@@ -381,6 +391,11 @@ export const CanvasView = GObject.registerClass(
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
       this.lastCoalesceKey = null;
+      // Fresh document → fresh groups. The remembered defaultStampVariant (a
+      // tool preference, like the per-tool colors) survives across images.
+      this.placementGroupId = 1;
+      this.nextGroupId = 2;
+      this.groupVariants.clear();
       this.mode = 'fit';
       this.zoomFactor = 1;
       this.pendingInitialZoom = true;
@@ -586,27 +601,154 @@ export const CanvasView = GObject.registerClass(
       this.toolFontSizes.set(toolId, size);
     }
 
-    // Variant for the next stamp the user places.
-    getStampVariant(): StampVariant {
-      return this.toolStampVariant;
+    // ---------- Stamp groups ----------
+
+    // The groups that actually have stamps, as stable ids sorted ascending
+    // (= creation order). The style bar renders these as a gap-free "Group 1..K"
+    // by position, so emptying a group relabels the rest. The number tool folds
+    // in its (possibly still-empty) placement group on top of this; select mode
+    // shows only these populated groups as reassignment targets.
+    getStampGroupIds(): number[] {
+      const ids = new Set<number>();
+      for (const a of this.state.actions) {
+        const g = numberStampGroup(a);
+        if (g !== null) ids.add(g);
+      }
+      return [...ids].sort((a, b) => a - b);
     }
 
-    // Set the active variant. Updates the tool default for future placements
-    // AND rewrites every existing stamp in the current state so the toggle
-    // affects all stamps (one history entry, undoable).
-    setStampVariant(variant: StampVariant): void {
-      if (this.toolStampVariant === variant) return;
-      this.toolStampVariant = variant;
+    getPlacementGroupId(): number {
+      return this.placementGroupId;
+    }
+
+    // The variant a group currently uses: read from its stamps if it has any,
+    // else its remembered choice, else the persisted default.
+    private groupVariantFor(groupId: number): StampVariant {
+      for (const a of this.state.actions) {
+        if (numberStampGroup(a) === groupId) return numberStampVariant(a)!;
+      }
+      return this.groupVariants.get(groupId) ?? this.defaultStampVariant;
+    }
+
+    getPlacementGroupVariant(): StampVariant {
+      return this.groupVariantFor(this.placementGroupId);
+    }
+
+    private groupHasStamps(groupId: number): boolean {
+      return this.state.actions.some((a) => numberStampGroup(a) === groupId);
+    }
+
+    // After a move or delete (pass the resulting action list), if the placement
+    // group has been emptied and other groups survive, snap placement to the
+    // last surviving group so the emptied group disappears instead of lingering
+    // as a phantom empty entry. A freshly created, still-empty placement group
+    // (from newPlacementGroup) is the intended exception — that path never
+    // empties a group, so it never reaches here.
+    private collapseEmptyPlacementGroup(actions: ReadonlyArray<Action>): void {
+      let placementPresent = false;
+      let last = -1;
+      for (const a of actions) {
+        const g = numberStampGroup(a);
+        if (g === null) continue;
+        if (g === this.placementGroupId) placementPresent = true;
+        if (g > last) last = g;
+      }
+      if (!placementPresent && last >= 0) this.placementGroupId = last;
+    }
+
+    // Switch the group new stamps land in. Pure tool state — no history push.
+    setPlacementGroup(groupId: number): void {
+      if (this.placementGroupId === groupId) return;
+      this.placementGroupId = groupId;
+      this.notifyStateChange();
+    }
+
+    // Begin a fresh placement group. Capped at one empty group at a time: if the
+    // current group has no stamps yet, this is a no-op (you're already in an
+    // empty group). Returns whether a new group was actually started.
+    newPlacementGroup(): boolean {
+      if (!this.groupHasStamps(this.placementGroupId)) return false;
+      this.placementGroupId = this.nextGroupId++;
+      this.notifyStateChange();
+      return true;
+    }
+
+    // Set the active placement group's variant: remember it (so the not-yet-
+    // populated case sticks), seed the persisted default, and rewrite that
+    // group's existing stamps in one undoable entry.
+    setPlacementGroupVariant(variant: StampVariant): void {
+      this.groupVariants.set(this.placementGroupId, variant);
+      this.defaultStampVariant = variant;
       const cur = this.state.actions;
-      const next = setStampVariantOnAll(cur, variant);
-      // Only push if at least one stamp changed; otherwise this is just a
-      // tool-default flip with no visible effect.
-      const changed = next.some((a, i) => a !== cur[i]);
-      if (changed) {
+      const next = setStampVariantInGroup(cur, this.placementGroupId, variant);
+      if (next.some((a, i) => a !== cur[i])) {
         this.pushState({surface: this.state.surface, actions: next});
       }
       this.queue_draw();
       this.notifyStateChange();
+    }
+
+    // Flip the variant of every group represented in the current selection (a
+    // group stays uniformly Number or Letter, so this affects the whole group,
+    // not just the selected stamps). One history entry.
+    setSelectedGroupsVariant(variant: StampVariant): boolean {
+      const cur = this.state.actions;
+      const groups = new Set<number>();
+      for (const i of this.selectedIndices) {
+        const g = numberStampGroup(cur[i]);
+        if (g !== null) groups.add(g);
+      }
+      if (groups.size === 0) return false;
+      this.defaultStampVariant = variant;
+      let next: Action[] = cur as Action[];
+      for (const g of groups) {
+        this.groupVariants.set(g, variant);
+        next = setStampVariantInGroup(next, g, variant);
+      }
+      if (next.some((a, i) => a !== cur[i])) {
+        this.pushState({surface: this.state.surface, actions: next});
+      }
+      this.queue_draw();
+      this.notifyStateChange();
+      return true;
+    }
+
+    // Move the selected stamps into a group ('new' mints one), each spliced to
+    // just after that group's last existing member so it lands at the end of the
+    // group's numbers; moved stamps adopt the target group's variant. Non-stamp
+    // members of the selection are left where they are. One history entry; the
+    // moved stamps become the new selection.
+    reassignSelectedGroup(target: number | 'new'): boolean {
+      const cur = this.state.actions;
+      const moveIdx = [...this.selectedIndices]
+        .filter((i) => i >= 0 && i < cur.length && isNumberStampAction(cur[i]))
+        .sort((a, b) => a - b);
+      if (moveIdx.length === 0) return false;
+
+      const groupId = target === 'new' ? this.nextGroupId++ : target;
+      const variant = this.groupVariantFor(groupId);
+      const moveSet = new Set(moveIdx);
+      const moved = moveIdx.map((i) => reassignStamp(cur[i], groupId, variant));
+      const rest = cur.filter((_, i) => !moveSet.has(i));
+
+      // Insert after the target group's last surviving member; if the target has
+      // none (a new or emptied group), append at the end of the document.
+      let insertAt = rest.length;
+      for (let i = rest.length - 1; i >= 0; i--) {
+        if (numberStampGroup(rest[i]) === groupId) {
+          insertAt = i + 1;
+          break;
+        }
+      }
+      const next = renumberStamps([...rest.slice(0, insertAt), ...moved, ...rest.slice(insertAt)]);
+      this.collapseEmptyPlacementGroup(next);
+
+      this.selectedIndices.clear();
+      for (let k = 0; k < moved.length; k++) this.selectedIndices.add(insertAt + k);
+      this.pushState({surface: this.state.surface, actions: next});
+      this.queue_draw();
+      this.notifyStateChange();
+      return true;
     }
 
     // Snapshot only the styles the user has actually changed (present in the
@@ -622,14 +764,14 @@ export const CanvasView = GObject.registerClass(
       for (const [id, f] of this.toolFontDescs) ensure(id).fontDesc = f;
       for (const [id, s] of this.toolFontSizes) ensure(id).fontSize = s;
       const snap: ToolStylesSnapshot = {tools};
-      if (this.toolStampVariant !== DEFAULT_STAMP_VARIANT)
-        snap.stampVariant = this.toolStampVariant;
+      if (this.defaultStampVariant !== DEFAULT_STAMP_VARIANT)
+        snap.stampVariant = this.defaultStampVariant;
       return snap;
     }
 
     // Restore a snapshot into the per-tool maps. Called once at startup before
-    // any image exists, so the stamp variant is set directly (not via
-    // setStampVariant, which would rewrite existing stamps and push history).
+    // any image exists, so the persisted variant only seeds the default for new
+    // groups — there are no stamps to rewrite yet.
     importToolStyles(snap: ToolStylesSnapshot): void {
       for (const [id, e] of Object.entries(snap.tools ?? {})) {
         const toolId = id as ToolId;
@@ -640,7 +782,7 @@ export const CanvasView = GObject.registerClass(
         if (e.fontDesc) this.toolFontDescs.set(toolId, e.fontDesc);
         if (e.fontSize !== undefined) this.toolFontSizes.set(toolId, e.fontSize);
       }
-      if (snap.stampVariant) this.toolStampVariant = snap.stampVariant;
+      if (snap.stampVariant) this.defaultStampVariant = snap.stampVariant;
     }
 
     // Every currently-selected action, in selection (insertion) order. The
@@ -847,9 +989,11 @@ export const CanvasView = GObject.registerClass(
     removeAction(index: number): void {
       const cur = this.state.actions;
       if (index < 0 || index >= cur.length) return;
+      const survivors = renumberStamps(cur.filter((_, i) => i !== index));
+      this.collapseEmptyPlacementGroup(survivors);
       this.pushState({
         surface: this.state.surface,
-        actions: renumberStamps(cur.filter((_, i) => i !== index)),
+        actions: survivors,
       });
       if (this.editingActionIndex === index) this.editingActionIndex = -1;
       this.selectedIndices.clear();
@@ -864,6 +1008,7 @@ export const CanvasView = GObject.registerClass(
       // deleting "2" from "1,2,3" leaves "1,2" — not "1,3" with a hole that
       // the next placement would duplicate.
       const survivors = renumberStamps(cur.filter((_, i) => !sel.has(i)));
+      this.collapseEmptyPlacementGroup(survivors);
       this.pushState({
         surface: this.state.surface,
         actions: survivors,
@@ -1317,7 +1462,15 @@ export const CanvasView = GObject.registerClass(
         const interior = this.getToolFill('number') ?? defaultFillForTool('number') ?? fg;
         const style = numberStampStyle(fg, interior);
         this.addAction(
-          makeNumberStampAction(ix, iy, this.nextStampNumber(), this.toolStampVariant, 0, style)
+          makeNumberStampAction(
+            ix,
+            iy,
+            this.nextStampNumber(),
+            this.placementGroupId,
+            this.getPlacementGroupVariant(),
+            0,
+            style
+          )
         );
       }
     }
@@ -1410,11 +1563,12 @@ export const CanvasView = GObject.registerClass(
       return 'outside';
     }
 
+    // The next number for a stamp placed in the active group: stamps are
+    // counted per group, so each group runs 1..N independently.
     private nextStampNumber(): number {
-      const acts = this.state.actions;
       let count = 0;
-      for (let i = 0; i < acts.length; i++) {
-        if (isNumberStampAction(acts[i])) count++;
+      for (const a of this.state.actions) {
+        if (numberStampGroup(a) === this.placementGroupId) count++;
       }
       return count + 1;
     }
@@ -1519,6 +1673,41 @@ export const CanvasView = GObject.registerClass(
       if (bounds) drawCandidateBox(cr, bounds, scale);
     }
 
+    // A small "G<n>" badge floating at the top-right of every stamp that shares
+    // a group with the current selection — so selecting one stamp reveals where
+    // the rest of its group is. <n> is the group's gap-free ordinal, the same
+    // label the Group dropdown shows. Only drawn when more than one group has
+    // stamps; with a single group there's nothing to find. Overlay-only: it
+    // decorates the canvas on screen and never enters an export (which replays
+    // actions only). Stays upright regardless of stamp rotation.
+    private drawGroupBadges(cr: Cairo.Context, acts: ReadonlyArray<Action>, scale: number): void {
+      if (this.selectedIndices.size === 0) return;
+      const groupIds = this.getStampGroupIds();
+      if (groupIds.length < 2) return;
+      // The groups represented in the selection; every stamp in any of them gets
+      // a badge, selected or not.
+      const activeGroups = new Set<number>();
+      for (const i of this.selectedIndices) {
+        if (i < 0 || i >= acts.length) continue;
+        const g = numberStampGroup(acts[i]);
+        if (g !== null) activeGroups.add(g);
+      }
+      if (activeGroups.size === 0) return;
+      for (let i = 0; i < acts.length; i++) {
+        if (i === this.editingActionIndex) continue;
+        const g = numberStampGroup(acts[i]);
+        if (g === null || !activeGroups.has(g)) continue;
+        const bounds = acts[i].getBounds();
+        if (!bounds) continue;
+        // Only the selected stamps move during a drag; their unselected
+        // group-mates stay put, so apply the move offset per stamp.
+        const moved = this.moving && this.selectedIndices.has(i);
+        const ox = moved ? this.moveDx : 0;
+        const oy = moved ? this.moveDy : 0;
+        drawGroupBadge(cr, bounds, scale, ox, oy, `G${groupIds.indexOf(g) + 1}`);
+      }
+    }
+
     private onDraw(
       _widget: Gtk.DrawingArea,
       cr: Cairo.Context,
@@ -1576,6 +1765,7 @@ export const CanvasView = GObject.registerClass(
 
       this.drawSelectionBoxes(cr, acts, t.scale);
       this.drawHoverCandidate(cr, acts, t.scale);
+      this.drawGroupBadges(cr, acts, t.scale);
 
       // Thin border around the current image so the canvas is distinguishable
       // from the app background — important once the surface has transparent
@@ -1675,5 +1865,68 @@ function drawCandidateBox(cr: Cairo.Context, bounds: Bounds, scale: number): voi
     bounds.y2 - bounds.y1 + 2 * pad
   );
   cr.stroke();
+  cr.restore();
+}
+
+function roundedRectPath(
+  cr: Cairo.Context,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+): void {
+  cr.newSubPath();
+  cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+  cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+  cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+  cr.arc(x + r, y + r, r, Math.PI, (3 * Math.PI) / 2);
+  cr.closePath();
+}
+
+// A translucent dark pill with light text, anchored just off the top-right of
+// the stamp's bounds. All dimensions are widget pixels converted to image space
+// (/scale) so the badge is a constant on-screen size at any zoom. Drawn with
+// Cairo's toy text API — plenty for a two-glyph label, and self-contained
+// (no Pango layout to manage in the overlay pass).
+function drawGroupBadge(
+  cr: Cairo.Context,
+  bounds: Bounds,
+  scale: number,
+  ox: number,
+  oy: number,
+  text: string
+): void {
+  const u = 1 / scale; // one widget pixel in image-space units
+  const fontPx = 11;
+  const padX = 4;
+  const padY = 2;
+
+  cr.save();
+  cr.translate(ox, oy);
+  cr.selectFontFace('Sans', Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
+  cr.setFontSize(fontPx * u);
+  // The label is always "G" + digits — all full-height glyphs, no descenders —
+  // so the ink extents give a stable pill size across group numbers (GJS's
+  // Cairo binding doesn't expose fontExtents).
+  const te = cr.textExtents(text);
+  const boxW = te.width + 2 * padX * u;
+  const boxH = te.height + 2 * padY * u;
+
+  // Lower-left corner of the pill sits at the stamp's top-right, with a few
+  // pixels of overlap so it reads as attached rather than floating loose.
+  const overlap = 3 * u;
+  const x = bounds.x2 - overlap;
+  const y = bounds.y1 - boxH + overlap;
+
+  roundedRectPath(cr, x, y, boxW, boxH, 3 * u);
+  cr.setSourceRGBA(0, 0, 0, 0.66);
+  cr.fill();
+
+  cr.setSourceRGBA(1, 1, 1, 0.97);
+  // Offset by the glyph bearings so the text sits padded inside the pill: x by
+  // the left side bearing, y by the (negative) top bearing to drop the baseline.
+  cr.moveTo(x + padX * u - te.xBearing, y + padY * u - te.yBearing);
+  cr.showText(text);
   cr.restore();
 }

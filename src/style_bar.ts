@@ -21,6 +21,8 @@ import {
   defaultFontDescForTool,
   defaultFontSizeForTool,
   defaultWidthForTool,
+  numberStampGroup,
+  numberStampVariant,
 } from './actions.js';
 
 // Structural equality for style values (color arrays or scalar primitives),
@@ -88,7 +90,17 @@ export class StyleBar {
   private dashGroup!: Gtk.Box;
   private dashLabel!: Gtk.Label;
   private dashDropdown!: Gtk.DropDown;
+  // Group selector for the number stamp: choose the placement group (number
+  // tool) or reassign the selected stamps (select tool). The model is rebuilt
+  // each refresh from the canvas's live group list, with a trailing "+ New
+  // group" entry; `groupIds` maps a row index back to a stable group id.
+  private groupGroup!: Gtk.Box;
+  private groupLabel!: Gtk.Label;
+  private groupDropdown!: Gtk.DropDown;
+  private groupModel!: Gtk.StringList;
+  private groupIds: number[] = [];
   private variantGroup!: Gtk.Box;
+  private variantLabel!: Gtk.Label;
   private variantDropdown!: Gtk.DropDown;
   // Select-mode action (not a style picker): duplicates the current selection.
   // Visible only when the select tool has something selected.
@@ -207,15 +219,22 @@ export class StyleBar {
     this.dashGroup = makeGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
+    // Group selector (stamp). Rows are filled in refresh() from the canvas's
+    // group list; the model starts empty.
+    const groupSep = makeSep();
+    this.groupModel = Gtk.StringList.new([]);
+    this.groupDropdown = new Gtk.DropDown({model: this.groupModel});
+    this.groupDropdown.connect('notify::selected', () => this.onGroupPicked());
+    this.groupLabel = new Gtk.Label({label: 'Group', css_classes: ['caption']});
+    this.groupGroup = makeGroup(groupSep, this.groupLabel, this.groupDropdown);
+    styleBar.append(this.groupGroup);
+
     // Variant group
     const variantSep = makeSep();
     this.variantDropdown = Gtk.DropDown.new_from_strings(['Number', 'Letter']);
     this.variantDropdown.connect('notify::selected', () => this.onVariantPicked());
-    this.variantGroup = makeGroup(
-      variantSep,
-      new Gtk.Label({label: 'Variant', css_classes: ['caption']}),
-      this.variantDropdown
-    );
+    this.variantLabel = new Gtk.Label({label: 'Variant', css_classes: ['caption']});
+    this.variantGroup = makeGroup(variantSep, this.variantLabel, this.variantDropdown);
     styleBar.append(this.variantGroup);
 
     // Font group
@@ -255,6 +274,7 @@ export class StyleBar {
       {group: this.fillGroup, sep: fillSep},
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
+      {group: this.groupGroup, sep: groupSep},
       {group: this.variantGroup, sep: variantSep},
       {group: this.fontGroup, sep: fontSep},
     ];
@@ -368,9 +388,7 @@ export class StyleBar {
       this.selectionMixed((a) => a.getDash())
     );
 
-    const tool = this.canvas.getTool();
-    this.variantGroup.set_visible(tool === 'number');
-    this.variantDropdown.set_selected(this.canvas.getStampVariant() === 'letter' ? 1 : 0);
+    this.refreshStampControls();
 
     const fontDesc = this.styleTargetFontDesc();
     this.fontGroup.set_visible(fontDesc !== null);
@@ -418,10 +436,96 @@ export class StyleBar {
     this.editor.refreshStyle({...current, ...overrides});
   }
 
+  // The Group selector and per-group Variant control (both number-stamp only).
+  // Pulled out of refresh() so each stays simple. Group shows for the number
+  // tool (picks the placement group) and for a stamps-only selection (reassigns
+  // it); Variant shows the active group's value (placement) or the selection's
+  // (select), flagging "(mixed)" when selected stamps disagree.
+  private refreshStampControls(): void {
+    const tool = this.canvas.getTool();
+
+    // Populated groups are the reassignment targets shown in select mode. The
+    // number tool additionally folds in its placement group, which may still be
+    // empty (a fresh "+ New group") — that's the one empty group allowed to show.
+    const present = this.canvas.getStampGroupIds();
+    const placement = this.canvas.getPlacementGroupId();
+    const groupIds =
+      tool === 'number' && !present.includes(placement)
+        ? [...present, placement].sort((a, b) => a - b)
+        : present;
+    this.groupIds = groupIds;
+    const groupSummary = this.selectionSummary((a) => numberStampGroup(a));
+    const groupVisible = tool === 'number' || (tool === 'select' && groupSummary.value !== null);
+    this.groupGroup.set_visible(groupVisible);
+    if (groupVisible) {
+      this.rebuildGroupModel(groupIds.length);
+      let selectedRow = Gtk.INVALID_LIST_POSITION;
+      let groupMixed = false;
+      if (tool === 'number') {
+        selectedRow = groupIds.indexOf(this.canvas.getPlacementGroupId());
+      } else if (groupSummary.mixed) {
+        groupMixed = true;
+      } else if (groupSummary.value !== null) {
+        selectedRow = groupIds.indexOf(groupSummary.value);
+      }
+      this.groupDropdown.set_selected(selectedRow >= 0 ? selectedRow : Gtk.INVALID_LIST_POSITION);
+      setCaption(this.groupLabel, 'Group', groupMixed);
+    }
+
+    const variantValue: StampVariant | null =
+      tool === 'number'
+        ? this.canvas.getPlacementGroupVariant()
+        : tool === 'select'
+          ? this.selectionSummary((a) => numberStampVariant(a)).value
+          : null;
+    this.variantGroup.set_visible(variantValue !== null);
+    if (variantValue !== null) {
+      this.variantDropdown.set_selected(variantValue === 'letter' ? 1 : 0);
+    }
+    setCaption(
+      this.variantLabel,
+      'Variant',
+      this.selectionMixed((a) => numberStampVariant(a))
+    );
+  }
+
+  // Rebuild the group dropdown rows to "Group 1..count" plus a trailing
+  // "+ New group". Labels are positional (gap-free); groupIds (set in refresh)
+  // carries the index → stable id mapping the handlers use.
+  private rebuildGroupModel(count: number): void {
+    const labels: string[] = [];
+    for (let i = 0; i < count; i++) labels.push(`Group ${i + 1}`);
+    labels.push('+ New group');
+    this.groupModel.splice(0, this.groupModel.get_n_items(), labels);
+  }
+
+  private onGroupPicked(): void {
+    if (this.updatingPicker || !this.groupDropdown) return;
+    const row = this.groupDropdown.get_selected();
+    if (row === Gtk.INVALID_LIST_POSITION) return;
+    // The trailing row past the real groups is "+ New group".
+    const isNew = row >= this.groupIds.length;
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      this.canvas.reassignSelectedGroup(isNew ? 'new' : this.groupIds[row]);
+    } else if (isNew) {
+      this.canvas.newPlacementGroup();
+    } else {
+      this.canvas.setPlacementGroup(this.groupIds[row]);
+    }
+    // Resync the row in case the action was a no-op (e.g. "+ New group" while
+    // the current group is already empty) and so produced no state change.
+    this.refresh();
+  }
+
   private onVariantPicked(): void {
     if (this.updatingPicker || !this.variantDropdown) return;
     const variant: StampVariant = this.variantDropdown.get_selected() === 1 ? 'letter' : 'number';
-    this.canvas.setStampVariant(variant);
+    if (this.canvas.getTool() === 'select') {
+      this.canvas.setSelectedGroupsVariant(variant);
+    } else {
+      this.canvas.setPlacementGroupVariant(variant);
+    }
   }
 
   private onFontDescPicked(): void {

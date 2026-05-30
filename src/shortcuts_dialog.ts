@@ -38,6 +38,7 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', 'Shift', 'Z'], alt: ['Ctrl', 'Y'], desc: 'Redo'},
       {keys: ['Delete'], alt: ['Backspace'], desc: 'Delete selection'},
       {keys: ['Ctrl', 'D'], desc: 'Duplicate selection'},
+      {keys: ['Ctrl', 'G'], desc: 'Start a new stamp group (number / select tool)'},
       {keys: ['Esc'], desc: 'Deselect'},
       {keys: ['['], alt: [']'], desc: 'Aim up / down through overlapping items (select tool)'},
       {keys: ['Shift', 'Space'], desc: 'Add/remove aimed item (select tool)'},
