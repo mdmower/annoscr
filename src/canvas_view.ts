@@ -74,10 +74,6 @@ function isShift(gesture: Gtk.GestureDrag): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
 }
 
-function isAlt(gesture: Gtk.GestureDrag): boolean {
-  return (gesture.get_current_event_state() & Gdk.ModifierType.ALT_MASK) !== 0;
-}
-
 function isDragTool(id: ToolId): boolean {
   return id !== 'select' && id !== 'text' && id !== 'number' && id !== 'resize';
 }
@@ -119,6 +115,12 @@ const HISTORY_CAP = 100;
 
 // Widget-space hit tolerance for resize edge/corner grabs.
 const HANDLE_HIT_PX = 8;
+
+// Accumulated scroll delta required to dig one step deeper in the hit-stack.
+// A plain mouse wheel reports ~1.0 per notch (so one notch = one step); the
+// accumulator also smooths a touchpad's many small fractions into whole steps.
+// The [ and ] keys are the precise, one-step-per-press alternative.
+const SCROLL_DIG_STEP = 1;
 
 // Image-space cell size for the transparency checkerboard. Cells appear
 // 8 widget pixels wide at 1:1 zoom, larger when zoomed in, smaller when
@@ -196,11 +198,29 @@ export const CanvasView = GObject.registerClass(
     private dragStartX: number = 0;
     private dragStartY: number = 0;
 
-    // Selection state (select tool only).
-    private selectedIndex: number = -1;
+    // Selection state (select tool only). A set of action indices, in
+    // insertion order (first-picked first — the style bar uses that order for
+    // its "first selected value" display). Single-selection is just a set of
+    // size 1; multi-select adds/removes members via Shift-click.
+    private selectedIndices: Set<number> = new Set();
     private moveDx: number = 0;
     private moveDy: number = 0;
     private moving: boolean = false;
+    // True while the active drag began as a Shift-click toggle, so it adjusts
+    // membership only and never turns into a move (a Shift-click is a toggle
+    // gesture, not a grab).
+    private shiftToggleDrag: boolean = false;
+
+    // "Aim" state for digging through overlapping actions (select tool). The
+    // hover candidate is the action the next click acts on, drawn with a
+    // distinct outline. `digDepth` indexes into the hit-stack under the
+    // pointer; Alt+scroll changes it, and it resets to the top whenever the
+    // pointer moves onto a different stack (tracked by `digStackKey`).
+    // `scrollAccum` integrates fractional touchpad scroll into whole steps.
+    private hoverCandidate: number = -1;
+    private digDepth: number = 0;
+    private digStackKey: string = '';
+    private scrollAccum: number = 0;
     // Index of an action currently being re-edited; hidden from render
     // (the live editor widget shows in its place).
     private editingActionIndex: number = -1;
@@ -331,13 +351,24 @@ export const CanvasView = GObject.registerClass(
 
     private resetTransientState(): void {
       this.liveStroke = null;
-      this.selectedIndex = -1;
+      this.selectedIndices.clear();
       this.editingActionIndex = -1;
       this.moving = false;
       this.moveDx = 0;
       this.moveDy = 0;
+      this.shiftToggleDrag = false;
+      this.resetHoverDig();
       this.resizeRegion = null;
       this.resizeGrab = null;
+    }
+
+    // Clear the dig/aim state so a stale candidate doesn't linger across tool
+    // switches, undo/redo, or image loads.
+    private resetHoverDig(): void {
+      this.hoverCandidate = -1;
+      this.digDepth = 0;
+      this.digStackKey = '';
+      this.scrollAccum = 0;
     }
 
     setImage(surface: Cairo.ImageSurface): void {
@@ -449,8 +480,9 @@ export const CanvasView = GObject.registerClass(
       if (this.currentToolId === toolId) return;
       this.currentToolId = toolId;
       this.liveStroke = null;
-      this.selectedIndex = -1;
+      this.selectedIndices.clear();
       this.moving = false;
+      this.resetHoverDig();
       this.lastCoalesceKey = null;
       if (toolId === 'resize' && this.state.surface) {
         // Auto-select current canvas bounds so the user can immediately drag
@@ -606,19 +638,30 @@ export const CanvasView = GObject.registerClass(
       if (snap.stampVariant) this.toolStampVariant = snap.stampVariant;
     }
 
-    // The currently selected action, if any. Used by the color picker to
-    // populate itself with the selected action's color in select mode.
-    getSelectedAction(): Action | null {
-      const i = this.selectedIndex;
-      if (i < 0 || i >= this.state.actions.length) return null;
-      return this.state.actions[i];
+    // Every currently-selected action, in selection (insertion) order. The
+    // style bar walks these to decide which controls apply to the whole
+    // selection and what value to display.
+    getSelectedActions(): Action[] {
+      const acts = this.state.actions;
+      const out: Action[] = [];
+      for (const i of this.selectedIndices) {
+        if (i >= 0 && i < acts.length) out.push(acts[i]);
+      }
+      return out;
+    }
+
+    // Canonical (sorted) key for the current selection, used to tag coalescing
+    // history entries so a style drag over the same multi-selection collapses
+    // to one entry but a different selection starts a new one.
+    private selectionKey(): string {
+      return [...this.selectedIndices].sort((a, b) => a - b).join(',');
     }
 
     // Clear the current selection. Returns true if something was actually
     // deselected so callers can decide whether to consume the input.
     clearSelection(): boolean {
-      if (this.selectedIndex < 0) return false;
-      this.selectedIndex = -1;
+      if (this.selectedIndices.size === 0) return false;
+      this.selectedIndices.clear();
       this.lastCoalesceKey = null;
       this.queue_draw();
       this.notifyStateChange();
@@ -637,22 +680,39 @@ export const CanvasView = GObject.registerClass(
       value: T,
       key: string
     ): boolean {
-      const i = this.selectedIndex;
       const cur = this.state.actions;
-      if (i < 0 || i >= cur.length) return false;
-      const current = get(cur[i]);
-      if (current === null) return false;
-      // Re-picking the value the action already has would push a content-
-      // identical (new-reference) state — an undo step that does nothing
-      // visible. Treat it as applied but skip the push. See P1-03.
-      if (valuesEqual(current, value)) return true;
-      const updated = apply(cur[i], value);
+      if (this.selectedIndices.size === 0) return false;
+      // Broadcast to every selected action that supports the property (its
+      // getter returns non-null). Actions that don't carry it pass through
+      // untouched; this is the "shared control" rule the style bar mirrors.
+      let applicable = false;
+      let changed = false;
+      const next = cur.map((a, j) => {
+        if (!this.selectedIndices.has(j)) return a;
+        const current = get(a);
+        if (current === null) return a;
+        applicable = true;
+        // Re-picking the value an action already has would push a content-
+        // identical (new-reference) state — an undo step that does nothing
+        // visible. Skip those actions. See P1-03.
+        if (valuesEqual(current, value)) return a;
+        changed = true;
+        return apply(a, value);
+      });
+      // No selected action supports this property — the picker shouldn't have
+      // been active; treat as not handled.
+      if (!applicable) return false;
+      // Applicable but every selected action already had the value: handled,
+      // but nothing to push.
+      if (!changed) return true;
+      // Coalesce on the property AND the selection, so a slider drag over one
+      // selection is a single entry but re-selecting starts a fresh one.
       this.pushState(
         {
           surface: this.state.surface,
-          actions: cur.map((a, j) => (j === i ? updated : a)),
+          actions: next,
         },
-        `${key}:${i}`
+        `${key}:${this.selectionKey()}`
       );
       this.queue_draw();
       return true;
@@ -787,22 +847,23 @@ export const CanvasView = GObject.registerClass(
         actions: renumberStamps(cur.filter((_, i) => i !== index)),
       });
       if (this.editingActionIndex === index) this.editingActionIndex = -1;
-      this.selectedIndex = -1;
+      this.selectedIndices.clear();
       this.queue_draw();
     }
 
     deleteSelected(): boolean {
       const cur = this.state.actions;
-      if (this.selectedIndex < 0 || this.selectedIndex >= cur.length) return false;
-      const removeAt = this.selectedIndex;
-      // Renumber stamps so deleting "2" from "1,2,3" leaves "1,2" — not
-      // "1,3" with a hole that the next placement would duplicate.
-      const survivors = renumberStamps(cur.filter((_, i) => i !== removeAt));
+      if (this.selectedIndices.size === 0) return false;
+      const sel = this.selectedIndices;
+      // Drop every selected action in one history entry. Renumber stamps so
+      // deleting "2" from "1,2,3" leaves "1,2" — not "1,3" with a hole that
+      // the next placement would duplicate.
+      const survivors = renumberStamps(cur.filter((_, i) => !sel.has(i)));
       this.pushState({
         surface: this.state.surface,
         actions: survivors,
       });
-      this.selectedIndex = -1;
+      this.selectedIndices.clear();
       this.queue_draw();
       return true;
     }
@@ -831,7 +892,7 @@ export const CanvasView = GObject.registerClass(
       });
       this.resizeRegion = null;
       this.liveStroke = null;
-      this.selectedIndex = -1;
+      this.selectedIndices.clear();
       this.editingActionIndex = -1;
       this.queue_draw();
       return true;
@@ -854,7 +915,7 @@ export const CanvasView = GObject.registerClass(
         actions: this.state.actions.map((a) => a.rotateOnImage(direction, oldW, oldH)),
       });
       this.liveStroke = null;
-      this.selectedIndex = -1;
+      this.selectedIndices.clear();
       this.editingActionIndex = -1;
       this.queue_draw();
     }
@@ -880,8 +941,23 @@ export const CanvasView = GObject.registerClass(
     private installPointer(): void {
       const motion = new Gtk.EventControllerMotion();
       motion.connect('motion', (_c, x, y) => this.onPointerMotion(x, y));
-      motion.connect('leave', () => (this.lastPointer = null));
+      motion.connect('leave', () => {
+        this.lastPointer = null;
+        if (this.hoverCandidate !== -1) {
+          this.hoverCandidate = -1;
+          this.queue_draw();
+        }
+      });
       this.add_controller(motion);
+
+      // Alt+scroll digs the hover candidate through overlapping actions. Plain
+      // and Ctrl scroll are left alone (Ctrl zoom is handled on the scrolled
+      // window; plain scroll pans), so we only consume the event when Alt is
+      // held over a stack of 2+.
+      const scroll = new Gtk.EventControllerScroll();
+      scroll.set_flags(Gtk.EventControllerScrollFlags.BOTH_AXES);
+      scroll.connect('scroll', (c, _dx, dy) => this.onScrollDig(c, dy));
+      this.add_controller(scroll);
 
       const drag = new Gtk.GestureDrag();
       drag.set_button(Gdk.BUTTON_PRIMARY);
@@ -918,6 +994,15 @@ export const CanvasView = GObject.registerClass(
     // their cursor from `cursorForTool` (set in setTool / installPointer).
     private onPointerMotion(wx: number, wy: number): void {
       this.lastPointer = [wx, wy];
+      // Select tool: track which action the next click will hit (the hover
+      // candidate) so it can be outlined and dug into with Alt+scroll.
+      if (this.currentToolId === 'select' && this.state.surface) {
+        const [ix, iy] = this.widgetToImage(wx, wy);
+        const prev = this.hoverCandidate;
+        this.resolveCandidate(ix, iy);
+        if (this.hoverCandidate !== prev) this.queue_draw();
+        return;
+      }
       if (this.currentToolId !== 'resize' || !this.state.surface) return;
       if (this.resizeGrab) return; // mid-drag — keep the grab cursor.
       const [ix, iy] = this.widgetToImage(wx, wy);
@@ -925,6 +1010,125 @@ export const CanvasView = GObject.registerClass(
       const tol = HANDLE_HIT_PX / t.scale;
       const grab = this.hitTestResizeRegion(ix, iy, tol);
       this.set_cursor_from_name(cursorForResizeGrab(grab));
+    }
+
+    // Update the selection on a select-tool press, acting on the current aim
+    // (the hover candidate — the topmost action under the cursor, or a deeper
+    // one if the user dug in with Alt+scroll). Shift toggles that candidate's
+    // membership without starting a move. A plain press selects the candidate
+    // alone, UNLESS the candidate is already selected — then the selection is
+    // kept so a drag moves the whole set as a unit. A plain press on empty
+    // space clears the selection.
+    private onSelectPress(wx: number, wy: number, gesture: Gtk.GestureDrag): void {
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      const prevKey = this.selectionKey();
+      this.moving = false;
+      this.moveDx = 0;
+      this.moveDy = 0;
+      this.shiftToggleDrag = false;
+
+      const candidate = this.resolveCandidate(ix, iy);
+      if (isShift(gesture)) {
+        // Shift edits membership only (never a move). Toggling the aimed
+        // candidate works at any depth, so a buried item can be added or
+        // removed without disturbing the ones above it.
+        this.shiftToggleDrag = true;
+        if (candidate >= 0) {
+          if (this.selectedIndices.has(candidate)) this.selectedIndices.delete(candidate);
+          else this.selectedIndices.add(candidate);
+        }
+      } else if (candidate < 0 || !this.selectedIndices.has(candidate)) {
+        this.selectedIndices.clear();
+        if (candidate >= 0) this.selectedIndices.add(candidate);
+      }
+
+      this.queue_draw();
+      if (this.selectionKey() !== prevKey) {
+        this.lastCoalesceKey = null;
+        this.notifyStateChange();
+      }
+    }
+
+    // Resolve the hover candidate at (ix, iy): the action the next click acts
+    // on. It's the entry of the under-cursor hit-stack at the current dig
+    // depth. The depth resets to the top (depth 0) whenever the pointer moves
+    // onto a different stack of actions. Updates the cached candidate + depth
+    // state and returns the index (-1 if nothing is under the cursor).
+    private resolveCandidate(ix: number, iy: number): number {
+      const hits = this.hitStack(ix, iy);
+      const key = hits.join(',');
+      if (key !== this.digStackKey) {
+        this.digStackKey = key;
+        this.digDepth = 0;
+        this.scrollAccum = 0;
+      }
+      this.hoverCandidate = hits.length === 0 ? -1 : hits[this.digDepth % hits.length];
+      return this.hoverCandidate;
+    }
+
+    // The hit-stack under the current pointer, or [] when there's no pointer /
+    // no image / not the select tool. Both the Alt+scroll and [ / ] dig paths
+    // aim at whatever the pointer is hovering.
+    private hoverStack(): number[] {
+      if (this.currentToolId !== 'select' || !this.state.surface || !this.lastPointer) return [];
+      const [ix, iy] = this.widgetToImage(this.lastPointer[0], this.lastPointer[1]);
+      return this.hitStack(ix, iy);
+    }
+
+    // Move the dig depth by `dir` (+1 deeper / -1 shallower, wrapping) within
+    // the given stack, update the candidate, and repaint.
+    private advanceDig(hits: number[], dir: number): void {
+      this.digDepth = (((this.digDepth + dir) % hits.length) + hits.length) % hits.length;
+      this.digStackKey = hits.join(',');
+      this.hoverCandidate = hits[this.digDepth];
+      this.queue_draw();
+    }
+
+    // Alt+scroll cycles the hover candidate down/up the stack under the
+    // pointer, leaving the pointer where it is. Returns true (consuming the
+    // event) only when it actually digs, so plain/Ctrl scroll keep panning and
+    // zooming.
+    private onScrollDig(controller: Gtk.EventControllerScroll, dy: number): boolean {
+      if ((controller.get_current_event_state() & Gdk.ModifierType.ALT_MASK) === 0) return false;
+      const hits = this.hoverStack();
+      if (hits.length <= 1) return false; // nothing to dig through
+      // Integrate fractional (touchpad) deltas so one notch = one step.
+      this.scrollAccum += dy;
+      let stepped = false;
+      while (Math.abs(this.scrollAccum) >= SCROLL_DIG_STEP) {
+        const dir = this.scrollAccum > 0 ? 1 : -1;
+        this.scrollAccum -= dir * SCROLL_DIG_STEP;
+        this.advanceDig(hits, dir);
+        stepped = true;
+      }
+      return stepped;
+    }
+
+    // Dig the hover candidate one step via the keyboard ([ shallower toward the
+    // top, ] deeper). Aims at the stack under the pointer. Returns true if it
+    // dug (a 2+ stack was under the cursor), so the key is consumed only then.
+    digHoverCandidate(dir: number): boolean {
+      const hits = this.hoverStack();
+      if (hits.length <= 1) return false;
+      this.advanceDig(hits, dir);
+      return true;
+    }
+
+    // Toggle the hover candidate's membership in the selection — the keyboard
+    // equivalent of Shift+Click on it (bound to Shift+Space). Aims at whatever
+    // the pointer is hovering (after any [ / ] dig). Returns true if it acted,
+    // so the key is consumed only when there's a candidate. Gated during a
+    // text re-edit for the same reason onDragBegin is (see P1-02).
+    toggleHoverCandidate(): boolean {
+      if (this.currentToolId !== 'select' || this.editingActionIndex >= 0) return false;
+      const i = this.hoverCandidate;
+      if (i < 0 || i >= this.state.actions.length) return false;
+      if (this.selectedIndices.has(i)) this.selectedIndices.delete(i);
+      else this.selectedIndices.add(i);
+      this.lastCoalesceKey = null;
+      this.queue_draw();
+      this.notifyStateChange();
+      return true;
     }
 
     private onDragBegin(wx: number, wy: number, gesture: Gtk.GestureDrag): void {
@@ -935,25 +1139,7 @@ export const CanvasView = GObject.registerClass(
         // can't select+delete another action and leave editingActionIndex
         // stale (which would later replace the wrong action). See P1-02.
         if (this.editingActionIndex >= 0) return;
-        const [ix, iy] = this.widgetToImage(wx, wy);
-        const prev = this.selectedIndex;
-        // If the press lands inside the already-selected action, keep it
-        // selected so double-tap-to-drag on a touchpad doesn't re-run
-        // hit-test and lose the selection on the second tap.
-        const keepCurrent = this.isPointOnSelected(ix, iy);
-        if (!keepCurrent) {
-          this.selectedIndex = isAlt(gesture) ? this.hitTestCycle(ix, iy) : this.hitTest(ix, iy);
-        } else if (isAlt(gesture)) {
-          this.selectedIndex = this.hitTestCycle(ix, iy);
-        }
-        this.moving = false;
-        this.moveDx = 0;
-        this.moveDy = 0;
-        this.queue_draw();
-        if (this.selectedIndex !== prev) {
-          this.lastCoalesceKey = null;
-          this.notifyStateChange();
-        }
+        this.onSelectPress(wx, wy, gesture);
         return;
       }
       if (this.currentToolId === 'resize') {
@@ -987,7 +1173,8 @@ export const CanvasView = GObject.registerClass(
 
     private onDragUpdate(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
-        if (this.selectedIndex < 0) return;
+        // A Shift-click toggle never moves; nothing to drag with no selection.
+        if (this.shiftToggleDrag || this.selectedIndices.size === 0) return;
         const t = this.currentTransform();
         this.moveDx = (wx - this.dragStartX) / t.scale;
         this.moveDy = (wy - this.dragStartY) / t.scale;
@@ -1027,17 +1214,29 @@ export const CanvasView = GObject.registerClass(
 
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
+        // A Shift-click toggle gesture only adjusts membership — no move push.
+        if (this.shiftToggleDrag) {
+          this.shiftToggleDrag = false;
+          this.moving = false;
+          this.moveDx = 0;
+          this.moveDy = 0;
+          return;
+        }
         // Skip a drag that ended back at the origin: translate(0, 0) would
         // still push a new (content-identical) state. See P1-03.
-        if (this.moving && this.selectedIndex >= 0 && (this.moveDx !== 0 || this.moveDy !== 0)) {
+        if (
+          this.moving &&
+          this.selectedIndices.size > 0 &&
+          (this.moveDx !== 0 || this.moveDy !== 0)
+        ) {
           const cur = this.state.actions;
-          const i = this.selectedIndex;
+          const sel = this.selectedIndices;
           const dx = this.moveDx;
           const dy = this.moveDy;
-          const moved = cur[i].translate(dx, dy);
+          // Translate every selected action together in one history entry.
           this.pushState({
             surface: this.state.surface,
-            actions: cur.map((a, j) => (j === i ? moved : a)),
+            actions: cur.map((a, j) => (sel.has(j) ? a.translate(dx, dy) : a)),
           });
         }
         this.moving = false;
@@ -1091,17 +1290,18 @@ export const CanvasView = GObject.registerClass(
     private onSelectDoubleClick(wx: number, wy: number): void {
       if (!this.state.surface) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      // Prefer the current selection when the double-click lands inside it, so a
-      // buried text action selected via Alt+Click still opens for editing.
-      // hitTest alone would return the topmost (likely non-text) action here.
-      const idx = this.isPointOnSelected(ix, iy) ? this.selectedIndex : this.hitTest(ix, iy);
+      // Prefer a selected action under the cursor, so a buried text action
+      // picked via the dig gesture still opens for editing; otherwise fall
+      // back to the current aim (hover candidate), not just the topmost.
+      const selHit = this.selectedIndexAt(ix, iy);
+      const idx = selHit >= 0 ? selHit : this.resolveCandidate(ix, iy);
       if (idx < 0) return;
       const action = this.state.actions[idx];
       if (!isTextAction(action)) return;
       const state = getTextEditState(action);
       if (!state) return;
       this.editingActionIndex = idx;
-      this.selectedIndex = -1;
+      this.selectedIndices.clear();
       this.queue_draw();
       if (this.onTextEditRequest) {
         // Re-place the editor at the action's anchor in widget coordinates so
@@ -1118,23 +1318,9 @@ export const CanvasView = GObject.registerClass(
       }
     }
 
-    private hitTest(ix: number, iy: number): number {
-      const acts = this.state.actions;
-      for (let i = acts.length - 1; i >= 0; i--) {
-        if (i === this.editingActionIndex) continue;
-        const bounds = acts[i].getBounds();
-        if (bounds && pointInBounds(ix, iy, bounds)) return i;
-      }
-      return -1;
-    }
-
-    private isPointOnSelected(ix: number, iy: number): boolean {
-      if (this.selectedIndex < 0 || this.selectedIndex >= this.state.actions.length) return false;
-      const bounds = this.state.actions[this.selectedIndex].getBounds();
-      return bounds !== null && pointInBounds(ix, iy, bounds);
-    }
-
-    private hitTestCycle(ix: number, iy: number): number {
+    // Every action whose bounds contain (ix, iy), topmost-first (highest index
+    // = drawn last = on top). The re-edited action is skipped.
+    private hitStack(ix: number, iy: number): number[] {
       const acts = this.state.actions;
       const hits: number[] = [];
       for (let i = acts.length - 1; i >= 0; i--) {
@@ -1142,10 +1328,21 @@ export const CanvasView = GObject.registerClass(
         const bounds = acts[i].getBounds();
         if (bounds && pointInBounds(ix, iy, bounds)) hits.push(i);
       }
-      if (hits.length === 0) return -1;
-      const pos = hits.indexOf(this.selectedIndex);
-      if (pos < 0) return hits[0];
-      return hits[(pos + 1) % hits.length];
+      return hits;
+    }
+
+    // Topmost selected action whose bounds contain (ix, iy), or -1 if the
+    // point is outside every selected action. Topmost = highest index, since
+    // later actions render on top.
+    private selectedIndexAt(ix: number, iy: number): number {
+      const acts = this.state.actions;
+      let best = -1;
+      for (const i of this.selectedIndices) {
+        if (i < 0 || i >= acts.length || i <= best) continue;
+        const bounds = acts[i].getBounds();
+        if (bounds && pointInBounds(ix, iy, bounds)) best = i;
+      }
+      return best;
     }
 
     // Classify (ix, iy) relative to the current resize region. Edges and
@@ -1251,6 +1448,42 @@ export const CanvasView = GObject.registerClass(
       };
     }
 
+    // One dashed box per selected action, all shifting together while a move
+    // is in progress. Skips the action being re-edited (its box would frame
+    // the hidden action behind the live editor).
+    private drawSelectionBoxes(
+      cr: Cairo.Context,
+      acts: ReadonlyArray<Action>,
+      scale: number
+    ): void {
+      if (this.selectedIndices.size === 0) return;
+      const ox = this.moving ? this.moveDx : 0;
+      const oy = this.moving ? this.moveDy : 0;
+      for (const i of this.selectedIndices) {
+        if (i < 0 || i >= acts.length || i === this.editingActionIndex) continue;
+        const bounds = acts[i].getBounds();
+        if (bounds) drawSelectionBox(cr, bounds, scale, ox, oy);
+      }
+    }
+
+    // The hover candidate — the action the next click acts on — outlined in
+    // solid amber, distinct from the dashed cyan selection box. Shown only for
+    // the select tool, while not moving, and not over the re-edited action.
+    // Suppressed when it's the lone selection (the selection box already marks
+    // it) to avoid a redundant double outline.
+    private drawHoverCandidate(
+      cr: Cairo.Context,
+      acts: ReadonlyArray<Action>,
+      scale: number
+    ): void {
+      if (this.currentToolId !== 'select' || this.moving) return;
+      const i = this.hoverCandidate;
+      if (i < 0 || i >= acts.length || i === this.editingActionIndex) return;
+      if (this.selectedIndices.size === 1 && this.selectedIndices.has(i)) return;
+      const bounds = acts[i].getBounds();
+      if (bounds) drawCandidateBox(cr, bounds, scale);
+    }
+
     private onDraw(
       _widget: Gtk.DrawingArea,
       cr: Cairo.Context,
@@ -1295,7 +1528,7 @@ export const CanvasView = GObject.registerClass(
       const acts = this.state.actions;
       for (let i = 0; i < acts.length; i++) {
         if (i === this.editingActionIndex) continue;
-        if (this.moving && i === this.selectedIndex) {
+        if (this.moving && this.selectedIndices.has(i)) {
           cr.save();
           cr.translate(this.moveDx, this.moveDy);
           acts[i].draw(cr, t.scale);
@@ -1306,14 +1539,8 @@ export const CanvasView = GObject.registerClass(
       }
       if (this.liveStroke) this.liveStroke.draw(cr, t.scale);
 
-      if (this.selectedIndex >= 0 && this.selectedIndex < acts.length) {
-        const bounds = acts[this.selectedIndex].getBounds();
-        if (bounds) {
-          const offsetX = this.moving ? this.moveDx : 0;
-          const offsetY = this.moving ? this.moveDy : 0;
-          drawSelectionBox(cr, bounds, t.scale, offsetX, offsetY);
-        }
-      }
+      this.drawSelectionBoxes(cr, acts, t.scale);
+      this.drawHoverCandidate(cr, acts, t.scale);
 
       // Thin border around the current image so the canvas is distinguishable
       // from the app background — important once the surface has transparent
@@ -1377,18 +1604,38 @@ function drawSelectionBox(
 ): void {
   const pad = 4 / scale;
   const lineWidth = 1.5 / scale;
-  const dashOn = 6 / scale;
-  const dashOff = 4 / scale;
 
   cr.save();
-  cr.setSourceRGBA(0.0, 0.6, 1.0, 0.95);
+  cr.setSourceRGBA(0.0, 0.5, 1.0, 0.95); // solid blue
   cr.setLineWidth(lineWidth);
-  cr.setDash([dashOn, dashOff], 0);
+  cr.setDash([], 0);
   cr.setLineCap(Cairo.LineCap.BUTT);
   cr.setLineJoin(Cairo.LineJoin.MITER);
   cr.rectangle(
     bounds.x1 + ox - pad,
     bounds.y1 + oy - pad,
+    bounds.x2 - bounds.x1 + 2 * pad,
+    bounds.y2 - bounds.y1 + 2 * pad
+  );
+  cr.stroke();
+  cr.restore();
+}
+
+// Outline for the hover candidate: dashed light blue, so it reads as a
+// transient "this is what a click will hit" marker, distinct from the solid
+// blue selection box. Slightly tighter pad than the selection box so the two
+// don't sit exactly on top of each other when both are shown.
+function drawCandidateBox(cr: Cairo.Context, bounds: Bounds, scale: number): void {
+  const pad = 2 / scale;
+  cr.save();
+  cr.setSourceRGBA(0.45, 0.75, 1.0, 0.95); // light blue
+  cr.setLineWidth(1.5 / scale);
+  cr.setDash([6 / scale, 4 / scale], 0);
+  cr.setLineCap(Cairo.LineCap.BUTT);
+  cr.setLineJoin(Cairo.LineJoin.MITER);
+  cr.rectangle(
+    bounds.x1 - pad,
+    bounds.y1 - pad,
     bounds.x2 - bounds.x1 + 2 * pad,
     bounds.y2 - bounds.y1 + 2 * pad
   );

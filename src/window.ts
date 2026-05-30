@@ -513,6 +513,10 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>KP_Subtract', zoomOut);
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
+      // Shift+Space toggles the aimed item in/out of the selection — the
+      // keyboard twin of Shift+Click. Shift avoids bare Space activating a
+      // focused tool button; the editor captures it while typing.
+      this.bindShortcut(controller, '<Shift>space', () => this.canvas.toggleHoverCandidate());
       // Enter and Escape only do anything when resize mode is active. The text
       // editor consumes these in its CAPTURE-phase controller before they
       // reach here, so we never conflict during editing.
@@ -533,6 +537,31 @@ export const AnnoscrWindow = GObject.registerClass(
         this.bindShortcut(controller, tool.accelerator, () => this.toolbar.selectTool(tool.id));
       }
       this.add_controller(controller);
+      this.installDigKeys();
+    }
+
+    // [ and ] dig the select-tool hover candidate up/down through overlapping
+    // items (the precise, one-step alternative to Alt+scroll). Handled with a
+    // key controller rather than ShortcutController accelerators so they fire
+    // regardless of held Shift/Alt — a convenience mid-gesture (e.g. while
+    // holding Shift to toggle). That also means matching the shifted keyvals
+    // brace{left,right}, since Shift+[ delivers braceleft, not bracketleft.
+    // Ctrl is excluded to leave room for Ctrl-chords. digHoverCandidate returns
+    // false unless it actually dug, so a stray bracket still falls through (and
+    // the focused text editor consumes them while typing).
+    private installDigKeys(): void {
+      const keys = new Gtk.EventControllerKey();
+      keys.connect('key-pressed', (_c, keyval, _keycode, state) => {
+        if ((state & Gdk.ModifierType.CONTROL_MASK) !== 0) return false;
+        if (keyval === Gdk.KEY_bracketleft || keyval === Gdk.KEY_braceleft) {
+          return this.canvas.digHoverCandidate(-1);
+        }
+        if (keyval === Gdk.KEY_bracketright || keyval === Gdk.KEY_braceright) {
+          return this.canvas.digHoverCandidate(1);
+        }
+        return false;
+      });
+      this.add_controller(keys);
     }
 
     private bindShortcut(

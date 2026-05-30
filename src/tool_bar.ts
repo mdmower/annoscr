@@ -43,7 +43,7 @@ export class ToolBar {
     for (const tool of TOOLS) {
       const tooltip =
         tool.id === 'select'
-          ? `${tool.label} (${tool.accelerator.toUpperCase()})\nAlt+Click to cycle overlapping`
+          ? `${tool.label} (${tool.accelerator.toUpperCase()})\nShift+Click (or Shift+Space) to add/remove\nAlt+Scroll or [ ] to aim through a stack`
           : `${tool.label} (${tool.accelerator.toUpperCase()})`;
       const btn = new Gtk.ToggleButton({
         icon_name: tool.icon,

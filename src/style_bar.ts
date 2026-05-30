@@ -7,6 +7,7 @@ import {getAvailableFonts} from './font_catalogue.js';
 import {colorToRgba, rgbaToColor} from './gdk_color.js';
 import {DASH_ORDER} from './window_constants.js';
 import {
+  Action,
   ColorRGBA,
   DEFAULT_DASH,
   DashStyle,
@@ -22,6 +23,45 @@ import {
   defaultWidthForTool,
 } from './actions.js';
 
+// Structural equality for style values (color arrays or scalar primitives),
+// used to detect a multi-selection that disagrees on a property.
+function styleValuesEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+}
+
+// Set a control's caption, appending " (mixed)" when the selected actions
+// disagree on that property — the disclosure that editing the control will
+// flatten them to one value.
+function setCaption(label: Gtk.Label, base: string, mixed: boolean): void {
+  label.set_label(mixed ? `${base} (mixed)` : base);
+}
+
+// Paint a color swatch: a checkerboard (so transparency reads as such) with the
+// color over it and a hairline border, matching the look of the stock color
+// button we replaced.
+function drawSwatch(cr: Cairo.Context, w: number, h: number, color: ColorRGBA): void {
+  const cell = 5;
+  cr.setSourceRGB(0.85, 0.85, 0.85);
+  cr.paint();
+  cr.setSourceRGB(0.55, 0.55, 0.55);
+  for (let y = 0; y < h; y += cell) {
+    for (let x = 0; x < w; x += cell) {
+      if ((Math.floor(x / cell) + Math.floor(y / cell)) % 2 === 0) cr.rectangle(x, y, cell, cell);
+    }
+  }
+  cr.fill();
+  cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
+  cr.rectangle(0, 0, w, h);
+  cr.fill();
+  cr.setSourceRGBA(0, 0, 0, 0.35);
+  cr.setLineWidth(1);
+  cr.rectangle(0.5, 0.5, w - 1, h - 1);
+  cr.stroke();
+}
+
 // The top style bar: per-tool/selection style pickers (color, fill, width,
 // dash, stamp variant, font, font size). Owns its widgets and the picker
 // signal handlers; reads tool/selection/editor state through the canvas and
@@ -30,19 +70,30 @@ import {
 // canvas state changes (tool switch, selection change, edit lifecycle).
 export class StyleBar {
   private widget: Gtk.Box;
-  private colorButton!: Gtk.ColorDialogButton;
+  // Color/Fill are custom swatch buttons that drive a Gtk.ColorDialog
+  // ourselves, so we commit on the dialog's OK — even when the chosen color
+  // equals the one shown. (A stock Gtk.ColorDialogButton only signals on a
+  // *changed* rgba, which silently dropped "make this mixed selection all the
+  // shown color".) `*SwatchSet` repaints the swatch to a given color.
   private colorGroup!: Gtk.Box;
-  private fillButton!: Gtk.ColorDialogButton;
+  private colorLabel!: Gtk.Label;
+  private colorSwatchSet!: (c: ColorRGBA | null) => void;
   private fillGroup!: Gtk.Box;
+  private fillLabel!: Gtk.Label;
+  private fillSwatchSet!: (c: ColorRGBA | null) => void;
   private widthScale!: Gtk.Scale;
   private widthPreview!: Gtk.DrawingArea;
   private widthGroup!: Gtk.Box;
+  private widthLabel!: Gtk.Label;
   private dashGroup!: Gtk.Box;
+  private dashLabel!: Gtk.Label;
   private dashDropdown!: Gtk.DropDown;
   private variantGroup!: Gtk.Box;
   private variantDropdown!: Gtk.DropDown;
   private fontGroup!: Gtk.Box;
+  private fontLabel!: Gtk.Label;
   private fontDropdown!: Gtk.DropDown;
+  private fontSizeLabel!: Gtk.Label;
   private fontSizeSpinner!: Gtk.SpinButton;
   // Ordered (group, separator) pairs for the first-visible-separator logic
   // in refresh().
@@ -92,28 +143,18 @@ export class StyleBar {
 
     // Color group
     const colorSep = makeSep();
-    this.colorButton = new Gtk.ColorDialogButton({
-      dialog: new Gtk.ColorDialog({with_alpha: true}),
-    });
-    this.colorButton.connect('notify::rgba', () => this.onColorPicked());
-    this.colorGroup = makeGroup(
-      colorSep,
-      new Gtk.Label({label: 'Color', css_classes: ['caption']}),
-      this.colorButton
-    );
+    const colorSwatch = this.makeSwatchButton((c) => this.onColorPicked(c));
+    this.colorSwatchSet = colorSwatch.setColor;
+    this.colorLabel = new Gtk.Label({label: 'Color', css_classes: ['caption']});
+    this.colorGroup = makeGroup(colorSep, this.colorLabel, colorSwatch.button);
     styleBar.append(this.colorGroup);
 
     // Fill group
     const fillSep = makeSep();
-    this.fillButton = new Gtk.ColorDialogButton({
-      dialog: new Gtk.ColorDialog({with_alpha: true}),
-    });
-    this.fillButton.connect('notify::rgba', () => this.onFillPicked());
-    this.fillGroup = makeGroup(
-      fillSep,
-      new Gtk.Label({label: 'Fill', css_classes: ['caption']}),
-      this.fillButton
-    );
+    const fillSwatch = this.makeSwatchButton((c) => this.onFillPicked(c));
+    this.fillSwatchSet = fillSwatch.setColor;
+    this.fillLabel = new Gtk.Label({label: 'Fill', css_classes: ['caption']});
+    this.fillGroup = makeGroup(fillSep, this.fillLabel, fillSwatch.button);
     styleBar.append(this.fillGroup);
 
     // Width group
@@ -138,23 +179,16 @@ export class StyleBar {
       valign: Gtk.Align.CENTER,
     });
     this.widthPreview.set_draw_func((_w, cr, w, h) => this.drawWidthPreview(cr, w, h));
-    this.widthGroup = makeGroup(
-      widthSep,
-      new Gtk.Label({label: 'Width', css_classes: ['caption']}),
-      this.widthScale,
-      this.widthPreview
-    );
+    this.widthLabel = new Gtk.Label({label: 'Width', css_classes: ['caption']});
+    this.widthGroup = makeGroup(widthSep, this.widthLabel, this.widthScale, this.widthPreview);
     styleBar.append(this.widthGroup);
 
     // Dash group — selector index maps to DashStyle via DASH_ORDER below.
     const dashSep = makeSep();
     this.dashDropdown = Gtk.DropDown.new_from_strings(['Solid', 'Dashed', 'Dotted']);
     this.dashDropdown.connect('notify::selected', () => this.onDashPicked());
-    this.dashGroup = makeGroup(
-      dashSep,
-      new Gtk.Label({label: 'Line', css_classes: ['caption']}),
-      this.dashDropdown
-    );
+    this.dashLabel = new Gtk.Label({label: 'Line', css_classes: ['caption']});
+    this.dashGroup = makeGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
     // Variant group
@@ -184,11 +218,17 @@ export class StyleBar {
     });
     this.fontSizeSpinner.add_css_class('annoscr-font-size');
     this.fontSizeSpinner.connect('value-changed', () => this.onFontSizePicked());
+    this.fontLabel = new Gtk.Label({label: 'Font', css_classes: ['caption']});
+    this.fontSizeLabel = new Gtk.Label({
+      label: 'Size',
+      css_classes: ['caption'],
+      margin_start: 6,
+    });
     this.fontGroup = makeGroup(
       fontSep,
-      new Gtk.Label({label: 'Font', css_classes: ['caption']}),
+      this.fontLabel,
       this.fontDropdown,
-      new Gtk.Label({label: 'Size', css_classes: ['caption'], margin_start: 6}),
+      this.fontSizeLabel,
       this.fontSizeSpinner
     );
     styleBar.append(this.fontGroup);
@@ -203,6 +243,48 @@ export class StyleBar {
     ];
 
     return styleBar;
+  }
+
+  // A color swatch button that opens a Gtk.ColorDialog ourselves and reports
+  // the chosen color via `onChosen` on the dialog's OK — regardless of whether
+  // it changed (unlike Gtk.ColorDialogButton's notify::rgba). Returns the
+  // button plus a setter that repaints the swatch to a given color.
+  private makeSwatchButton(onChosen: (color: ColorRGBA) => void): {
+    button: Gtk.Button;
+    setColor: (c: ColorRGBA | null) => void;
+  } {
+    let current: ColorRGBA = [0, 0, 0, 1];
+    const area = new Gtk.DrawingArea({
+      width_request: 28,
+      height_request: 20,
+      valign: Gtk.Align.CENTER,
+    });
+    area.set_draw_func((_w, cr, w, h) => drawSwatch(cr, w, h, current));
+    const button = new Gtk.Button({child: area, tooltip_text: 'Pick a color'});
+    const dialog = new Gtk.ColorDialog({with_alpha: true});
+    button.connect('clicked', () => {
+      const root = button.get_root() as Gtk.Window | null;
+      // Callback form (not the promise overload) — the project doesn't rely on
+      // GJS promisifying GTK async methods. choose_rgba_finish throws when the
+      // dialog is dismissed/cancelled, which we treat as "no change".
+      dialog.choose_rgba(root, colorToRgba(current), null, (_source, res) => {
+        try {
+          const rgba = dialog.choose_rgba_finish(res);
+          if (rgba) onChosen(rgbaToColor(rgba));
+        } catch {
+          // Cancelled or dismissed — leave the selection untouched.
+        }
+      });
+    });
+    return {
+      button,
+      setColor: (c: ColorRGBA | null) => {
+        if (c) {
+          current = c;
+          area.queue_draw();
+        }
+      },
+    };
   }
 
   private drawWidthPreview(cr: Cairo.Context, w: number, h: number): void {
@@ -222,24 +304,44 @@ export class StyleBar {
   }
 
   refresh(): void {
-    if (!this.colorButton) return;
+    if (!this.colorGroup) return;
     this.updatingPicker = true;
 
     const color = this.styleTargetColor();
     this.colorGroup.set_visible(color !== null);
-    if (color !== null) this.colorButton.set_rgba(colorToRgba(color));
+    this.colorSwatchSet(color);
+    setCaption(
+      this.colorLabel,
+      'Color',
+      this.selectionMixed((a) => a.getColor())
+    );
 
     const fill = this.styleTargetFill();
     this.fillGroup.set_visible(fill !== null);
-    if (fill !== null) this.fillButton.set_rgba(colorToRgba(fill));
+    this.fillSwatchSet(fill);
+    setCaption(
+      this.fillLabel,
+      'Fill',
+      this.selectionMixed((a) => a.getFill())
+    );
 
     const width = this.styleTargetWidth();
     this.widthGroup.set_visible(width !== null);
     if (width !== null) this.widthScale.set_value(width);
+    setCaption(
+      this.widthLabel,
+      'Width',
+      this.selectionMixed((a) => a.getWidth())
+    );
 
     const dash = this.styleTargetDash();
     this.dashGroup.set_visible(dash !== null);
     if (dash !== null) this.dashDropdown.set_selected(Math.max(0, DASH_ORDER.indexOf(dash)));
+    setCaption(
+      this.dashLabel,
+      'Line',
+      this.selectionMixed((a) => a.getDash())
+    );
 
     const tool = this.canvas.getTool();
     this.variantGroup.set_visible(tool === 'number');
@@ -251,10 +353,20 @@ export class StyleBar {
       const idx = getAvailableFonts().findIndex((f) => f.family === fontDesc);
       this.fontDropdown.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
     }
+    setCaption(
+      this.fontLabel,
+      'Font',
+      this.selectionMixed((a) => a.getFontDesc())
+    );
     const fontSize = this.styleTargetFontSize();
     if (fontSize !== null) {
       this.fontSizeSpinner.set_value(fontSize);
     }
+    setCaption(
+      this.fontSizeLabel,
+      'Size',
+      this.selectionMixed((a) => a.getFontSize())
+    );
 
     // Hide the leading separator on the first visible group so there's no
     // orphan divider at the left edge.
@@ -325,14 +437,45 @@ export class StyleBar {
     }
   }
 
+  // Summarize a style property over the whole selection. A control is
+  // "applicable" only when EVERY selected action carries the property (its
+  // getter is non-null) — that's the shared-control rule. The displayed value
+  // is the first selected action's; `mixed` flags that they don't all agree.
+  // Empty selection or any non-carrying member → not applicable.
+  private selectionSummary<T>(get: (a: Action) => T | null): {value: T | null; mixed: boolean} {
+    const sel = this.canvas.getSelectedActions();
+    if (sel.length === 0) return {value: null, mixed: false};
+    let value: T | null = null;
+    let have = false;
+    let mixed = false;
+    for (const a of sel) {
+      const v = get(a);
+      if (v === null) return {value: null, mixed: false};
+      if (!have) {
+        value = v;
+        have = true;
+      } else if (!styleValuesEqual(value, v)) {
+        mixed = true;
+      }
+    }
+    return {value, mixed};
+  }
+
+  // Whether the current select-mode multi-selection disagrees on a property,
+  // so refresh() can flag the control's caption as "(mixed)". Never mixed
+  // outside select mode or during an edit (single source of truth there).
+  private selectionMixed<T>(get: (a: Action) => T | null): boolean {
+    if (this.canvas.getTool() !== 'select' || this.editor.isActive()) return false;
+    return this.selectionSummary(get).mixed;
+  }
+
   private styleTargetFontSize(): number | null {
     if (this.editor.isActive()) {
       return this.editor.getCurrentStyle()?.size ?? null;
     }
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      const sel = this.canvas.getSelectedAction();
-      return sel ? sel.getFontSize() : null;
+      return this.selectionSummary((a) => a.getFontSize()).value;
     }
     return this.canvas.getToolFontSize(tool);
   }
@@ -346,8 +489,7 @@ export class StyleBar {
     }
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      const sel = this.canvas.getSelectedAction();
-      return sel ? sel.getFontDesc() : null;
+      return this.selectionSummary((a) => a.getFontDesc()).value;
     }
     return this.canvas.getToolFontDesc(tool);
   }
@@ -360,8 +502,7 @@ export class StyleBar {
     }
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      const sel = this.canvas.getSelectedAction();
-      return sel ? sel.getColor() : null;
+      return this.selectionSummary((a) => a.getColor()).value;
     }
     return this.canvas.getToolColor(tool);
   }
@@ -369,8 +510,7 @@ export class StyleBar {
   private styleTargetWidth(): number | null {
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      const sel = this.canvas.getSelectedAction();
-      return sel ? sel.getWidth() : null;
+      return this.selectionSummary((a) => a.getWidth()).value;
     }
     return this.canvas.getToolWidth(tool);
   }
@@ -378,8 +518,7 @@ export class StyleBar {
   private styleTargetFill(): ColorRGBA | null {
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      const sel = this.canvas.getSelectedAction();
-      return sel ? sel.getFill() : null;
+      return this.selectionSummary((a) => a.getFill()).value;
     }
     return this.canvas.getToolFill(tool);
   }
@@ -387,15 +526,15 @@ export class StyleBar {
   private styleTargetDash(): DashStyle | null {
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      const sel = this.canvas.getSelectedAction();
-      return sel ? sel.getDash() : null;
+      return this.selectionSummary((a) => a.getDash()).value;
     }
     return this.canvas.getToolDash(tool);
   }
 
-  private onFillPicked(): void {
-    if (this.updatingPicker || !this.fillButton) return;
-    const fill = rgbaToColor(this.fillButton.get_rgba());
+  // Called from the fill swatch's dialog on OK (with the chosen color), so it
+  // commits even when the color equals the one shown — broadcasting to every
+  // selected action flattens a mixed selection as intended.
+  private onFillPicked(fill: ColorRGBA): void {
     const tool = this.canvas.getTool();
     if (tool === 'select') {
       // Same select-edit shape as the color picker; coalesce-by-key gives
@@ -420,9 +559,9 @@ export class StyleBar {
     }
   }
 
-  private onColorPicked(): void {
-    if (this.updatingPicker || !this.colorButton) return;
-    const color = rgbaToColor(this.colorButton.get_rgba());
+  // Called from the color swatch's dialog on OK (with the chosen color); see
+  // onFillPicked for why this commits regardless of whether the value changed.
+  private onColorPicked(color: ColorRGBA): void {
     const tool = this.canvas.getTool();
     const editorActive = this.editor.isActive();
     // Same routing as the font picker: editor wins during an active edit;
