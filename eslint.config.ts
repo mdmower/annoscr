@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig([
   {
-    ignores: ['build/'],
+    ignores: ['build/', 'build-aux/', 'data/', 'debian/', 'obj-*/', 'po/'],
   },
   js.configs.recommended,
   {

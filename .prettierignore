@@ -5,3 +5,7 @@ package-lock.json
 # their own whitespace constraints. .gitignore only catches build artifacts
 # inside debian/, not the sources we care about.
 debian/
+
+# dpkg-buildpackage's meson tree. Gitignored only by a nested .gitignore meson
+# drops inside it, which prettier (unlike git) doesn't read.
+obj-*/
