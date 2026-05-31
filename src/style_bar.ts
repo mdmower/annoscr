@@ -6,6 +6,7 @@ import {TextEditor, TextEditorStyle} from './text_editor.js';
 import {getAvailableFonts} from './font_catalogue.js';
 import {colorToRgba, rgbaToColor} from './gdk_color.js';
 import {DASH_ORDER} from './window_constants.js';
+import {_, formatN} from './i18n.js';
 import {
   Action,
   ColorRGBA,
@@ -38,7 +39,7 @@ function styleValuesEqual(a: unknown, b: unknown): boolean {
 // disagree on that property — the disclosure that editing the control will
 // flatten them to one value.
 function setCaption(label: Gtk.Label, base: string, mixed: boolean): void {
-  label.set_label(mixed ? `${base} (mixed)` : base);
+  label.set_label(mixed ? `${base} ${_('(mixed)')}` : base);
 }
 
 // Paint a color swatch: a checkerboard (so transparency reads as such) with the
@@ -162,7 +163,7 @@ export class StyleBar {
     const duplicateSep = makeSep();
     const duplicateBtn = new Gtk.Button({
       icon_name: 'edit-copy-symbolic',
-      tooltip_text: 'Duplicate selection (Ctrl+D)',
+      tooltip_text: _('Duplicate selection (Ctrl+D)'),
       valign: Gtk.Align.CENTER,
     });
     duplicateBtn.connect('clicked', () => this.canvas.cloneSelected());
@@ -173,7 +174,7 @@ export class StyleBar {
     const colorSep = makeSep();
     const colorSwatch = this.makeSwatchButton((c) => this.onColorPicked(c));
     this.colorSwatchSet = colorSwatch.setColor;
-    this.colorLabel = new Gtk.Label({label: 'Color', css_classes: ['caption']});
+    this.colorLabel = new Gtk.Label({label: _('Color'), css_classes: ['caption']});
     this.colorGroup = makeGroup(colorSep, this.colorLabel, colorSwatch.button);
     styleBar.append(this.colorGroup);
 
@@ -181,7 +182,7 @@ export class StyleBar {
     const fillSep = makeSep();
     const fillSwatch = this.makeSwatchButton((c) => this.onFillPicked(c));
     this.fillSwatchSet = fillSwatch.setColor;
-    this.fillLabel = new Gtk.Label({label: 'Fill', css_classes: ['caption']});
+    this.fillLabel = new Gtk.Label({label: _('Fill'), css_classes: ['caption']});
     this.fillGroup = makeGroup(fillSep, this.fillLabel, fillSwatch.button);
     styleBar.append(this.fillGroup);
 
@@ -207,15 +208,15 @@ export class StyleBar {
       valign: Gtk.Align.CENTER,
     });
     this.widthPreview.set_draw_func((_w, cr, w, h) => this.drawWidthPreview(cr, w, h));
-    this.widthLabel = new Gtk.Label({label: 'Width', css_classes: ['caption']});
+    this.widthLabel = new Gtk.Label({label: _('Width'), css_classes: ['caption']});
     this.widthGroup = makeGroup(widthSep, this.widthLabel, this.widthScale, this.widthPreview);
     styleBar.append(this.widthGroup);
 
     // Dash group — selector index maps to DashStyle via DASH_ORDER below.
     const dashSep = makeSep();
-    this.dashDropdown = Gtk.DropDown.new_from_strings(['Solid', 'Dashed', 'Dotted']);
+    this.dashDropdown = Gtk.DropDown.new_from_strings([_('Solid'), _('Dashed'), _('Dotted')]);
     this.dashDropdown.connect('notify::selected', () => this.onDashPicked());
-    this.dashLabel = new Gtk.Label({label: 'Line', css_classes: ['caption']});
+    this.dashLabel = new Gtk.Label({label: _('Line'), css_classes: ['caption']});
     this.dashGroup = makeGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
@@ -225,15 +226,15 @@ export class StyleBar {
     this.groupModel = Gtk.StringList.new([]);
     this.groupDropdown = new Gtk.DropDown({model: this.groupModel});
     this.groupDropdown.connect('notify::selected', () => this.onGroupPicked());
-    this.groupLabel = new Gtk.Label({label: 'Group', css_classes: ['caption']});
+    this.groupLabel = new Gtk.Label({label: _('Group'), css_classes: ['caption']});
     this.groupGroup = makeGroup(groupSep, this.groupLabel, this.groupDropdown);
     styleBar.append(this.groupGroup);
 
     // Variant group
     const variantSep = makeSep();
-    this.variantDropdown = Gtk.DropDown.new_from_strings(['Number', 'Letter']);
+    this.variantDropdown = Gtk.DropDown.new_from_strings([_('Number'), _('Letter')]);
     this.variantDropdown.connect('notify::selected', () => this.onVariantPicked());
-    this.variantLabel = new Gtk.Label({label: 'Variant', css_classes: ['caption']});
+    this.variantLabel = new Gtk.Label({label: _('Variant'), css_classes: ['caption']});
     this.variantGroup = makeGroup(variantSep, this.variantLabel, this.variantDropdown);
     styleBar.append(this.variantGroup);
 
@@ -253,9 +254,9 @@ export class StyleBar {
     });
     this.fontSizeSpinner.add_css_class('annoscr-font-size');
     this.fontSizeSpinner.connect('value-changed', () => this.onFontSizePicked());
-    this.fontLabel = new Gtk.Label({label: 'Font', css_classes: ['caption']});
+    this.fontLabel = new Gtk.Label({label: _('Font'), css_classes: ['caption']});
     this.fontSizeLabel = new Gtk.Label({
-      label: 'Size',
+      label: _('Size'),
       css_classes: ['caption'],
       margin_start: 6,
     });
@@ -297,7 +298,7 @@ export class StyleBar {
       valign: Gtk.Align.CENTER,
     });
     area.set_draw_func((_w, cr, w, h) => drawSwatch(cr, w, h, current));
-    const button = new Gtk.Button({child: area, tooltip_text: 'Pick a color'});
+    const button = new Gtk.Button({child: area, tooltip_text: _('Pick a color')});
     const dialog = new Gtk.ColorDialog({with_alpha: true});
     button.connect('clicked', () => {
       const root = button.get_root() as Gtk.Window | null;
@@ -357,7 +358,7 @@ export class StyleBar {
     this.colorSwatchSet(color);
     setCaption(
       this.colorLabel,
-      'Color',
+      _('Color'),
       this.selectionMixed((a) => a.getColor())
     );
 
@@ -366,7 +367,7 @@ export class StyleBar {
     this.fillSwatchSet(fill);
     setCaption(
       this.fillLabel,
-      'Fill',
+      _('Fill'),
       this.selectionMixed((a) => a.getFill())
     );
 
@@ -375,7 +376,7 @@ export class StyleBar {
     if (width !== null) this.widthScale.set_value(width);
     setCaption(
       this.widthLabel,
-      'Width',
+      _('Width'),
       this.selectionMixed((a) => a.getWidth())
     );
 
@@ -384,7 +385,7 @@ export class StyleBar {
     if (dash !== null) this.dashDropdown.set_selected(Math.max(0, DASH_ORDER.indexOf(dash)));
     setCaption(
       this.dashLabel,
-      'Line',
+      _('Line'),
       this.selectionMixed((a) => a.getDash())
     );
 
@@ -398,7 +399,7 @@ export class StyleBar {
     }
     setCaption(
       this.fontLabel,
-      'Font',
+      _('Font'),
       this.selectionMixed((a) => a.getFontDesc())
     );
     const fontSize = this.styleTargetFontSize();
@@ -407,7 +408,7 @@ export class StyleBar {
     }
     setCaption(
       this.fontSizeLabel,
-      'Size',
+      _('Size'),
       this.selectionMixed((a) => a.getFontSize())
     );
 
@@ -469,7 +470,7 @@ export class StyleBar {
         selectedRow = groupIds.indexOf(groupSummary.value);
       }
       this.groupDropdown.set_selected(selectedRow >= 0 ? selectedRow : Gtk.INVALID_LIST_POSITION);
-      setCaption(this.groupLabel, 'Group', groupMixed);
+      setCaption(this.groupLabel, _('Group'), groupMixed);
     }
 
     const variantValue: StampVariant | null =
@@ -484,7 +485,7 @@ export class StyleBar {
     }
     setCaption(
       this.variantLabel,
-      'Variant',
+      _('Variant'),
       this.selectionMixed((a) => numberStampVariant(a))
     );
   }
@@ -494,8 +495,8 @@ export class StyleBar {
   // carries the index → stable id mapping the handlers use.
   private rebuildGroupModel(count: number): void {
     const labels: string[] = [];
-    for (let i = 0; i < count; i++) labels.push(`Group ${i + 1}`);
-    labels.push('+ New group');
+    for (let i = 0; i < count; i++) labels.push(formatN(_('Group %d'), i + 1));
+    labels.push(_('+ New group'));
     this.groupModel.splice(0, this.groupModel.get_n_items(), labels);
   }
 

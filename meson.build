@@ -9,6 +9,7 @@ i18n = import('i18n')
 app_id = 'com.cmphys.Annoscr'
 app_path = '/com/cmphys/Annoscr'
 pkgdatadir = get_option('prefix') / get_option('datadir') / meson.project_name()
+localedir = get_option('prefix') / get_option('localedir')
 gjs = find_program('gjs', required: true)
 tsc = find_program(
   meson.project_source_root() / 'node_modules' / '.bin' / 'tsc',

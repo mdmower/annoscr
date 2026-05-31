@@ -5,10 +5,16 @@ set -e
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 if [ -f "$SCRIPT_DIR/main.js" ]; then
     # Running from build tree — point the icon theme at the source icons, which
-    # aren't on the default hicolor search path until installed.
+    # aren't on the default hicolor search path until installed. Leave
+    # ANNOSCR_LOCALE_DIR unset so the UI falls back to English (no catalogues are
+    # compiled into the build tree); an externally-set value still passes through
+    # for translation testing.
     export ANNOSCR_ICON_PATH="@srcicons@"
     exec @gjs@ -m "$SCRIPT_DIR/main.js" "$@"
 else
-    # Installed
+    # Installed — bind gettext to the configured locale dir. Needed because
+    # libintl's compiled-in default (/usr/share/locale) won't match a custom
+    # --prefix; an absolute path here makes the lookup prefix-independent.
+    export ANNOSCR_LOCALE_DIR="@localedir@"
     exec @gjs@ -m "@pkgdatadir@/js/main.js" "$@"
 fi

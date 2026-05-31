@@ -1,5 +1,6 @@
 ts_sources = files(
   'main.ts',
+  'i18n.ts',
   'application.ts',
   'window.ts',
   'window_constants.ts',
@@ -22,6 +23,7 @@ ts_sources = files(
 
 ts_outputs = [
   'main.js',
+  'i18n.js',
   'application.js',
   'window.js',
   'window_constants.js',
@@ -63,6 +65,7 @@ compile_ts = custom_target('compile-ts',
 launcher_conf = configuration_data()
 launcher_conf.set('gjs', gjs.full_path())
 launcher_conf.set('pkgdatadir', pkgdatadir)
+launcher_conf.set('localedir', localedir)
 launcher_conf.set('srcicons', meson.project_source_root() / 'data' / 'icons')
 
 launcher = configure_file(

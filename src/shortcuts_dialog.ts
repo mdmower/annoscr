@@ -1,6 +1,8 @@
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 
+import {_, N_} from './i18n.js';
+
 interface Shortcut {
   keys: string[];
   // Optional second accelerator shown as an "or" alternative (e.g. Ctrl+Y for
@@ -16,63 +18,66 @@ interface Section {
 
 // Mirrors the bindings wired in window.ts (installShortcuts + the menu accels).
 // Kept in sync by hand — there's no single source of truth for accelerators yet.
+// Section titles + descriptions are N_-marked (this table is built at module
+// load, pre-init); presentShortcuts translates them with _() at display time.
+// Keycap names (Ctrl, Shift, …) stay literal — they mirror physical keys.
 const SECTIONS: Section[] = [
   {
-    title: 'General',
+    title: N_('General'),
     items: [
-      {keys: ['Ctrl', 'N'], desc: 'New blank canvas'},
-      {keys: ['Ctrl', 'O'], desc: 'Open image'},
-      {keys: ['Ctrl', 'Shift', 'S'], desc: 'Take screenshot'},
-      {keys: ['Ctrl', 'S'], desc: 'Save image'},
-      {keys: ['Ctrl', 'C'], desc: 'Copy to clipboard'},
-      {keys: ['Ctrl', 'V'], desc: 'Paste image'},
-      {keys: ['Ctrl', ','], desc: 'Preferences'},
-      {keys: ['Ctrl', '?'], desc: 'Keyboard shortcuts'},
-      {keys: ['Ctrl', 'Q'], desc: 'Quit'},
+      {keys: ['Ctrl', 'N'], desc: N_('New blank canvas')},
+      {keys: ['Ctrl', 'O'], desc: N_('Open image')},
+      {keys: ['Ctrl', 'Shift', 'S'], desc: N_('Take screenshot')},
+      {keys: ['Ctrl', 'S'], desc: N_('Save image')},
+      {keys: ['Ctrl', 'C'], desc: N_('Copy to clipboard')},
+      {keys: ['Ctrl', 'V'], desc: N_('Paste image')},
+      {keys: ['Ctrl', ','], desc: N_('Preferences')},
+      {keys: ['Ctrl', '?'], desc: N_('Keyboard shortcuts')},
+      {keys: ['Ctrl', 'Q'], desc: N_('Quit')},
     ],
   },
   {
-    title: 'Edit',
+    title: N_('Edit'),
     items: [
-      {keys: ['Ctrl', 'Z'], desc: 'Undo'},
-      {keys: ['Ctrl', 'Shift', 'Z'], alt: ['Ctrl', 'Y'], desc: 'Redo'},
-      {keys: ['Delete'], alt: ['Backspace'], desc: 'Delete selection'},
-      {keys: ['Ctrl', 'D'], desc: 'Duplicate selection'},
-      {keys: ['Ctrl', 'G'], desc: 'Start a new stamp group (number / select tool)'},
-      {keys: ['Esc'], desc: 'Deselect'},
-      {keys: ['['], alt: [']'], desc: 'Aim up / down through overlapping items (select tool)'},
-      {keys: ['Shift', 'Space'], desc: 'Add/remove aimed item (select tool)'},
+      {keys: ['Ctrl', 'Z'], desc: N_('Undo')},
+      {keys: ['Ctrl', 'Shift', 'Z'], alt: ['Ctrl', 'Y'], desc: N_('Redo')},
+      {keys: ['Delete'], alt: ['Backspace'], desc: N_('Delete selection')},
+      {keys: ['Ctrl', 'D'], desc: N_('Duplicate selection')},
+      {keys: ['Ctrl', 'G'], desc: N_('Start a new stamp group (number / select tool)')},
+      {keys: ['Esc'], desc: N_('Deselect')},
+      {keys: ['['], alt: [']'], desc: N_('Aim up / down through overlapping items (select tool)')},
+      {keys: ['Shift', 'Space'], desc: N_('Add/remove aimed item (select tool)')},
     ],
   },
   {
-    title: 'Tools',
+    title: N_('Tools'),
     items: [
-      {keys: ['S'], desc: 'Select'},
-      {keys: ['P'], desc: 'Pen'},
-      {keys: ['H'], desc: 'Highlighter'},
-      {keys: ['T'], desc: 'Text'},
-      {keys: ['N'], desc: 'Number stamp'},
-      {keys: ['L'], desc: 'Line'},
-      {keys: ['A'], desc: 'Arrow'},
-      {keys: ['R'], desc: 'Rectangle'},
-      {keys: ['O'], desc: 'Oval'},
+      {keys: ['S'], desc: N_('Select')},
+      {keys: ['P'], desc: N_('Pen')},
+      {keys: ['H'], desc: N_('Highlighter')},
+      {keys: ['T'], desc: N_('Text')},
+      {keys: ['N'], desc: N_('Number stamp')},
+      {keys: ['L'], desc: N_('Line')},
+      {keys: ['A'], desc: N_('Arrow')},
+      {keys: ['R'], desc: N_('Rectangle')},
+      {keys: ['O'], desc: N_('Oval')},
     ],
   },
   {
-    title: 'View',
+    title: N_('View'),
     items: [
-      {keys: ['Ctrl', '0'], desc: 'Fit to window'},
-      {keys: ['Ctrl', '1'], desc: '1∶1 zoom'},
-      {keys: ['Ctrl', '+'], desc: 'Zoom in'},
-      {keys: ['Ctrl', '−'], desc: 'Zoom out'},
-      {keys: ['Ctrl', 'Scroll'], desc: 'Zoom at the pointer'},
+      {keys: ['Ctrl', '0'], desc: N_('Fit to window')},
+      {keys: ['Ctrl', '1'], desc: N_('1∶1 zoom')},
+      {keys: ['Ctrl', '+'], desc: N_('Zoom in')},
+      {keys: ['Ctrl', '−'], desc: N_('Zoom out')},
+      {keys: ['Ctrl', 'Scroll'], desc: N_('Zoom at the pointer')},
     ],
   },
   {
-    title: 'Resize mode',
+    title: N_('Resize mode'),
     items: [
-      {keys: ['Enter'], desc: 'Apply resize'},
-      {keys: ['Esc'], desc: 'Cancel resize'},
+      {keys: ['Enter'], desc: N_('Apply resize')},
+      {keys: ['Esc'], desc: N_('Cancel resize')},
     ],
   },
 ];
@@ -98,7 +103,7 @@ function buildKeys(sc: Shortcut): Gtk.Widget {
   });
   appendCombo(box, sc.keys);
   if (sc.alt) {
-    box.append(new Gtk.Label({label: 'or', css_classes: ['dim-label', 'caption']}));
+    box.append(new Gtk.Label({label: _('or'), css_classes: ['dim-label', 'caption']}));
     appendCombo(box, sc.alt);
   }
   return box;
@@ -106,16 +111,16 @@ function buildKeys(sc: Shortcut): Gtk.Widget {
 
 export function presentShortcuts(parent: Gtk.Window): void {
   const dialog = new Adw.Dialog({
-    title: 'Keyboard shortcuts',
+    title: _('Keyboard shortcuts'),
     content_width: 520,
     content_height: 640,
   });
 
   const page = new Adw.PreferencesPage();
   for (const section of SECTIONS) {
-    const group = new Adw.PreferencesGroup({title: section.title});
+    const group = new Adw.PreferencesGroup({title: _(section.title)});
     for (const sc of section.items) {
-      const row = new Adw.ActionRow({title: sc.desc});
+      const row = new Adw.ActionRow({title: _(sc.desc)});
       row.add_suffix(buildKeys(sc));
       group.add(row);
     }

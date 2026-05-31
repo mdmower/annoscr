@@ -1,0 +1,22 @@
+# Meson native file that points `xgettext` at a build of GNU gettext ≥ 0.25,
+# which is needed ONLY to (re)generate the translation template — `meson compile
+# annoscr-pot` / `annoscr-update-po`. Normal builds and packaging use `msgfmt`
+# (version-insensitive) and never call xgettext, so this file is a developer
+# convenience, not a build or runtime dependency.
+#
+# Why a newer xgettext: the gettext that ships with Debian/Ubuntu today predates
+# `--language=TypeScript`. 0.25+ auto-detects `.ts` sources as TypeScript by
+# extension (no --language flag), so it extracts the _()/N_() calls correctly
+# while still handling the .desktop.in / .metainfo.xml.in files in the same pass.
+#
+# Usage:
+#   cp build-aux/xgettext-0.26.ini.example build-aux/xgettext-0.26.ini
+#   # edit the path below to your gettext build, then:
+#   meson setup build --native-file build-aux/xgettext-0.26.ini
+#   meson compile -C build annoscr-pot        # regenerate po/annoscr.pot
+#
+# Only `xgettext` is overridden; msgfmt/msgmerge/msginit stay on the system
+# tools. The real .ini is gitignored so your absolute $HOME path isn't committed.
+
+[binaries]
+xgettext = '/home/YOURUSER/.local/gettext-0.26/bin/xgettext'

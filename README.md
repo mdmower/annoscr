@@ -52,6 +52,59 @@ dpkg-buildpackage -us -uc -b
 # .deb lands in the parent directory
 ```
 
+## Translations
+
+The UI is gettext-enabled under the text domain `annoscr`. The source strings
+are US English, and gettext returns them unchanged when the running locale has
+no catalogue — so English is the fallback with no extra configuration. Compiled
+`.mo` files install to `<prefix>/share/locale/<lang>/LC_MESSAGES/` and load
+automatically; the launcher binds the domain to that directory.
+
+### Marking strings for translation
+
+Wrap user-facing strings with the helpers in [src/i18n.ts](src/i18n.ts):
+
+- `_(s)` — translate `s` now. Use it everywhere a string is built at runtime
+  (widget construction, dialogs, labels, tooltips).
+- `N_(s)` — mark `s` for extraction but return it unchanged. Use it for strings
+  defined at module load (constant tables such as the tool list or size
+  presets), which are evaluated before the domain is bound; translate them with
+  `_()` where they're used.
+- `formatN(s, n)` — translate `s` and substitute a single `%d`/`%s`, keeping the
+  variable out of the translatable text.
+
+After adding strings, list the source file in [po/POTFILES](po/POTFILES).
+
+### Adding a translation
+
+Generate a `.po` from the template and fill in the `msgstr`s — with a tool
+(Poedit, GNOME Translation Editor, Lokalize) or on the command line:
+
+```sh
+msginit --input=po/annoscr.pot --locale=de --output=po/de.po
+```
+
+Add the language code to [po/LINGUAS](po/LINGUAS); the build compiles each
+listed `.po` to a `.mo` automatically. When source strings change, regenerate
+the template and merge it into existing catalogues with `meson compile -C build
+annoscr-update-po`.
+
+Editing or regenerating the template (`po/annoscr.pot`) needs GNU gettext
+**≥ 0.25**, the first release whose `xgettext` understands TypeScript sources.
+Distribution gettext is often older, so point meson at a newer build via a
+native file:
+
+```sh
+cp build-aux/xgettext-0.26.ini.example build-aux/xgettext-0.26.ini
+# edit the xgettext path inside to your gettext ≥0.25 build, then:
+meson setup build --native-file build-aux/xgettext-0.26.ini
+meson compile -C build annoscr-pot          # writes po/annoscr.pot
+```
+
+This affects template _extraction_ only. Compiling catalogues uses `msgfmt`
+(`.po` → `.mo`), which any gettext provides, so a newer `xgettext` is a
+translator/maintainer tool — never a build or runtime dependency.
+
 ## License
 
 GPL-3.0-or-later. See [COPYING](COPYING).

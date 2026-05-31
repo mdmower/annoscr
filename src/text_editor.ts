@@ -2,6 +2,7 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Pango from 'gi://Pango?version=1.0';
 import type {ColorRGBA, EditorSize} from './actions.js';
+import {_} from './i18n.js';
 
 // Background tint on the live TextView/Frame so the canvas image shows
 // through. Applied once at the display level — collision with other
@@ -171,11 +172,11 @@ export class TextEditor {
       margin_end: 2,
     });
     this.buttons = {
-      bold: this.makeFormatButton('format-text-bold-symbolic', 'Bold (Ctrl+B)', 'bold'),
-      italic: this.makeFormatButton('format-text-italic-symbolic', 'Italic (Ctrl+I)', 'italic'),
+      bold: this.makeFormatButton('format-text-bold-symbolic', _('Bold (Ctrl+B)'), 'bold'),
+      italic: this.makeFormatButton('format-text-italic-symbolic', _('Italic (Ctrl+I)'), 'italic'),
       underline: this.makeFormatButton(
         'format-text-underline-symbolic',
-        'Underline (Ctrl+U)',
+        _('Underline (Ctrl+U)'),
         'underline'
       ),
     };

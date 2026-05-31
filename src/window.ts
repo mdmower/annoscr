@@ -31,6 +31,7 @@ import {StyleBar} from './style_bar.js';
 import {ZoomController} from './zoom_controller.js';
 import {ToolBar} from './tool_bar.js';
 import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
+import {_} from './i18n.js';
 
 export const AnnoscrWindow = GObject.registerClass(
   {GTypeName: 'AnnoscrWindow'},
@@ -65,28 +66,28 @@ export const AnnoscrWindow = GObject.registerClass(
 
       const newButton = new Gtk.Button({
         icon_name: 'document-new-symbolic',
-        tooltip_text: 'New blank canvas… (Ctrl+N)',
+        tooltip_text: _('New blank canvas… (Ctrl+N)'),
       });
       newButton.connect('clicked', () => this.newBlankCanvas());
       header.pack_start(newButton);
 
       const openButton = new Gtk.Button({
         icon_name: 'document-open-symbolic',
-        tooltip_text: 'Open image… (Ctrl+O)',
+        tooltip_text: _('Open image… (Ctrl+O)'),
       });
       openButton.connect('clicked', () => this.openImageDialog());
       header.pack_start(openButton);
 
       const captureButton = new Gtk.Button({
         icon_name: 'camera-photo-symbolic',
-        tooltip_text: 'Take screenshot… (Ctrl+Shift+S)',
+        tooltip_text: _('Take screenshot… (Ctrl+Shift+S)'),
       });
       captureButton.connect('clicked', () => this.captureScreenshot());
       header.pack_start(captureButton);
 
       this.saveButton = new Gtk.Button({
         icon_name: 'document-save-symbolic',
-        tooltip_text: 'Save image… (Ctrl+S)',
+        tooltip_text: _('Save image… (Ctrl+S)'),
         sensitive: false,
       });
       this.saveButton.connect('clicked', () => this.saveImageDialog());
@@ -94,7 +95,7 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.copyButton = new Gtk.Button({
         icon_name: 'edit-copy-symbolic',
-        tooltip_text: 'Copy image to clipboard (Ctrl+C)',
+        tooltip_text: _('Copy image to clipboard (Ctrl+C)'),
         sensitive: false,
       });
       this.copyButton.connect('clicked', () => this.copyImageToClipboard());
@@ -103,13 +104,13 @@ export const AnnoscrWindow = GObject.registerClass(
       // Primary menu — packed first so it lands at the right edge, next to the
       // window controls (the standard GNOME spot).
       const menu = new Gio.Menu();
-      menu.append('Preferences', 'win.preferences');
-      menu.append('Keyboard shortcuts', 'win.shortcuts');
-      menu.append('About Annoscr', 'win.about');
-      menu.append('Quit', 'win.quit');
+      menu.append(_('Preferences'), 'win.preferences');
+      menu.append(_('Keyboard shortcuts'), 'win.shortcuts');
+      menu.append(_('About Annoscr'), 'win.about');
+      menu.append(_('Quit'), 'win.quit');
       const menuButton = new Gtk.MenuButton({
         icon_name: 'open-menu-symbolic',
-        tooltip_text: 'Main menu',
+        tooltip_text: _('Main menu'),
         menu_model: menu,
         primary: true,
       });
@@ -119,14 +120,14 @@ export const AnnoscrWindow = GObject.registerClass(
       // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize first.
       const resizeButton = new Gtk.Button({
         icon_name: 'view-fullscreen-symbolic',
-        tooltip_text: 'Resize canvas…',
+        tooltip_text: _('Resize canvas…'),
       });
       resizeButton.connect('clicked', () => this.toolbar.toggleResizeMode());
       header.pack_end(resizeButton);
 
       const rotateRightBtn = new Gtk.Button({
         icon_name: 'object-rotate-right-symbolic',
-        tooltip_text: 'Rotate right (90°)',
+        tooltip_text: _('Rotate right (90°)'),
       });
       rotateRightBtn.connect('clicked', () => {
         this.editor.commitIfActive();
@@ -136,7 +137,7 @@ export const AnnoscrWindow = GObject.registerClass(
 
       const rotateLeftBtn = new Gtk.Button({
         icon_name: 'object-rotate-left-symbolic',
-        tooltip_text: 'Rotate left (90°)',
+        tooltip_text: _('Rotate left (90°)'),
       });
       rotateLeftBtn.connect('clicked', () => {
         this.editor.commitIfActive();
@@ -221,9 +222,11 @@ export const AnnoscrWindow = GObject.registerClass(
 
       const empty = new Adw.StatusPage({
         icon_name: 'image-x-generic-symbolic',
+        // title is the brand name; left untranslated.
         title: 'Annoscr',
-        description:
-          'Create a blank canvas, open an image, paste from the clipboard, or drop a file here.',
+        description: _(
+          'Create a blank canvas, open an image, paste from the clipboard, or drop a file here.'
+        ),
       });
 
       this.stack = new Gtk.Stack({
@@ -297,7 +300,7 @@ export const AnnoscrWindow = GObject.registerClass(
           this.flushSettings();
           return false;
         }
-        confirmDiscard(this, 'Closing the window', this.canvas.isDirty(), () => {
+        confirmDiscard(this, _('Closing the window'), this.canvas.isDirty(), () => {
           this.skipCloseConfirm = true;
           this.close();
         });
@@ -344,15 +347,15 @@ export const AnnoscrWindow = GObject.registerClass(
     // or immediately if the canvas is already clean.
 
     private openImageDialog(): void {
-      confirmDiscard(this, 'Opening a new image', this.canvas.isDirty(), () =>
+      confirmDiscard(this, _('Opening a new image'), this.canvas.isDirty(), () =>
         this.openImageDialogUnchecked()
       );
     }
 
     private openImageDialogUnchecked(): void {
-      const dialog = new Gtk.FileDialog({title: 'Open image', modal: true});
+      const dialog = new Gtk.FileDialog({title: _('Open image'), modal: true});
 
-      const filter = new Gtk.FileFilter({name: 'Images'});
+      const filter = new Gtk.FileFilter({name: _('Images')});
       for (const mime of IMAGE_MIME_TYPES) filter.add_mime_type(mime);
       const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
       filters.append(filter);
@@ -376,13 +379,13 @@ export const AnnoscrWindow = GObject.registerClass(
       // Guards an unsaved canvas before replacing it. Harmless at cold startup
       // (confirmDiscard proceeds immediately when nothing is dirty); the guard
       // matters now that `--new` can reach an already-running instance.
-      confirmDiscard(this, 'Creating a blank canvas', this.canvas.isDirty(), () =>
+      confirmDiscard(this, _('Creating a blank canvas'), this.canvas.isDirty(), () =>
         this.setImage(createBlankSurface(w, h, [1, 1, 1, 1]))
       );
     }
 
     private newBlankCanvas(): void {
-      confirmDiscard(this, 'Creating a blank canvas', this.canvas.isDirty(), () =>
+      confirmDiscard(this, _('Creating a blank canvas'), this.canvas.isDirty(), () =>
         showNewCanvasDialog(this, (surface) => this.setImage(surface))
       );
     }
@@ -390,7 +393,9 @@ export const AnnoscrWindow = GObject.registerClass(
     // Entry point for files handed in from outside (file manager "Open With",
     // command-line argument). Guards an unsaved canvas before replacing it.
     openFileChecked(file: Gio.File): void {
-      confirmDiscard(this, 'Opening this image', this.canvas.isDirty(), () => this.openFile(file));
+      confirmDiscard(this, _('Opening this image'), this.canvas.isDirty(), () =>
+        this.openFile(file)
+      );
     }
 
     captureScreenshot(): void {
@@ -404,7 +409,7 @@ export const AnnoscrWindow = GObject.registerClass(
             this.set_visible(true);
             this.present();
             if (uri) {
-              confirmDiscard(this, 'Opening the screenshot', this.canvas.isDirty(), () =>
+              confirmDiscard(this, _('Opening the screenshot'), this.canvas.isDirty(), () =>
                 this.openFile(Gio.File.new_for_uri(uri))
               );
             }
@@ -412,7 +417,7 @@ export const AnnoscrWindow = GObject.registerClass(
           .catch(() => {
             this.set_visible(true);
             this.present();
-            this.showToast('Screenshot cancelled');
+            this.showToast(_('Screenshot cancelled'));
           });
         return GLib.SOURCE_REMOVE;
       });
@@ -427,7 +432,7 @@ export const AnnoscrWindow = GObject.registerClass(
         // blaming the file format.
         console.error('openFile failed', e);
         const name = file.get_basename() ?? file.get_uri();
-        this.showToast(`Could not open "${name}"`);
+        this.showToast(_('Could not open "%s"').replace('%s', name));
       }
     }
 
@@ -445,7 +450,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
         if (!file) return false;
-        confirmDiscard(this, 'Opening the dropped image', this.canvas.isDirty(), () =>
+        confirmDiscard(this, _('Opening the dropped image'), this.canvas.isDirty(), () =>
           this.openFile(file)
         );
         return true;
@@ -604,7 +609,7 @@ export const AnnoscrWindow = GObject.registerClass(
       this.editor.commitIfActive();
 
       const settings = getSettings();
-      const dialog = new Gtk.FileDialog({title: 'Save image', modal: true});
+      const dialog = new Gtk.FileDialog({title: _('Save image'), modal: true});
       dialog.set_initial_name(defaultSaveFilename(settings.defaultSaveFormat));
       dialog.set_initial_folder(
         Gio.File.new_for_path(settings.defaultSaveFolder || defaultSaveFolderPath())
@@ -613,7 +618,7 @@ export const AnnoscrWindow = GObject.registerClass(
       // Single combined filter — extension in the filename decides the format.
       // Two separate filters would mislead the user: Gtk.FileDialog doesn't
       // report which one was active, so a dropdown pick can't drive format.
-      const filter = new Gtk.FileFilter({name: 'Image (PNG, JPEG)'});
+      const filter = new Gtk.FileFilter({name: _('Image (PNG, JPEG)')});
       for (const key of Object.keys(FORMATS) as ImageFormat[]) {
         const f = FORMATS[key];
         filter.add_mime_type(f.mime);
@@ -657,7 +662,7 @@ export const AnnoscrWindow = GObject.registerClass(
           this.canvas.markClean();
         } catch (e) {
           console.error('saveSurface failed', e);
-          this.showToast('Could not save image');
+          this.showToast(_('Could not save image'));
         }
       });
     }
@@ -671,12 +676,12 @@ export const AnnoscrWindow = GObject.registerClass(
         copySurfaceToClipboard(this.get_clipboard(), surface);
       } catch (e) {
         console.error('copySurfaceToClipboard failed', e);
-        this.showToast('Could not copy image');
+        this.showToast(_('Could not copy image'));
       }
     }
 
     private pasteFromClipboard(): void {
-      confirmDiscard(this, 'Pasting a new image', this.canvas.isDirty(), () =>
+      confirmDiscard(this, _('Pasting a new image'), this.canvas.isDirty(), () =>
         this.pasteFromClipboardUnchecked()
       );
     }
@@ -702,7 +707,7 @@ export const AnnoscrWindow = GObject.registerClass(
             if (pixbuf) this.setImage(loadFromPixbuf(pixbuf));
           } catch (e) {
             console.error('paste (image bytes) failed', e);
-            this.showToast('Could not paste image');
+            this.showToast(_('Could not paste image'));
           } finally {
             stream.close(null);
           }
@@ -714,7 +719,7 @@ export const AnnoscrWindow = GObject.registerClass(
       const mimes: string[] = clipboard.get_formats()?.get_mime_types() ?? [];
       if (!mimes.includes('text/uri-list')) {
         console.log(`paste: nothing usable on clipboard (formats: ${mimes.join(', ') || 'none'})`);
-        this.showToast('Clipboard has no image to paste');
+        this.showToast(_('Clipboard has no image to paste'));
         return;
       }
       clipboard.read_async(['text/uri-list'], GLib.PRIORITY_DEFAULT, null, (_src, result) => {

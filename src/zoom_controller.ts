@@ -4,6 +4,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import {CanvasView, ZOOM_MAX, ZOOM_MIN} from './canvas_view.js';
 import {TextEditor} from './text_editor.js';
 import {ZOOM_DETENTS, ZOOM_SCROLL_STEP} from './window_constants.js';
+import {_} from './i18n.js';
 
 // Owns the scrolled view of the canvas and the bottom status/zoom bar: the
 // dimensions readout, the Fit/1:1 buttons, the log2 zoom slider, and the
@@ -65,14 +66,15 @@ export class ZoomController {
     box.append(this.statusLabel);
 
     const fitBtn = new Gtk.Button({
-      label: 'Fit',
-      tooltip_text: 'Fit to window (Ctrl+0)',
+      label: _('Fit'),
+      tooltip_text: _('Fit to window (Ctrl+0)'),
       css_classes: ['flat'],
     });
     fitBtn.connect('clicked', () => this.setFit());
     const oneBtn = new Gtk.Button({
+      // 1:1 is a zoom ratio, not translated.
       label: '1:1',
-      tooltip_text: '1:1 pixel zoom (Ctrl+1)',
+      tooltip_text: _('1:1 pixel zoom (Ctrl+1)'),
       css_classes: ['flat'],
     });
     oneBtn.connect('clicked', () => this.zoomToCenter(1));
@@ -100,7 +102,7 @@ export class ZoomController {
       draw_value: false,
       width_request: 225,
       valign: Gtk.Align.CENTER,
-      tooltip_text: 'Drag to zoom\nHold Shift to fine-tune',
+      tooltip_text: `${_('Drag to zoom')}\n${_('Hold Shift to fine-tune')}`,
     });
     this.zoomSlider.connect('value-changed', () => this.onZoomSliderChanged());
 
@@ -140,11 +142,16 @@ export class ZoomController {
       this.zoomControls.set_visible(false);
       return;
     }
-    const base = `${img.w} \u00d7 ${img.h} px`;
+    // Translatable "W \u00d7 H px" via a two-placeholder template, so a locale can
+    // reorder or relabel the unit. Both the current and (resize-preview) target
+    // dimensions render through the same template.
+    const dims = (w: number, h: number): string =>
+      _('%w \u00d7 %h px').replace('%w', String(w)).replace('%h', String(h));
+    const base = dims(img.w, img.h);
     const r = this.canvas.getResizeDimensions();
     // U+2003 EM SPACE on either side of the arrow gives breathing room
     // without depending on Pango markup or label padding tricks.
-    this.statusLabel.set_label(r ? `${base}\u2003→\u2003${r.w} \u00d7 ${r.h} px` : base);
+    this.statusLabel.set_label(r ? `${base} → ${dims(r.w, r.h)}` : base);
     const scale = this.canvas.getZoomScale();
     if (scale !== null) {
       this.zoomLabel.set_label(`${Math.round(scale * 100)}%`);

@@ -4,6 +4,7 @@ import {CanvasView} from './canvas_view.js';
 import {TextEditor} from './text_editor.js';
 import {ToolId} from './actions.js';
 import {TOOLS} from './window_constants.js';
+import {_} from './i18n.js';
 
 // The tool selector (header title widget) plus the resize-mode toolbar overlay
 // and the mode transitions. Owns the tool toggle buttons and both bars; drives
@@ -41,10 +42,11 @@ export class ToolBar {
     });
     let group: Gtk.ToggleButton | null = null;
     for (const tool of TOOLS) {
+      const base = `${_(tool.label)} (${tool.accelerator.toUpperCase()})`;
       const tooltip =
         tool.id === 'select'
-          ? `${tool.label} (${tool.accelerator.toUpperCase()})\nShift+Click (or Shift+Space) to add/remove\nAlt+Scroll or [ ] to aim through a stack`
-          : `${tool.label} (${tool.accelerator.toUpperCase()})`;
+          ? `${base}\n${_('Shift+Click (or Shift+Space) to add/remove')}\n${_('Alt+Scroll or [ ] to aim through a stack')}`
+          : base;
       const btn = new Gtk.ToggleButton({
         icon_name: tool.icon,
         tooltip_text: tooltip,
@@ -91,10 +93,10 @@ export class ToolBar {
       visible: false,
       css_classes: ['toolbar', 'osd'],
     });
-    const cancelBtn = new Gtk.Button({label: 'Cancel'});
+    const cancelBtn = new Gtk.Button({label: _('Cancel')});
     cancelBtn.connect('clicked', () => this.exitResizeMode(false));
     this.applyBtn = new Gtk.Button({
-      label: 'Apply',
+      label: _('Apply'),
       css_classes: ['suggested-action'],
     });
     this.applyBtn.connect('clicked', () => this.exitResizeMode(true));

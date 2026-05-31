@@ -2,6 +2,7 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 
 import {DashStyle, ToolId} from './actions.js';
+import {N_} from './i18n.js';
 
 // Maps the dash dropdown's selection index to a DashStyle (and back, via
 // indexOf). Order must match the strings passed to Gtk.DropDown.new_from_strings.
@@ -52,12 +53,16 @@ export interface SizePreset {
   h: number;
 }
 
+// Labels marked with N_ (extracted, not translated here): these are built into
+// a Gtk.StringList at dialog-construction time, which is post-init, so the
+// caller translates each with _() then. The pure-dimension entries carry a
+// translator note since only the parenthetical (HD / Full HD) ever differs.
 export const SIZE_PRESETS: SizePreset[] = [
-  {label: 'Custom', w: 0, h: 0},
-  {label: '640 × 480', w: 640, h: 480},
-  {label: '800 × 600', w: 800, h: 600},
-  {label: '1280 × 720 (HD)', w: 1280, h: 720},
-  {label: '1920 × 1080 (Full HD)', w: 1920, h: 1080},
+  {label: N_('Custom'), w: 0, h: 0},
+  {label: N_('640 × 480'), w: 640, h: 480},
+  {label: N_('800 × 600'), w: 800, h: 600},
+  {label: N_('1280 × 720 (HD)'), w: 1280, h: 720},
+  {label: N_('1920 × 1080 (Full HD)'), w: 1920, h: 1080},
 ];
 
 export const DEFAULT_PRESET_INDEX = 2;
@@ -74,14 +79,21 @@ export interface ToolDef {
   accelerator: string;
 }
 
+// Labels marked with N_ (extracted, not translated here): the toolbar reads
+// `label` into tooltips at build time (post-init) and translates with _() there.
 export const TOOLS: ToolDef[] = [
-  {id: 'select', label: 'Select', icon: 'annoscr-select-symbolic', accelerator: 's'},
-  {id: 'pen', label: 'Pen', icon: 'annoscr-pen-symbolic', accelerator: 'p'},
-  {id: 'highlighter', label: 'Highlight', icon: 'annoscr-highlighter-symbolic', accelerator: 'h'},
-  {id: 'text', label: 'Text', icon: 'annoscr-text-symbolic', accelerator: 't'},
-  {id: 'number', label: 'Number', icon: 'annoscr-number-symbolic', accelerator: 'n'},
-  {id: 'line', label: 'Line', icon: 'annoscr-line-symbolic', accelerator: 'l'},
-  {id: 'arrow', label: 'Arrow', icon: 'annoscr-arrow-symbolic', accelerator: 'a'},
-  {id: 'rect', label: 'Rect', icon: 'annoscr-rect-symbolic', accelerator: 'r'},
-  {id: 'oval', label: 'Oval', icon: 'annoscr-oval-symbolic', accelerator: 'o'},
+  {id: 'select', label: N_('Select'), icon: 'annoscr-select-symbolic', accelerator: 's'},
+  {id: 'pen', label: N_('Pen'), icon: 'annoscr-pen-symbolic', accelerator: 'p'},
+  {
+    id: 'highlighter',
+    label: N_('Highlight'),
+    icon: 'annoscr-highlighter-symbolic',
+    accelerator: 'h',
+  },
+  {id: 'text', label: N_('Text'), icon: 'annoscr-text-symbolic', accelerator: 't'},
+  {id: 'number', label: N_('Number'), icon: 'annoscr-number-symbolic', accelerator: 'n'},
+  {id: 'line', label: N_('Line'), icon: 'annoscr-line-symbolic', accelerator: 'l'},
+  {id: 'arrow', label: N_('Arrow'), icon: 'annoscr-arrow-symbolic', accelerator: 'a'},
+  {id: 'rect', label: N_('Rectangle'), icon: 'annoscr-rect-symbolic', accelerator: 'r'},
+  {id: 'oval', label: N_('Oval'), icon: 'annoscr-oval-symbolic', accelerator: 'o'},
 ];

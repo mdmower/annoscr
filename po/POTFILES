@@ -1,2 +1,12 @@
 data/com.cmphys.Annoscr.desktop.in
 data/com.cmphys.Annoscr.metainfo.xml.in
+src/application.ts
+src/dialogs.ts
+src/preferences.ts
+src/shortcuts_dialog.ts
+src/style_bar.ts
+src/text_editor.ts
+src/tool_bar.ts
+src/window.ts
+src/window_constants.ts
+src/zoom_controller.ts

@@ -9,6 +9,7 @@ import {CANVAS_SIZE_MAX, CANVAS_SIZE_MIN} from './actions.js';
 import {AnnoscrWindow} from './window.js';
 import {getSettings} from './settings.js';
 import {applyColorScheme} from './preferences.js';
+import {_} from './i18n.js';
 
 const DEFAULT_BLANK_WIDTH = 640;
 const DEFAULT_BLANK_HEIGHT = 480;
@@ -29,7 +30,7 @@ export const AnnoscrApplication = GObject.registerClass(
         0,
         GLib.OptionFlags.NONE,
         GLib.OptionArg.NONE,
-        'Create a blank canvas',
+        _('Create a blank canvas'),
         null
       );
       this.add_main_option(
@@ -37,7 +38,10 @@ export const AnnoscrApplication = GObject.registerClass(
         0,
         GLib.OptionFlags.NONE,
         GLib.OptionArg.INT,
-        `Canvas width in pixels (default: ${DEFAULT_BLANK_WIDTH}, requires --new)`,
+        _('Canvas width in pixels (default: %d, requires --new)').replace(
+          '%d',
+          String(DEFAULT_BLANK_WIDTH)
+        ),
         'PIXELS'
       );
       this.add_main_option(
@@ -45,7 +49,10 @@ export const AnnoscrApplication = GObject.registerClass(
         0,
         GLib.OptionFlags.NONE,
         GLib.OptionArg.INT,
-        `Canvas height in pixels (default: ${DEFAULT_BLANK_HEIGHT}, requires --new)`,
+        _('Canvas height in pixels (default: %d, requires --new)').replace(
+          '%d',
+          String(DEFAULT_BLANK_HEIGHT)
+        ),
         'PIXELS'
       );
       this.add_main_option(
@@ -53,7 +60,7 @@ export const AnnoscrApplication = GObject.registerClass(
         0,
         GLib.OptionFlags.NONE,
         GLib.OptionArg.NONE,
-        'Capture a screenshot via the desktop portal on startup',
+        _('Capture a screenshot via the desktop portal on startup'),
         null
       );
     }

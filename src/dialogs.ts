@@ -7,15 +7,17 @@ import {createBlankSurface} from './image_transforms.js';
 import {colorToRgba, rgbaToColor} from './gdk_color.js';
 import {DEFAULT_PRESET_INDEX, SIZE_PRESETS} from './window_constants.js';
 import {getSettings} from './settings.js';
+import {_} from './i18n.js';
 
 export function showAbout(parent: Gtk.Widget): void {
   const about = new Adw.AboutDialog({
+    // application_name is the brand; left untranslated on purpose.
     application_name: 'Annoscr',
     application_icon: 'com.cmphys.Annoscr',
     version: '0.1.0',
     developer_name: 'Matt Mower',
     license_type: Gtk.License.GPL_3_0,
-    comments: 'A lightweight screenshot annotation tool for GNOME.',
+    comments: _('A lightweight screenshot annotation tool for GNOME.'),
   });
   about.present(parent);
 }
@@ -34,11 +36,15 @@ export function confirmDiscard(
     return;
   }
   const dialog = new Adw.AlertDialog({
-    heading: 'Discard changes?',
-    body: `${action} will discard your current work. Save (Ctrl+S) first if you want to keep it.`,
+    heading: _('Discard changes?'),
+    // `action` is a translated verb phrase (e.g. "Opening a file") supplied by
+    // the caller; %s keeps it out of the sentence's msgid.
+    body: _(
+      '%s will discard your current work. Save (Ctrl+S) first if you want to keep it.'
+    ).replace('%s', action),
   });
-  dialog.add_response('cancel', 'Cancel');
-  dialog.add_response('discard', 'Discard');
+  dialog.add_response('cancel', _('Cancel'));
+  dialog.add_response('discard', _('Discard'));
   dialog.set_response_appearance('discard', Adw.ResponseAppearance.DESTRUCTIVE);
   dialog.set_default_response('cancel');
   dialog.set_close_response('cancel');
@@ -53,11 +59,11 @@ export function showNewCanvasDialog(
   onCreate: (surface: Cairo.ImageSurface) => void
 ): void {
   const dialog = new Adw.AlertDialog({
-    heading: 'New blank canvas',
-    body: 'Set the canvas size and background color.',
+    heading: _('New blank canvas'),
+    body: _('Set the canvas size and background color.'),
   });
-  dialog.add_response('cancel', 'Cancel');
-  dialog.add_response('create', 'Create');
+  dialog.add_response('cancel', _('Cancel'));
+  dialog.add_response('create', _('Create'));
   dialog.set_response_appearance('create', Adw.ResponseAppearance.SUGGESTED);
   dialog.set_default_response('create');
   dialog.set_close_response('cancel');
@@ -68,19 +74,20 @@ export function showNewCanvasDialog(
   });
 
   grid.attach(
-    new Gtk.Label({label: 'Size', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+    new Gtk.Label({label: _('Size'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
     0,
     0,
     1,
     1
   );
-  const presetDropdown = Gtk.DropDown.new_from_strings(SIZE_PRESETS.map((p) => p.label));
+  // SIZE_PRESETS labels are N_-marked; translate each here at build time.
+  const presetDropdown = Gtk.DropDown.new_from_strings(SIZE_PRESETS.map((p) => _(p.label)));
   presetDropdown.set_hexpand(true);
   presetDropdown.set_selected(DEFAULT_PRESET_INDEX);
   grid.attach(presetDropdown, 1, 0, 1, 1);
 
   grid.attach(
-    new Gtk.Label({label: 'Width', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+    new Gtk.Label({label: _('Width'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
     0,
     1,
     1,
@@ -100,7 +107,7 @@ export function showNewCanvasDialog(
   grid.attach(widthSpin, 1, 1, 1, 1);
 
   grid.attach(
-    new Gtk.Label({label: 'Height', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+    new Gtk.Label({label: _('Height'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
     0,
     2,
     1,
@@ -120,7 +127,7 @@ export function showNewCanvasDialog(
   grid.attach(heightSpin, 1, 2, 1, 1);
 
   grid.attach(
-    new Gtk.Label({label: 'Fill', halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
+    new Gtk.Label({label: _('Fill'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
     0,
     3,
     1,
