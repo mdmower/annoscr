@@ -42,6 +42,7 @@ meson compile -C build
 ./build/src/annoscr --new      # start with a blank 640×480 canvas
 ./build/src/annoscr --new --width 1920 --height 1080
 ./build/src/annoscr --screenshot   # capture via the desktop portal on launch
+./build/src/annoscr --version      # print the version (-v) and exit
 ```
 
 ### Building the .deb

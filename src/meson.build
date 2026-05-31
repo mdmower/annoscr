@@ -46,6 +46,23 @@ ts_outputs = [
   'font_catalogue.js',
 ]
 
+version_js = custom_target('version-js',
+  build_by_default: true,
+  input: package_json,
+  output: 'version.js',
+  command: [
+    node,
+    '-e',
+    'const fs = require("fs"); ' +
+    'const v = require(process.argv[1]).version; ' +
+    'fs.writeFileSync(process.argv[2], "export const APP_VERSION = " + JSON.stringify(v) + ";");',
+    '@INPUT@',
+    '@OUTPUT@',
+  ],
+  install: true,
+  install_dir: pkgdatadir / 'js',
+)
+
 compile_ts = custom_target('compile-ts',
   build_by_default: true,
   input: ts_sources,
@@ -53,6 +70,7 @@ compile_ts = custom_target('compile-ts',
   depend_files: [
     meson.project_source_root() / 'tsconfig.json',
     meson.project_source_root() / 'src' / 'globals.d.ts',
+    meson.project_source_root() / 'src' / 'version.d.ts',
   ],
   command: [
     tsc,

@@ -9,6 +9,7 @@ import {CANVAS_SIZE_MAX, CANVAS_SIZE_MIN} from './actions.js';
 import {AnnoscrWindow} from './window.js';
 import {getSettings} from './settings.js';
 import {applyColorScheme} from './preferences.js';
+import {APP_VERSION} from './version.js';
 import {_} from './i18n.js';
 
 const DEFAULT_BLANK_WIDTH = 640;
@@ -25,6 +26,14 @@ export const AnnoscrApplication = GObject.registerClass(
         application_id: 'com.cmphys.Annoscr',
         flags: Gio.ApplicationFlags.HANDLES_OPEN | Gio.ApplicationFlags.HANDLES_COMMAND_LINE,
       });
+      this.add_main_option(
+        'version',
+        'v'.charCodeAt(0),
+        GLib.OptionFlags.NONE,
+        GLib.OptionArg.NONE,
+        _('Print the version and exit'),
+        null
+      );
       this.add_main_option(
         'new',
         0,
@@ -97,6 +106,17 @@ export const AnnoscrApplication = GObject.registerClass(
           );
         }
       }
+    }
+
+    // Answered on the local process, before the app registers or contacts a
+    // running instance: print to stdout and return 0 to exit successfully.
+    // Returning -1 for anything else lets normal startup proceed.
+    vfunc_handle_local_options(options: GLib.VariantDict): number {
+      if (options.contains('version')) {
+        print(`annoscr ${APP_VERSION}`);
+        return 0;
+      }
+      return -1;
     }
 
     // HANDLES_COMMAND_LINE routes every CLI invocation here on the PRIMARY

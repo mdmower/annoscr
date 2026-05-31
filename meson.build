@@ -1,5 +1,4 @@
 project('annoscr',
-  version: '0.1.0',
   meson_version: '>= 1.4.0',
   license: 'GPL-3.0-or-later',
 )
@@ -38,6 +37,9 @@ if not fs.exists(local_tsc)
 endif
 
 tsc = find_program(local_tsc, required: true)
+
+# Source of truth for the app version; read at build time into version.js.
+package_json = files('package.json')
 
 subdir('data')
 subdir('src')

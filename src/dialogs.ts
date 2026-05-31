@@ -7,6 +7,7 @@ import {createBlankSurface} from './image_transforms.js';
 import {colorToRgba, rgbaToColor} from './gdk_color.js';
 import {DEFAULT_PRESET_INDEX, SIZE_PRESETS} from './window_constants.js';
 import {getSettings} from './settings.js';
+import {APP_VERSION} from './version.js';
 import {_} from './i18n.js';
 
 export function showAbout(parent: Gtk.Widget): void {
@@ -14,7 +15,7 @@ export function showAbout(parent: Gtk.Widget): void {
     // application_name is the brand; left untranslated on purpose.
     application_name: 'Annoscr',
     application_icon: 'com.cmphys.Annoscr',
-    version: '0.1.0',
+    version: APP_VERSION,
     developer_name: 'Matt Mower',
     license_type: Gtk.License.GPL_3_0,
     comments: _('A lightweight screenshot annotation tool for GNOME.'),

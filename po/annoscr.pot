@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-30 21:52-0700\n"
+"POT-Creation-Date: 2026-05-31 08:15-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,80 +49,84 @@ msgid ""
 "crop as needed, then export or copy to clipboard."
 msgstr ""
 
-#: data/com.cmphys.Annoscr.metainfo.xml.in:25
+#: data/com.cmphys.Annoscr.metainfo.xml.in:27
 msgid "Matt Mower"
 msgstr ""
 
-#: data/com.cmphys.Annoscr.metainfo.xml.in:33
+#: data/com.cmphys.Annoscr.metainfo.xml.in:35
 msgid "Initial scaffold. Hello-world milestone."
 msgstr ""
 
-#: src/application.ts:33
+#: src/application.ts:34
+msgid "Print the version and exit"
+msgstr ""
+
+#: src/application.ts:42
 msgid "Create a blank canvas"
 msgstr ""
 
-#: src/application.ts:41
+#: src/application.ts:50
 #, javascript-format
 msgid "Canvas width in pixels (default: %d, requires --new)"
 msgstr ""
 
-#: src/application.ts:52
+#: src/application.ts:61
 #, javascript-format
 msgid "Canvas height in pixels (default: %d, requires --new)"
 msgstr ""
 
-#: src/application.ts:63
+#: src/application.ts:72
 msgid "Capture a screenshot via the desktop portal on startup"
 msgstr ""
 
-#: src/dialogs.ts:20
+#: src/dialogs.ts:21
 msgid "A lightweight screenshot annotation tool for GNOME."
 msgstr ""
 
-#: src/dialogs.ts:39
+#: src/dialogs.ts:40
 msgid "Discard changes?"
 msgstr ""
 
-#: src/dialogs.ts:43
+#: src/dialogs.ts:44
 #, javascript-format
 msgid ""
 "%s will discard your current work. Save (Ctrl+S) first if you want to keep "
 "it."
 msgstr ""
 
-#: src/dialogs.ts:46 src/dialogs.ts:65 src/tool_bar.ts:96
+#: src/dialogs.ts:47 src/dialogs.ts:66 src/tool_bar.ts:96
 msgid "Cancel"
 msgstr ""
 
-#: src/dialogs.ts:47
+#: src/dialogs.ts:48
 msgid "Discard"
 msgstr ""
 
-#: src/dialogs.ts:62 src/shortcuts_dialog.ts:28
+#: src/dialogs.ts:63 src/shortcuts_dialog.ts:28
 msgid "New blank canvas"
 msgstr ""
 
-#: src/dialogs.ts:63
+#: src/dialogs.ts:64
 msgid "Set the canvas size and background color."
 msgstr ""
 
-#: src/dialogs.ts:66
+#: src/dialogs.ts:67
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:77 src/style_bar.ts:259 src/style_bar.ts:411
+#: src/dialogs.ts:78 src/style_bar.ts:259 src/style_bar.ts:411
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:90 src/style_bar.ts:211 src/style_bar.ts:379
+#: src/dialogs.ts:91 src/style_bar.ts:211 src/style_bar.ts:379
 msgid "Width"
 msgstr ""
 
-#: src/dialogs.ts:110
+#: src/dialogs.ts:111
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:130 src/style_bar.ts:185 src/style_bar.ts:370
+#: src/dialogs.ts:131 src/style_bar.ts:185 src/style_bar.ts:370
 msgid "Fill"
 msgstr ""
 
