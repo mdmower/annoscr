@@ -19,6 +19,7 @@ ts_sources = files(
   'preferences.ts',
   'shortcuts_dialog.ts',
   'screenshot.ts',
+  'font_catalogue.ts',
 )
 
 ts_outputs = [
@@ -42,6 +43,7 @@ ts_outputs = [
   'preferences.js',
   'shortcuts_dialog.js',
   'screenshot.js',
+  'font_catalogue.js',
 ]
 
 compile_ts = custom_target('compile-ts',

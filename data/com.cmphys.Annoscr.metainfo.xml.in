@@ -17,6 +17,8 @@
 
   <launchable type="desktop-id">com.cmphys.Annoscr.desktop</launchable>
 
+  <url type="homepage">https://github.com/mdmower/annoscr</url>
+
   <provides>
     <binary>annoscr</binary>
   </provides>

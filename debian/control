@@ -2,14 +2,17 @@ Source: annoscr
 Section: graphics
 Priority: optional
 Maintainer: Matt Mower <mdmower@cmphys.com>
+# TypeScript is compiled with the project-local tsc under node_modules/.bin
+# (see meson.build), run through the `node` on PATH. Build the JS first with
+# `npm install` before dpkg-buildpackage; that's why neither node-typescript
+# nor nodejs is listed here.
 Build-Depends:
  debhelper-compat (= 13),
  meson (>= 0.59),
  ninja-build,
- node-typescript,
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
-Homepage: https://github.com/
+Homepage: https://github.com/mdmower/annoscr
 
 Package: annoscr
 Architecture: all
