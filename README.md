@@ -96,9 +96,9 @@ Distribution gettext is often older, so point meson at a newer build via a
 native file:
 
 ```sh
-cp build-aux/xgettext-0.26.ini.example build-aux/xgettext-0.26.ini
+cp build-aux/xgettext.ini.example build-aux/xgettext.ini
 # edit the xgettext path inside to your gettext ≥0.25 build, then:
-meson setup build --native-file build-aux/xgettext-0.26.ini
+meson setup build --native-file build-aux/xgettext.ini
 meson compile -C build annoscr-pot          # writes po/annoscr.pot
 ```
 

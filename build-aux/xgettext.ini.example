@@ -4,15 +4,16 @@
 # (version-insensitive) and never call xgettext, so this file is a developer
 # convenience, not a build or runtime dependency.
 #
-# Why a newer xgettext: the gettext that ships with Debian/Ubuntu today predates
-# `--language=TypeScript`. 0.25+ auto-detects `.ts` sources as TypeScript by
-# extension (no --language flag), so it extracts the _()/N_() calls correctly
-# while still handling the .desktop.in / .metainfo.xml.in files in the same pass.
+# Why a newer xgettext: TypeScript extraction landed in gettext 0.25. Older
+# xgettext doesn't recognize `.ts` and parses it as C, extracting nothing. 0.25+
+# auto-detects `.ts` sources by extension (no --language flag), so it extracts
+# the _()/N_() calls correctly while still handling the .desktop.in /
+# .metainfo.xml.in files in the same pass.
 #
 # Usage:
-#   cp build-aux/xgettext-0.26.ini.example build-aux/xgettext-0.26.ini
+#   cp build-aux/xgettext.ini.example build-aux/xgettext.ini
 #   # edit the path below to your gettext build, then:
-#   meson setup build --native-file build-aux/xgettext-0.26.ini
+#   meson setup build --native-file build-aux/xgettext.ini
 #   meson compile -C build annoscr-pot        # regenerate po/annoscr.pot
 #
 # Only `xgettext` is overridden; msgfmt/msgmerge/msginit stay on the system

@@ -27,4 +27,4 @@ debian/debhelper-build-stamp
 
 # Local meson native file pointing at a developer's gettext ≥0.25 build
 # (absolute $HOME path); the committed .example documents the format.
-build-aux/xgettext-0.26.ini
+build-aux/xgettext.ini
