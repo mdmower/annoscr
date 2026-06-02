@@ -12,6 +12,9 @@ const WINDOW_CSS = `
   .annoscr-font-size > text {
     padding-left: 12px;
   }
+  .annoscr-opacity-scale > value {
+    margin-left: 16px;
+  }
   .annoscr-keycap {
     min-width: 1.4em;
     padding: 1px 6px;

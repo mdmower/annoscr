@@ -4,7 +4,7 @@ import Cairo from 'cairo';
 import {CanvasView} from './canvas_view.js';
 import {TextEditor, TextEditorStyle} from './text_editor.js';
 import {getAvailableFonts} from './font_catalogue.js';
-import {colorToRgba, rgbaToColor} from './gdk_color.js';
+import {colorToHex, colorToRgba, parseHexColor, rgbaToColor} from './gdk_color.js';
 import {DASH_ORDER} from './window_constants.js';
 import {_, formatN} from './i18n.js';
 import {
@@ -74,11 +74,13 @@ function drawSwatch(cr: Cairo.Context, w: number, h: number, color: ColorRGBA): 
 // canvas state changes (tool switch, selection change, edit lifecycle).
 export class StyleBar {
   private widget: Gtk.Box;
-  // Color/Fill are custom swatch buttons that drive a Gtk.ColorDialog
-  // ourselves, so we commit on the dialog's OK — even when the chosen color
-  // equals the one shown. (A stock Gtk.ColorDialogButton only signals on a
-  // *changed* rgba, which silently dropped "make this mixed selection all the
-  // shown color".) `*SwatchSet` repaints the swatch to a given color.
+  // Color/Fill are custom swatch buttons. Clicking one opens a popover with an
+  // inline hex entry + opacity slider (drag opacity to 0 for transparent / no
+  // fill) and a "Palette…" button into the full system Gtk.ColorDialog
+  // (palette + custom hex editor + screen picker). We drive the dialog
+  // ourselves so a pick commits even when it equals the shown color —
+  // flattening a mixed selection — which a stock Gtk.ColorDialogButton's
+  // *changed*-only notify would drop. `*SwatchSet` repaints the swatch.
   private colorGroup!: Gtk.Box;
   private colorLabel!: Gtk.Label;
   private colorSwatchSet!: (c: ColorRGBA | null) => void;
@@ -298,24 +300,127 @@ export class StyleBar {
     return styleBar;
   }
 
-  // A color swatch button that opens a Gtk.ColorDialog ourselves and reports
-  // the chosen color via `onChosen` on the dialog's OK — regardless of whether
-  // it changed (unlike Gtk.ColorDialogButton's notify::rgba). Returns the
-  // button plus a setter that repaints the swatch to a given color.
+  // A color swatch button whose popover holds an inline hex entry + opacity
+  // slider and a button into the full system Gtk.ColorDialog. Every path
+  // reports the chosen color via `onChosen` even when it equals the shown one
+  // (so a mixed selection flattens). Returns the button plus a setter that
+  // repaints the swatch.
   private makeSwatchButton(onChosen: (color: ColorRGBA) => void): {
-    button: Gtk.Button;
+    button: Gtk.MenuButton;
     setColor: (c: ColorRGBA | null) => void;
   } {
     let current: ColorRGBA = [0, 0, 0, 1];
+    // Suppress the entry/slider change handlers while we set their values
+    // programmatically (on popup, or when one control drives the other).
+    let syncing = false;
+
     const area = new Gtk.DrawingArea({
       width_request: 28,
       height_request: 20,
       valign: Gtk.Align.CENTER,
     });
     area.set_draw_func((_w, cr, w, h) => drawSwatch(cr, w, h, current));
-    const button = new Gtk.Button({child: area, tooltip_text: _('Pick a color')});
+    // A MenuButton (not a plain Button + set_parent'd popover): it owns the
+    // popover and unparents it on dispose, avoiding the "Finalizing GtkButton …
+    // still has children left" warning at quit. No dropdown arrow because the
+    // swatch is a custom child and always-show-arrow defaults off.
+    const button = new Gtk.MenuButton({child: area, tooltip_text: _('Pick a color')});
+
+    const box = new Gtk.Box({
+      orientation: Gtk.Orientation.VERTICAL,
+      spacing: 8,
+      margin_top: 8,
+      margin_bottom: 8,
+      margin_start: 8,
+      margin_end: 8,
+    });
+
+    const hexRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
+    hexRow.append(new Gtk.Label({label: _('Hex'), css_classes: ['caption']}));
+    const hexEntry = new Gtk.Entry({
+      max_length: 9,
+      width_chars: 9,
+      hexpand: true,
+      tooltip_text: _('#RGB, #RGBA, #RRGGBB, or #RRGGBBAA'),
+    });
+    hexRow.append(hexEntry);
+    box.append(hexRow);
+
+    const opacityRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
+    opacityRow.append(new Gtk.Label({label: _('Opacity'), css_classes: ['caption']}));
+    const opacityScale = new Gtk.Scale({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      adjustment: new Gtk.Adjustment({lower: 0, upper: 100, step_increment: 1, page_increment: 10}),
+      digits: 0,
+      draw_value: true,
+      value_pos: Gtk.PositionType.RIGHT,
+      hexpand: true,
+      width_request: 160,
+      // Adds a left margin on the value node so the number isn't flush against
+      // the thumb at 100 (see WINDOW_CSS in window_constants.ts).
+      css_classes: ['annoscr-opacity-scale'],
+    });
+    opacityRow.append(opacityScale);
+    box.append(opacityRow);
+
+    const paletteBtn = new Gtk.Button({label: _('Palette…')});
+    box.append(paletteBtn);
+
+    const popover = new Gtk.Popover({autohide: true});
+    popover.set_child(box);
+    button.set_popover(popover);
+
+    const commit = (c: ColorRGBA): void => {
+      current = c;
+      area.queue_draw();
+      onChosen(c);
+    };
+
+    // Reflect `current` into the entry + slider without re-triggering commits.
+    const syncControls = (): void => {
+      syncing = true;
+      hexEntry.set_text(colorToHex(current));
+      opacityScale.set_value(Math.round(current[3] * 100));
+      syncing = false;
+    };
+
+    const applyHex = (): void => {
+      const parsed = parseHexColor(hexEntry.get_text());
+      if (!parsed) {
+        // Invalid input: snap the entry back to the live color.
+        syncing = true;
+        hexEntry.set_text(colorToHex(current));
+        syncing = false;
+        return;
+      }
+      // 6-digit keeps the current opacity; 8-digit carries its own alpha.
+      const alpha = parsed.hadAlpha ? parsed.color[3] : current[3];
+      const next: ColorRGBA = [parsed.color[0], parsed.color[1], parsed.color[2], alpha];
+      // Only commit a real edit. Without this, merely opening the popover and
+      // dismissing it (focus-leave with unchanged text) would commit — and on a
+      // mixed multi-selection that would silently flatten it. An intentional
+      // change still commits (and flattens a mixed selection) as expected.
+      if (!next.every((v, i) => v === current[i])) commit(next);
+      // syncControls() normalizes the text via set_text(), which parks the
+      // cursor at position 0; move it to the end so editing resumes naturally.
+      syncControls();
+      hexEntry.set_position(-1);
+    };
+    hexEntry.connect('activate', applyHex);
+    // Also apply when focus leaves the entry, so typing then clicking the
+    // slider/another control commits without needing Enter.
+    const focusCtl = new Gtk.EventControllerFocus();
+    focusCtl.connect('leave', applyHex);
+    hexEntry.add_controller(focusCtl);
+
+    opacityScale.connect('value-changed', () => {
+      if (syncing) return;
+      commit([current[0], current[1], current[2], opacityScale.get_value() / 100]);
+    });
+
     const dialog = new Gtk.ColorDialog({with_alpha: true});
-    button.connect('clicked', () => {
+    paletteBtn.connect('clicked', () => {
+      popover.popdown();
       const root = button.get_root() as Gtk.Window | null;
       // Callback form (not the promise overload) — the project doesn't rely on
       // GJS promisifying GTK async methods. choose_rgba_finish throws when the
@@ -323,12 +428,18 @@ export class StyleBar {
       dialog.choose_rgba(root, colorToRgba(current), null, (_source, res) => {
         try {
           const rgba = dialog.choose_rgba_finish(res);
-          if (rgba) onChosen(rgbaToColor(rgba));
+          if (rgba) commit(rgbaToColor(rgba));
         } catch {
           // Cancelled or dismissed — leave the selection untouched.
         }
       });
     });
+
+    // MenuButton shows the popover itself; sync the entry/slider to the live
+    // color just before it opens (create-popup-func runs pre-show, so there's
+    // no flash of stale values).
+    button.set_create_popup_func(() => syncControls());
+
     return {
       button,
       setColor: (c: ColorRGBA | null) => {
