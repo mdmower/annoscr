@@ -19,6 +19,7 @@ import {
   WIDTH_MIN,
   defaultDashForTool,
   defaultFillForTool,
+  defaultFilledHeadForTool,
   defaultFontDescForTool,
   defaultFontSizeForTool,
   defaultWidthForTool,
@@ -91,6 +92,11 @@ export class StyleBar {
   private dashGroup!: Gtk.Box;
   private dashLabel!: Gtk.Label;
   private dashDropdown!: Gtk.DropDown;
+  // Filled-arrowhead selector (arrow only): Open (stroked) vs Filled (solid
+  // triangle). A 2-row dropdown to match the Dash/Variant idiom.
+  private filledHeadGroup!: Gtk.Box;
+  private filledHeadLabel!: Gtk.Label;
+  private filledHeadDropdown!: Gtk.DropDown;
   // Group selector for the number stamp: choose the placement group (number
   // tool) or reassign the selected stamps (select tool). The model is rebuilt
   // each refresh from the canvas's live group list, with a trailing "+ New
@@ -220,6 +226,14 @@ export class StyleBar {
     this.dashGroup = makeGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
+    // Arrowhead group (arrow only) — row 0 = open, row 1 = filled.
+    const filledHeadSep = makeSep();
+    this.filledHeadDropdown = Gtk.DropDown.new_from_strings([_('Open'), _('Filled')]);
+    this.filledHeadDropdown.connect('notify::selected', () => this.onFilledHeadPicked());
+    this.filledHeadLabel = new Gtk.Label({label: _('Arrowhead'), css_classes: ['caption']});
+    this.filledHeadGroup = makeGroup(filledHeadSep, this.filledHeadLabel, this.filledHeadDropdown);
+    styleBar.append(this.filledHeadGroup);
+
     // Group selector (stamp). Rows are filled in refresh() from the canvas's
     // group list; the model starts empty.
     const groupSep = makeSep();
@@ -275,6 +289,7 @@ export class StyleBar {
       {group: this.fillGroup, sep: fillSep},
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
+      {group: this.filledHeadGroup, sep: filledHeadSep},
       {group: this.groupGroup, sep: groupSep},
       {group: this.variantGroup, sep: variantSep},
       {group: this.fontGroup, sep: fontSep},
@@ -387,6 +402,15 @@ export class StyleBar {
       this.dashLabel,
       _('Line'),
       this.selectionMixed((a) => a.getDash())
+    );
+
+    const filledHead = this.styleTargetFilledHead();
+    this.filledHeadGroup.set_visible(filledHead !== null);
+    if (filledHead !== null) this.filledHeadDropdown.set_selected(filledHead ? 1 : 0);
+    setCaption(
+      this.filledHeadLabel,
+      _('Arrowhead'),
+      this.selectionMixed((a) => a.getFilledHead())
     );
 
     this.refreshStampControls();
@@ -661,6 +685,18 @@ export class StyleBar {
     return this.canvas.getToolDash(tool);
   }
 
+  // Filled-arrowhead state to display, or null when no applicable target (text
+  // edit, or a tool/selection with no arrowhead). `false` is a real value, so
+  // callers must compare against null, not test truthiness.
+  private styleTargetFilledHead(): boolean | null {
+    if (this.editor.isActive()) return null;
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      return this.selectionSummary((a) => a.getFilledHead()).value;
+    }
+    return this.canvas.getToolFilledHead(tool);
+  }
+
   // Called from the fill swatch's dialog on OK (with the chosen color), so it
   // commits even when the color equals the one shown — broadcasting to every
   // selected action flattens a mixed selection as intended.
@@ -686,6 +722,17 @@ export class StyleBar {
       this.canvas.replaceSelectedDash(dash);
     } else if (defaultDashForTool(tool) !== null) {
       this.canvas.setToolDash(tool, dash);
+    }
+  }
+
+  private onFilledHeadPicked(): void {
+    if (this.updatingPicker || !this.filledHeadDropdown) return;
+    const filled = this.filledHeadDropdown.get_selected() === 1;
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      this.canvas.replaceSelectedFilledHead(filled);
+    } else if (defaultFilledHeadForTool(tool) !== null) {
+      this.canvas.setToolFilledHead(tool, filled);
     }
   }
 

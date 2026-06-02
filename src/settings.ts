@@ -26,6 +26,8 @@ export interface ToolStyleEntry {
   width?: number;
   fill?: ColorRGBA;
   dash?: DashStyle;
+  // Filled (solid-triangle) arrowhead. Only the arrow tool writes it.
+  filledHead?: boolean;
   fontDesc?: string;
   fontSize?: number;
   // Number-stamp radius (image-space px). Only the number tool writes it.
@@ -127,6 +129,7 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
       if (raw.dash === 'solid' || raw.dash === 'dashed' || raw.dash === 'dotted') {
         entry.dash = raw.dash;
       }
+      if (typeof raw.filledHead === 'boolean') entry.filledHead = raw.filledHead;
       if (typeof raw.fontDesc === 'string') entry.fontDesc = raw.fontDesc;
       const fontSize = asClampedNumber(raw.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
       if (fontSize !== undefined) entry.fontSize = fontSize;

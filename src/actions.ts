@@ -81,6 +81,11 @@ export interface Action {
   // number stamp). Only line / arrow / rect / oval carry it.
   getDash(): DashStyle | null;
   withDash(dash: DashStyle): Action;
+  // Whether the arrowhead is drawn as a filled solid triangle (true) rather
+  // than two open strokes (false), or null for actions that have no arrowhead.
+  // Only ArrowAction carries it.
+  getFilledHead(): boolean | null;
+  withFilledHead(filled: boolean): Action;
   // The action's editable font family (Pango font description string), or
   // null for actions that don't carry one. Only TextAction does today.
   getFontDesc(): string | null;
@@ -376,6 +381,12 @@ abstract class BaseAction implements Action {
     return null;
   }
   withDash(_dash: DashStyle): Action {
+    return this;
+  }
+  getFilledHead(): boolean | null {
+    return null;
+  }
+  withFilledHead(_filled: boolean): Action {
     return this;
   }
   getFontDesc(): string | null {
@@ -1219,6 +1230,25 @@ class LineLiveStroke extends EndpointLiveStroke {
 // ---------- Arrow ----------
 
 class ArrowAction extends TwoEndpointAction {
+  constructor(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    private readonly filledHead: boolean = false
+  ) {
+    super(x1, y1, x2, y2, style);
+  }
+
+  getFilledHead(): boolean {
+    return this.filledHead;
+  }
+
+  withFilledHead(filled: boolean): Action {
+    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, this.style, filled);
+  }
+
   // The two arrowhead arm tips. Both draw() and getBounds() need them, so the
   // geometry lives in one place. The arms run back from the tip (x2, y2) at
   // ±headAngle off the shaft direction.
@@ -1246,14 +1276,28 @@ class ArrowAction extends TwoEndpointAction {
     cr.stroke();
 
     // Arrowhead is always solid — a dashed head reads as broken. Clear any
-    // dash the shaft set and restore the round cap before stroking it.
+    // dash the shaft set. Round cap + join give the open head its rounded tip
+    // (the join where the arms meet) and rounded wing ends (the caps).
     cr.setDash([], 0);
     cr.setLineCap(Cairo.LineCap.ROUND);
+    cr.setLineJoin(Cairo.LineJoin.ROUND);
     const [[ax1, ay1], [ax2, ay2]] = this.arrowheadArms();
     cr.moveTo(ax1, ay1);
     cr.lineTo(this.x2, this.y2);
     cr.lineTo(ax2, ay2);
-    cr.stroke();
+    if (this.filledHead) {
+      // Filled winged head: close the two arms into a triangle and fill it,
+      // then stroke the outline so the round joins/caps round the tip and wing
+      // ends to width/2 — matching the open head and the round-capped shaft.
+      // The rounded apex coincides with the shaft's round cap at the tip, so no
+      // nub shows past the point.
+      cr.closePath();
+      cr.fillPreserve();
+      cr.stroke();
+    } else {
+      // Open winged head: two strokes meeting at the tip.
+      cr.stroke();
+    }
   }
 
   // Tight box around the actual ink: both endpoints plus the two arrowhead arm
@@ -1273,13 +1317,22 @@ class ArrowAction extends TwoEndpointAction {
   }
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return new ArrowAction(x1, y1, x2, y2, style);
+    return new ArrowAction(x1, y1, x2, y2, style, this.filledHead);
   }
 }
 
 class ArrowLiveStroke extends EndpointLiveStroke {
+  constructor(
+    x1: number,
+    y1: number,
+    style: Style,
+    private readonly filledHead: boolean
+  ) {
+    super(x1, y1, style);
+  }
+
   protected build(): Action {
-    return new ArrowAction(this.x1, this.y1, this.endX, this.endY, this.style);
+    return new ArrowAction(this.x1, this.y1, this.endX, this.endY, this.style, this.filledHead);
   }
 }
 
@@ -1580,7 +1633,8 @@ export function createLiveStroke(
   color: ColorRGBA,
   width: number,
   fill: ColorRGBA,
-  dash: DashStyle
+  dash: DashStyle,
+  filledHead: boolean
 ): LiveStroke {
   switch (toolId) {
     case 'pen':
@@ -1590,7 +1644,7 @@ export function createLiveStroke(
     case 'line':
       return new LineLiveStroke(x, y, {...LINE_STYLE, color, width, dash});
     case 'arrow':
-      return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width, dash});
+      return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width, dash}, filledHead);
     case 'rect':
       return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width, dash}, fill);
     case 'oval':
@@ -1648,6 +1702,13 @@ export function defaultDashForTool(toolId: ToolId): DashStyle | null {
     default:
       return null;
   }
+}
+
+// Default filled-arrowhead state. Only the arrow tool carries it; everything
+// else returns null and the toggle hides accordingly. Arrows default to the
+// open (stroked) arrowhead.
+export function defaultFilledHeadForTool(toolId: ToolId): boolean | null {
+  return toolId === 'arrow' ? false : null;
 }
 
 // The tool that produces an action of this type, so a select-mode style edit can

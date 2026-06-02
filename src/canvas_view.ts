@@ -25,6 +25,7 @@ import {
   defaultColorForTool,
   defaultDashForTool,
   defaultFillForTool,
+  defaultFilledHeadForTool,
   defaultFontDescForTool,
   defaultFontSizeForTool,
   defaultWidthForTool,
@@ -335,6 +336,10 @@ export const CanvasView = GObject.registerClass(
     // Per-tool current dash style. Only line, arrow, rect, oval have entries
     // here; everything else has no editable dash (returns null).
     private toolDashes: Map<ToolId, DashStyle> = new Map();
+
+    // Per-tool filled-arrowhead state. Only 'arrow' ever has an entry; every
+    // other tool has no arrowhead (returns null).
+    private toolFilledHeads: Map<ToolId, boolean> = new Map();
 
     // Stamp groups. Stamps carry a stable groupId; numbering runs per group.
     // `placementGroupId` is the group new stamps land in (number tool); it is
@@ -664,6 +669,18 @@ export const CanvasView = GObject.registerClass(
       this.toolDashes.set(toolId, dash);
     }
 
+    // Current filled-arrowhead state for the given tool. Returns null for every
+    // tool but 'arrow' (the toggle hides accordingly).
+    getToolFilledHead(toolId: ToolId): boolean | null {
+      const def = defaultFilledHeadForTool(toolId);
+      if (def === null) return null;
+      return this.toolFilledHeads.get(toolId) ?? def;
+    }
+
+    setToolFilledHead(toolId: ToolId, filled: boolean): void {
+      this.toolFilledHeads.set(toolId, filled);
+    }
+
     // Current font description for the given tool. Returns null for tools
     // that don't have an editable font (everything but 'text').
     getToolFontDesc(toolId: ToolId): string | null {
@@ -846,6 +863,7 @@ export const CanvasView = GObject.registerClass(
       for (const [id, w] of this.toolWidths) ensure(id).width = w;
       for (const [id, f] of this.toolFills) ensure(id).fill = f;
       for (const [id, d] of this.toolDashes) ensure(id).dash = d;
+      for (const [id, h] of this.toolFilledHeads) ensure(id).filledHead = h;
       for (const [id, f] of this.toolFontDescs) ensure(id).fontDesc = f;
       for (const [id, s] of this.toolFontSizes) ensure(id).fontSize = s;
       for (const [id, r] of this.toolStampRadii) ensure(id).stampRadius = r;
@@ -865,6 +883,7 @@ export const CanvasView = GObject.registerClass(
         if (e.width !== undefined) this.toolWidths.set(toolId, e.width);
         if (e.fill) this.toolFills.set(toolId, e.fill);
         if (e.dash) this.toolDashes.set(toolId, e.dash);
+        if (e.filledHead !== undefined) this.toolFilledHeads.set(toolId, e.filledHead);
         if (e.fontDesc) this.toolFontDescs.set(toolId, e.fontDesc);
         if (e.fontSize !== undefined) this.toolFontSizes.set(toolId, e.fontSize);
         if (e.stampRadius !== undefined) this.toolStampRadii.set(toolId, e.stampRadius);
@@ -1013,6 +1032,16 @@ export const CanvasView = GObject.registerClass(
         dash,
         'dash',
         (tid, v) => this.setToolDash(tid, v)
+      );
+    }
+
+    replaceSelectedFilledHead(filled: boolean): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getFilledHead(),
+        (a, v) => a.withFilledHead(v),
+        filled,
+        'filledHead',
+        (tid, v) => this.setToolFilledHead(tid, v)
       );
     }
 
@@ -1479,7 +1508,17 @@ export const CanvasView = GObject.registerClass(
         this.getToolWidth(this.currentToolId) ?? defaultWidthForTool(this.currentToolId) ?? 1;
       const fill = this.getToolFill(this.currentToolId) ?? TRANSPARENT_FILL;
       const dash = this.getToolDash(this.currentToolId) ?? DEFAULT_DASH;
-      this.liveStroke = createLiveStroke(this.currentToolId, ix, iy, color, width, fill, dash);
+      const filledHead = this.getToolFilledHead(this.currentToolId) ?? false;
+      this.liveStroke = createLiveStroke(
+        this.currentToolId,
+        ix,
+        iy,
+        color,
+        width,
+        fill,
+        dash,
+        filledHead
+      );
       this.queue_draw();
     }
 
