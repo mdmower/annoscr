@@ -4,8 +4,6 @@ import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 import Cairo from 'cairo';
 
-import type {EditorSize} from './actions.js';
-
 import {
   Action,
   Bounds,
@@ -44,7 +42,7 @@ import {
 } from './actions.js';
 import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
-import type {RotateDirection} from './actions.js';
+import type {EditorSize, RotateDirection} from './actions.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
 
 export interface ResizeRect {
@@ -382,7 +380,7 @@ export const CanvasView = GObject.registerClass(
 
     // Per-tool remembered number-stamp radius (image-space pixels). Only
     // 'number' ever has an entry — set when a stamp is resized (so the next
-    // placement inherits the size), read at placement (#6). Not a "width", so
+    // placement inherits the size), read at placement. Not a "width", so
     // it gets its own slot rather than reusing toolWidths.
     private toolStampRadii: Map<ToolId, number> = new Map();
 
@@ -993,7 +991,7 @@ export const CanvasView = GObject.registerClass(
       let applicable = false;
       let changed = false;
       // The tools of the edited action types, so the edit can be remembered as
-      // each one's default (#5).
+      // each one's default.
       const tools = new Set<ToolId>();
       const next = cur.map((a, j) => {
         if (!this.selectedIndices.has(j)) return a;
@@ -1013,7 +1011,7 @@ export const CanvasView = GObject.registerClass(
       // been active; treat as not handled.
       if (!applicable) return false;
       // Remember this select-mode edit as the matching tools' default so the
-      // next placement with that tool inherits it (#5). Only the edited types'
+      // next placement with that tool inherits it. Only the edited types'
       // tools are touched — recoloring a rect updates rect's default, not pen's.
       // Written even when nothing changed (every selected item already had the
       // value), since the user still explicitly chose it.
@@ -1887,8 +1885,8 @@ export const CanvasView = GObject.registerClass(
     // The single selected action's index when exactly one is selected (and
     // valid), else -1. Per-action resize handles only show for a lone
     // selection — a multi-selection still moves/restyles as a group, but
-    // reshaping needs one unambiguous target (M30's rotate gizmo will gate the
-    // same way). The set's sole member, read without spreading.
+    // reshaping needs one unambiguous target (the rotate gizmo gates the same
+    // way). The set's sole member, read without spreading.
     private soleSelectedIndex(): number {
       if (this.selectedIndices.size !== 1) return -1;
       const i = this.selectedIndices.values().next().value ?? -1;
@@ -2015,7 +2013,7 @@ export const CanvasView = GObject.registerClass(
             actions: cur.map((a, j) => (j === i ? preview : a)),
           });
           // Remember a resized stamp's new radius as the next placement's
-          // default (#6); persisted with the other tool styles when
+          // default; persisted with the other tool styles when
           // rememberToolStyles is on. Rotations don't change the radius.
           if (wasResize) {
             const r = numberStampRadius(preview);

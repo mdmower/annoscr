@@ -29,8 +29,8 @@ export type RotateDirection = 'cw' | 'ccw';
 
 // Handle ids for per-action resize (select tool). Box handles — corners (tl/tr/
 // bl/br) and edge midpoints (t/b/l/r) — cover rect/oval/number-stamp; endpoint
-// handles (p1/p2) cover line/arrow. M30's free-rotate will add its own gizmo on
-// the same grab/preview scaffolding rather than extending this set.
+// handles (p1/p2) cover line/arrow. Free-rotate uses its own gizmo on the same
+// grab/preview scaffolding rather than extending this set.
 export type HandleId = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2';
 
 // A single resize handle in image space, ready for the canvas to draw and
@@ -377,7 +377,7 @@ const SHAPE_MIN_EXTENT = 2;
 // only bounds a remembered value loaded from settings.json against junk.
 export const STAMP_RADIUS_MIN = 4;
 export const STAMP_RADIUS_MAX = 512;
-// The static placement radius before any remembered size (#6).
+// The static placement radius before any remembered size.
 export const DEFAULT_STAMP_RADIUS = NUMBER_STAMP_STYLE.radius;
 
 abstract class BaseAction implements Action {
@@ -1025,7 +1025,7 @@ export function numberStampVariant(action: Action): StampVariant | null {
 }
 
 // The stamp's radius (image-space px), or null for non-stamp actions. Lets the
-// canvas remember a resized stamp's size as the next placement's default (#6).
+// canvas remember a resized stamp's size as the next placement's default.
 export function numberStampRadius(action: Action): number | null {
   return action instanceof NumberStampAction ? action.style.radius : null;
 }
@@ -1079,8 +1079,8 @@ export function setStampVariantInGroup(
 // ---------- Pen / Highlighter (multi-point stroke) ----------
 
 // Pen and highlighter both produce a StrokeAction; the tag records which tool
-// drew it so a select-mode style edit can write back to the right tool default
-// (#5). It's the only thing distinguishing the two once committed.
+// drew it so a select-mode style edit can write back to the right tool default.
+// It's the only thing distinguishing the two once committed.
 type StrokeTool = 'pen' | 'highlighter';
 
 class StrokeAction extends BaseAction {
@@ -1806,7 +1806,7 @@ export function defaultFilledHeadForTool(toolId: ToolId): boolean | null {
 }
 
 // The tool that produces an action of this type, so a select-mode style edit can
-// be written back to the matching tool's default (#5). StrokeAction carries its
+// be written back to the matching tool's default. StrokeAction carries its
 // own pen/highlighter tag; the rest map by concrete class. Null for any action
 // with no single originating tool (none today).
 export function actionToolId(action: Action): ToolId | null {

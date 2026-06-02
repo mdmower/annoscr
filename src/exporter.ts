@@ -73,9 +73,8 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
   opaque.flush();
   // Gdk.pixbuf_get_from_surface is deprecated since 4.12. The replacement
   // (Gdk.MemoryTexture from cairo pixels) requires
-  // cairo_image_surface_get_data, which GJS deliberately omits. See
-  // [[gjs-cairo-pixel-access]] for the gap; until GJS exposes it, this
-  // path stays on the deprecated helper.
+  // cairo_image_surface_get_data, which GJS deliberately omits, so until GJS
+  // exposes it this path stays on the deprecated helper.
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   const pixbuf = Gdk.pixbuf_get_from_surface(opaque, 0, 0, w, h);
   // A null pixbuf means the read failed; throw so the caller doesn't mistake a
