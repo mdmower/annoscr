@@ -114,6 +114,9 @@ export class StyleBar {
   // Select-mode action (not a style picker): duplicates the current selection.
   // Visible only when the select tool has something selected.
   private duplicateGroup!: Gtk.Box;
+  // Select-mode action: restacks the current selection (z-order). Same
+  // visibility rule as the duplicate group.
+  private zorderGroup!: Gtk.Box;
   private fontGroup!: Gtk.Box;
   private fontLabel!: Gtk.Label;
   private fontDropdown!: Gtk.DropDown;
@@ -177,6 +180,33 @@ export class StyleBar {
     duplicateBtn.connect('clicked', () => this.canvas.cloneSelected());
     this.duplicateGroup = makeGroup(duplicateSep, duplicateBtn);
     styleBar.append(this.duplicateGroup);
+
+    // Z-order group — select-mode actions that restack the selection. Tooltips
+    // flag that reordering renumbers stamps within their group (stamp numbers
+    // track stacking order). Ctrl+brackets are the keyboard equivalents.
+    const zorderSep = makeSep();
+    const renumberNote = _('Stamps renumber within their group.');
+    const makeZorderBtn = (
+      icon: string,
+      tip: string,
+      op: 'back' | 'lower' | 'raise' | 'front'
+    ): Gtk.Button => {
+      const b = new Gtk.Button({
+        icon_name: icon,
+        tooltip_text: `${tip}\n${renumberNote}`,
+        valign: Gtk.Align.CENTER,
+      });
+      b.connect('clicked', () => this.canvas.reorderSelected(op));
+      return b;
+    };
+    this.zorderGroup = makeGroup(
+      zorderSep,
+      makeZorderBtn('go-bottom-symbolic', _('Send to back (Ctrl+Shift+[)'), 'back'),
+      makeZorderBtn('go-down-symbolic', _('Send backward (Ctrl+[)'), 'lower'),
+      makeZorderBtn('go-up-symbolic', _('Bring forward (Ctrl+])'), 'raise'),
+      makeZorderBtn('go-top-symbolic', _('Bring to front (Ctrl+Shift+])'), 'front')
+    );
+    styleBar.append(this.zorderGroup);
 
     // Color group
     const colorSep = makeSep();
@@ -287,6 +317,7 @@ export class StyleBar {
 
     this.styleGroupOrder = [
       {group: this.duplicateGroup, sep: duplicateSep},
+      {group: this.zorderGroup, sep: zorderSep},
       {group: this.colorGroup, sep: colorSep},
       {group: this.fillGroup, sep: fillSep},
       {group: this.widthGroup, sep: widthSep},
@@ -471,13 +502,15 @@ export class StyleBar {
     if (!this.colorGroup) return;
     this.updatingPicker = true;
 
-    // Duplicate is a select-mode action on the current selection — show it only
-    // when the select tool has something picked (and not during a text edit).
-    this.duplicateGroup.set_visible(
+    // Duplicate and z-order are select-mode actions on the current selection —
+    // show them only when the select tool has something picked (and not during
+    // a text edit).
+    const selectAction =
       this.canvas.getTool() === 'select' &&
-        !this.editor.isActive() &&
-        this.canvas.getSelectedActions().length > 0
-    );
+      !this.editor.isActive() &&
+      this.canvas.getSelectedActions().length > 0;
+    this.duplicateGroup.set_visible(selectAction);
+    this.zorderGroup.set_visible(selectAction);
 
     const color = this.styleTargetColor();
     this.colorGroup.set_visible(color !== null);

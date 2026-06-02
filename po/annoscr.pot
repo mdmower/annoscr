@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-31 08:15-0700\n"
+"POT-Creation-Date: 2026-06-02 16:53-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -102,7 +102,7 @@ msgstr ""
 msgid "Discard"
 msgstr ""
 
-#: src/dialogs.ts:63 src/shortcuts_dialog.ts:28
+#: src/dialogs.ts:63 src/shortcuts_dialog.ts:30
 msgid "New blank canvas"
 msgstr ""
 
@@ -114,11 +114,11 @@ msgstr ""
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:78 src/style_bar.ts:259 src/style_bar.ts:411
+#: src/dialogs.ts:78 src/style_bar.ts:305 src/style_bar.ts:579
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:91 src/style_bar.ts:211 src/style_bar.ts:379
+#: src/dialogs.ts:91 src/style_bar.ts:249 src/style_bar.ts:538
 msgid "Width"
 msgstr ""
 
@@ -126,7 +126,7 @@ msgstr ""
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:131 src/style_bar.ts:185 src/style_bar.ts:370
+#: src/dialogs.ts:131 src/style_bar.ts:223 src/style_bar.ts:529
 msgid "Fill"
 msgstr ""
 
@@ -153,7 +153,7 @@ msgid "Color scheme"
 msgstr ""
 
 #. Tools
-#: src/preferences.ts:51 src/shortcuts_dialog.ts:53
+#: src/preferences.ts:51 src/shortcuts_dialog.ts:65
 msgid "Tools"
 msgstr ""
 
@@ -203,209 +203,294 @@ msgstr ""
 msgid "Ask before replacing an annotated canvas you haven't saved"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:26
+#: src/preferences.ts:136
+msgid "Select after placing"
+msgstr ""
+
+#: src/preferences.ts:137
+msgid ""
+"Switch to the select tool and select each annotation right after you place it"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:28
 msgid "General"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:29 src/window.ts:356
+#: src/shortcuts_dialog.ts:31 src/window.ts:380
 msgid "Open image"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:30
+#: src/shortcuts_dialog.ts:32
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:31 src/window.ts:612
+#: src/shortcuts_dialog.ts:33 src/window.ts:656
 msgid "Save image"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:32
+#: src/shortcuts_dialog.ts:34
 msgid "Copy to clipboard"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:33
+#: src/shortcuts_dialog.ts:35
 msgid "Paste image"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:34 src/window.ts:107
+#: src/shortcuts_dialog.ts:36 src/window.ts:107
 msgid "Preferences"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:35 src/shortcuts_dialog.ts:114 src/window.ts:108
+#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:126 src/window.ts:108
 msgid "Keyboard shortcuts"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:36 src/window.ts:110
+#: src/shortcuts_dialog.ts:38 src/window.ts:110
 msgid "Quit"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:40
+#: src/shortcuts_dialog.ts:42
 msgid "Edit"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:42
+#: src/shortcuts_dialog.ts:44
 msgid "Undo"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:43
+#: src/shortcuts_dialog.ts:45
 msgid "Redo"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:44
+#: src/shortcuts_dialog.ts:46
 msgid "Delete selection"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:45
+#: src/shortcuts_dialog.ts:47
 msgid "Duplicate selection"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:46
+#: src/shortcuts_dialog.ts:48
 msgid "Start a new stamp group (number / select tool)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:47
+#: src/shortcuts_dialog.ts:49
 msgid "Deselect"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:48
-msgid "Aim up / down through overlapping items (select tool)"
+#: src/shortcuts_dialog.ts:50
+msgid "Aim through overlapping items (select tool)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:49
+#: src/shortcuts_dialog.ts:51
 msgid "Add/remove aimed item (select tool)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:55 src/window_constants.ts:85
-msgid "Select"
+#: src/shortcuts_dialog.ts:55
+msgid "Z-order (select tool)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:56 src/window_constants.ts:86
-msgid "Pen"
+#: src/shortcuts_dialog.ts:56
+msgid "Reordering renumbers stamps within their group."
 msgstr ""
 
-#: src/shortcuts_dialog.ts:57
-msgid "Highlighter"
-msgstr ""
-
-#: src/shortcuts_dialog.ts:58 src/window_constants.ts:93
-msgid "Text"
+#: src/shortcuts_dialog.ts:58
+msgid "Send backward"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:59
-msgid "Number stamp"
+msgid "Bring forward"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:60 src/style_bar.ts:219 src/style_bar.ts:388
-#: src/window_constants.ts:95
-msgid "Line"
+#: src/shortcuts_dialog.ts:60
+msgid "Send to back"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:61 src/window_constants.ts:96
-msgid "Arrow"
+#: src/shortcuts_dialog.ts:61
+msgid "Bring to front"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:62 src/window_constants.ts:97
-msgid "Rectangle"
+#: src/shortcuts_dialog.ts:67 src/window_constants.ts:88
+msgid "Select"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:63 src/window_constants.ts:98
-msgid "Oval"
-msgstr ""
-
-#: src/shortcuts_dialog.ts:67
-msgid "View"
+#: src/shortcuts_dialog.ts:68 src/window_constants.ts:89
+msgid "Pen"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:69
-msgid "Fit to window"
+msgid "Highlighter"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:70
-msgid "1∶1 zoom"
+#: src/shortcuts_dialog.ts:70 src/window_constants.ts:96
+msgid "Text"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:71
-msgid "Zoom in"
+msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:72
-msgid "Zoom out"
+#: src/shortcuts_dialog.ts:72 src/style_bar.ts:257 src/style_bar.ts:547
+#: src/window_constants.ts:98
+msgid "Line"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:73
-msgid "Zoom at the pointer"
+#: src/shortcuts_dialog.ts:73 src/window_constants.ts:99
+msgid "Arrow"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:77
-msgid "Resize mode"
+#: src/shortcuts_dialog.ts:74 src/window_constants.ts:100
+msgid "Rectangle"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:75 src/window_constants.ts:101
+msgid "Oval"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:79
+msgid "View"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:81
+msgid "Fit to window"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:82
+msgid "1∶1 zoom"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:83
+msgid "Zoom in"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:84
+msgid "Zoom out"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:85
+msgid "Zoom at the pointer"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:89
+msgid "Resize mode"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:91
 msgid "Apply resize"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:80
+#: src/shortcuts_dialog.ts:92
 msgid "Cancel resize"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:106
+#: src/shortcuts_dialog.ts:118
 msgid "or"
 msgstr ""
 
-#: src/style_bar.ts:42
+#: src/style_bar.ts:43
 msgid "(mixed)"
 msgstr ""
 
-#: src/style_bar.ts:166
+#: src/style_bar.ts:177
 msgid "Duplicate selection (Ctrl+D)"
 msgstr ""
 
-#: src/style_bar.ts:177 src/style_bar.ts:361
+#: src/style_bar.ts:188
+msgid "Stamps renumber within their group."
+msgstr ""
+
+#: src/style_bar.ts:204
+msgid "Send to back (Ctrl+Shift+[)"
+msgstr ""
+
+#: src/style_bar.ts:205
+msgid "Send backward (Ctrl+[)"
+msgstr ""
+
+#: src/style_bar.ts:206
+msgid "Bring forward (Ctrl+])"
+msgstr ""
+
+#: src/style_bar.ts:207
+msgid "Bring to front (Ctrl+Shift+])"
+msgstr ""
+
+#: src/style_bar.ts:215 src/style_bar.ts:520
 msgid "Color"
 msgstr ""
 
-#: src/style_bar.ts:217
+#: src/style_bar.ts:255
 msgid "Solid"
 msgstr ""
 
-#: src/style_bar.ts:217
+#: src/style_bar.ts:255
 msgid "Dashed"
 msgstr ""
 
-#: src/style_bar.ts:217
+#: src/style_bar.ts:255
 msgid "Dotted"
 msgstr ""
 
-#: src/style_bar.ts:229 src/style_bar.ts:473
+#: src/style_bar.ts:263
+msgid "Open"
+msgstr ""
+
+#: src/style_bar.ts:263
+msgid "Filled"
+msgstr ""
+
+#: src/style_bar.ts:265 src/style_bar.ts:556
+msgid "Arrowhead"
+msgstr ""
+
+#: src/style_bar.ts:275 src/style_bar.ts:641
 msgid "Group"
 msgstr ""
 
-#: src/style_bar.ts:235 src/window_constants.ts:94
+#: src/style_bar.ts:281 src/window_constants.ts:97
 msgid "Number"
 msgstr ""
 
-#: src/style_bar.ts:235
+#: src/style_bar.ts:281
 msgid "Letter"
 msgstr ""
 
-#: src/style_bar.ts:237 src/style_bar.ts:488
+#: src/style_bar.ts:283 src/style_bar.ts:656
 msgid "Variant"
 msgstr ""
 
-#: src/style_bar.ts:257 src/style_bar.ts:402
+#: src/style_bar.ts:303 src/style_bar.ts:570
 msgid "Font"
 msgstr ""
 
-#: src/style_bar.ts:301
+#. A MenuButton (not a plain Button + set_parent'd popover): it owns the
+#. popover and unparents it on dispose, avoiding the "Finalizing GtkButton …
+#. still has children left" warning at quit. No dropdown arrow because the
+#. swatch is a custom child and always-show-arrow defaults off.
+#: src/style_bar.ts:358
 msgid "Pick a color"
 msgstr ""
 
-#: src/style_bar.ts:498
+#: src/style_bar.ts:370
+msgid "Hex"
+msgstr ""
+
+#: src/style_bar.ts:375
+msgid "#RGB, #RGBA, #RRGGBB, or #RRGGBBAA"
+msgstr ""
+
+#: src/style_bar.ts:381
+msgid "Opacity"
+msgstr ""
+
+#: src/style_bar.ts:397
+msgid "Palette…"
+msgstr ""
+
+#: src/style_bar.ts:666
 #, javascript-format
 msgid "Group %d"
 msgstr ""
 
-#: src/style_bar.ts:499
+#: src/style_bar.ts:667
 msgid "+ New group"
 msgstr ""
 
@@ -426,7 +511,7 @@ msgid "Shift+Click (or Shift+Space) to add/remove"
 msgstr ""
 
 #: src/tool_bar.ts:48
-msgid "Alt+Scroll or [ ] to aim through a stack"
+msgid "Alt+Scroll or < > to aim through a stack"
 msgstr ""
 
 #: src/tool_bar.ts:99
@@ -473,100 +558,104 @@ msgstr ""
 msgid "Rotate left (90°)"
 msgstr ""
 
-#: src/window.ts:228
+#: src/window.ts:244
 msgid ""
 "Create a blank canvas, open an image, paste from the clipboard, or drop a "
 "file here."
 msgstr ""
 
-#: src/window.ts:303
+#: src/window.ts:327
 msgid "Closing the window"
 msgstr ""
 
-#: src/window.ts:350
+#: src/window.ts:374
 msgid "Opening a new image"
 msgstr ""
 
-#: src/window.ts:358
+#: src/window.ts:382
 msgid "Images"
 msgstr ""
 
 #. Guards an unsaved canvas before replacing it. Harmless at cold startup
 #. (confirmDiscard proceeds immediately when nothing is dirty); the guard
 #. matters now that `--new` can reach an already-running instance.
-#: src/window.ts:382 src/window.ts:388
+#: src/window.ts:406 src/window.ts:412
 msgid "Creating a blank canvas"
 msgstr ""
 
-#: src/window.ts:396
+#: src/window.ts:420
 msgid "Opening this image"
 msgstr ""
 
-#: src/window.ts:412
+#: src/window.ts:436
 msgid "Opening the screenshot"
 msgstr ""
 
-#: src/window.ts:420
+#: src/window.ts:444
 msgid "Screenshot cancelled"
 msgstr ""
 
-#: src/window.ts:435
+#: src/window.ts:459
 #, javascript-format
 msgid "Could not open \"%s\""
 msgstr ""
 
-#: src/window.ts:453
+#: src/window.ts:477
 msgid "Opening the dropped image"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:621
+#: src/window.ts:665
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:665
+#: src/window.ts:709
 msgid "Could not save image"
 msgstr ""
 
-#: src/window.ts:679
+#: src/window.ts:721
+msgid "Image copied to clipboard"
+msgstr ""
+
+#: src/window.ts:724
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:684
+#: src/window.ts:729
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:710
+#: src/window.ts:755
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:722
+#: src/window.ts:767
 msgid "Clipboard has no image to paste"
 msgstr ""
 
-#: src/window_constants.ts:61
+#: src/window_constants.ts:64
 msgid "Custom"
 msgstr ""
 
-#: src/window_constants.ts:62
+#: src/window_constants.ts:65
 msgid "640 × 480"
 msgstr ""
 
-#: src/window_constants.ts:63
+#: src/window_constants.ts:66
 msgid "800 × 600"
 msgstr ""
 
-#: src/window_constants.ts:64
+#: src/window_constants.ts:67
 msgid "1280 × 720 (HD)"
 msgstr ""
 
-#: src/window_constants.ts:65
+#: src/window_constants.ts:68
 msgid "1920 × 1080 (Full HD)"
 msgstr ""
 
-#: src/window_constants.ts:89
+#: src/window_constants.ts:92
 msgid "Highlight"
 msgstr ""
 

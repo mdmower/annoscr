@@ -585,26 +585,46 @@ export const AnnoscrWindow = GObject.registerClass(
         this.bindShortcut(controller, tool.accelerator, () => this.toolbar.selectTool(tool.id));
       }
       this.add_controller(controller);
-      this.installDigKeys();
+      this.installStackKeys();
     }
 
-    // [ and ] dig the select-tool hover candidate up/down through overlapping
-    // items (the precise, one-step alternative to Alt+scroll). Handled with a
-    // key controller rather than ShortcutController accelerators so they fire
-    // regardless of held Shift/Alt — a convenience mid-gesture (e.g. while
-    // holding Shift to toggle). That also means matching the shifted keyvals
-    // brace{left,right}, since Shift+[ delivers braceleft, not bracketleft.
-    // Ctrl is excluded to leave room for Ctrl-chords. digHoverCandidate returns
-    // false unless it actually dug, so a stray bracket still falls through (and
-    // the focused text editor consumes them while typing).
-    private installDigKeys(): void {
+    // Two depth gestures on one key controller (not ShortcutController
+    // accelerators, which can't be trusted for shifted punctuation — Shift+[
+    // delivers braceleft, not bracketleft):
+    //
+    //   Aim:  , / . (and their < / > shifted twins) dig the select-tool hover
+    //         candidate down/up through overlapping items — the precise,
+    //         one-step alternative to Alt+scroll. Fired regardless of Shift so
+    //         it works mid-gesture (e.g. while holding Shift to toggle).
+    //
+    //   Z-order:  Ctrl+[ / Ctrl+] lower/raise the selection one slot;
+    //             Ctrl+Shift+[ / Ctrl+Shift+] send it to back / bring to front
+    //             (the universal Photoshop/Illustrator/Figma convention).
+    //
+    // Both target methods return false when they don't act (no candidate /
+    // empty selection / already at the end), so a stray key still falls
+    // through. The focused text editor consumes these in its CAPTURE-phase
+    // controller while typing; isActive() is a belt-and-suspenders gate.
+    private installStackKeys(): void {
       const keys = new Gtk.EventControllerKey();
       keys.connect('key-pressed', (_c, keyval, _keycode, state) => {
-        if ((state & Gdk.ModifierType.CONTROL_MASK) !== 0) return false;
-        if (keyval === Gdk.KEY_bracketleft || keyval === Gdk.KEY_braceleft) {
+        if (this.editor.isActive()) return false;
+        if ((state & Gdk.ModifierType.CONTROL_MASK) !== 0) {
+          const toEnd = (state & Gdk.ModifierType.SHIFT_MASK) !== 0;
+          // Match both the unshifted and shifted keyvals of each bracket so the
+          // Ctrl+Shift chord works whether the layout reports bracket* or brace*.
+          if (keyval === Gdk.KEY_bracketleft || keyval === Gdk.KEY_braceleft) {
+            return this.canvas.reorderSelected(toEnd ? 'back' : 'lower');
+          }
+          if (keyval === Gdk.KEY_bracketright || keyval === Gdk.KEY_braceright) {
+            return this.canvas.reorderSelected(toEnd ? 'front' : 'raise');
+          }
+          return false;
+        }
+        if (keyval === Gdk.KEY_comma || keyval === Gdk.KEY_less) {
           return this.canvas.digHoverCandidate(-1);
         }
-        if (keyval === Gdk.KEY_bracketright || keyval === Gdk.KEY_braceright) {
+        if (keyval === Gdk.KEY_period || keyval === Gdk.KEY_greater) {
           return this.canvas.digHoverCandidate(1);
         }
         return false;

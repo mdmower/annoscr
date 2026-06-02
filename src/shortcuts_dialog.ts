@@ -13,6 +13,8 @@ interface Shortcut {
 
 interface Section {
   title: string;
+  // Optional group subtitle (e.g. a caveat shared by the section's items).
+  description?: string;
   items: Shortcut[];
 }
 
@@ -45,8 +47,18 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', 'D'], desc: N_('Duplicate selection')},
       {keys: ['Ctrl', 'G'], desc: N_('Start a new stamp group (number / select tool)')},
       {keys: ['Esc'], desc: N_('Deselect')},
-      {keys: ['['], alt: [']'], desc: N_('Aim up / down through overlapping items (select tool)')},
+      {keys: [','], alt: ['.'], desc: N_('Aim through overlapping items (select tool)')},
       {keys: ['Shift', 'Space'], desc: N_('Add/remove aimed item (select tool)')},
+    ],
+  },
+  {
+    title: N_('Z-order (select tool)'),
+    description: N_('Reordering renumbers stamps within their group.'),
+    items: [
+      {keys: ['Ctrl', '['], desc: N_('Send backward')},
+      {keys: ['Ctrl', ']'], desc: N_('Bring forward')},
+      {keys: ['Ctrl', 'Shift', '['], desc: N_('Send to back')},
+      {keys: ['Ctrl', 'Shift', ']'], desc: N_('Bring to front')},
     ],
   },
   {
@@ -119,6 +131,7 @@ export function presentShortcuts(parent: Gtk.Window): void {
   const page = new Adw.PreferencesPage();
   for (const section of SECTIONS) {
     const group = new Adw.PreferencesGroup({title: _(section.title)});
+    if (section.description) group.set_description(_(section.description));
     for (const sc of section.items) {
       const row = new Adw.ActionRow({title: _(sc.desc)});
       row.add_suffix(buildKeys(sc));

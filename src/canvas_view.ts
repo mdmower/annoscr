@@ -1198,6 +1198,64 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
+    // Restack the current selection within the action stack (z-order). Draw
+    // order is array order — index 0 is the bottom layer, the last index the
+    // top — so reordering = moving the selected actions within state.actions.
+    // The selected set moves as a block, preserving its relative order:
+    //   'back'  → the block jumps to the bottom (indices 0..k-1)
+    //   'front' → the block jumps to the top (the last k indices)
+    //   'lower' → the block steps down one slot (anchored on its lowest member)
+    //   'raise' → the block steps up one slot (anchored on its highest member)
+    // For a non-contiguous selection the unselected items keep their relative
+    // order and fill the gaps. Stamps renumber by the new array order (the same
+    // gap-free rule delete/clone follow), so a reorder can change a stamp's
+    // number within its group. No-ops (already at the requested end) return
+    // false without touching history. One history entry; the moved block stays
+    // selected, its indices remapped to the new positions.
+    reorderSelected(op: 'back' | 'lower' | 'raise' | 'front'): boolean {
+      const cur = this.state.actions;
+      const sel = [...this.selectedIndices]
+        .filter((i) => i >= 0 && i < cur.length)
+        .sort((a, b) => a - b);
+      if (sel.length === 0) return false;
+      const selSet = new Set(sel);
+      const block = sel.map((i) => cur[i]);
+      const rest = cur.filter((_, i) => !selSet.has(i));
+      const clamp = (p: number): number => Math.max(0, Math.min(rest.length, p));
+      // Insertion point into `rest` (the block lands after `at` unselected
+      // items). lo/hi are the block's lowest/highest current indices; because
+      // lo is the minimum no selected item sits below it, so the count of
+      // unselected items below lo is just lo, and below hi it is hi-(k-1).
+      let at: number;
+      switch (op) {
+        case 'back':
+          at = 0;
+          break;
+        case 'front':
+          at = rest.length;
+          break;
+        case 'lower':
+          at = clamp(sel[0] - 1);
+          break;
+        case 'raise':
+          at = clamp(sel[sel.length - 1] - sel.length + 2);
+          break;
+      }
+      const reordered = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+      if (reordered.every((a, i) => a === cur[i])) return false;
+
+      this.selectedIndices.clear();
+      for (let k = 0; k < block.length; k++) this.selectedIndices.add(at + k);
+      this.pushState({surface: this.state.surface, actions: renumberStamps(reordered)});
+      // The hover candidate is a cached index; reordering just moved every
+      // action, so recompute it from the pointer or it would outline whatever
+      // slid into the old slot (e.g. a button/key z-order with no pointer move).
+      this.refreshHoverCandidate();
+      this.queue_draw();
+      this.notifyStateChange();
+      return true;
+    }
+
     // Returns the resize region normalized (positive w/h) if defined and
     // non-degenerate. May extend outside the current image bounds — that
     // means "the new canvas pads beyond the current image."
@@ -1400,8 +1458,24 @@ export const CanvasView = GObject.registerClass(
       return this.hoverCandidate;
     }
 
+    // Recompute the hover candidate from the last pointer position. Used after a
+    // structural reorder of the action stack (z-order): the candidate is a
+    // cached index, so once actions move it must be re-derived from what's
+    // actually under the cursor in the new order — otherwise it outlines
+    // whatever slid into the old slot. Clears it when there's no pointer (or
+    // we're not in select mode); the next pointer motion would refresh it
+    // anyway, but a button/key reorder produces no motion.
+    private refreshHoverCandidate(): void {
+      if (this.currentToolId !== 'select' || !this.state.surface || !this.lastPointer) {
+        this.hoverCandidate = -1;
+        return;
+      }
+      const [ix, iy] = this.widgetToImage(this.lastPointer[0], this.lastPointer[1]);
+      this.resolveCandidate(ix, iy);
+    }
+
     // The hit-stack under the current pointer, or [] when there's no pointer /
-    // no image / not the select tool. Both the Alt+scroll and [ / ] dig paths
+    // no image / not the select tool. Both the Alt+scroll and , / . dig paths
     // aim at whatever the pointer is hovering.
     private hoverStack(): number[] {
       if (this.currentToolId !== 'select' || !this.state.surface || !this.lastPointer) return [];

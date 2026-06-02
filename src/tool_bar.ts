@@ -45,7 +45,7 @@ export class ToolBar {
       const base = `${_(tool.label)} (${tool.accelerator.toUpperCase()})`;
       const tooltip =
         tool.id === 'select'
-          ? `${base}\n${_('Shift+Click (or Shift+Space) to add/remove')}\n${_('Alt+Scroll or [ ] to aim through a stack')}`
+          ? `${base}\n${_('Shift+Click (or Shift+Space) to add/remove')}\n${_('Alt+Scroll or < > to aim through a stack')}`
           : base;
       const btn = new Gtk.ToggleButton({
         icon_name: tool.icon,
