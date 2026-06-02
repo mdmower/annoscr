@@ -155,7 +155,8 @@ export const AnnoscrWindow = GObject.registerClass(
           rotation: number,
           style,
           editorSize,
-          replaceIndex?: number
+          replaceIndex?: number,
+          selectAfter?: boolean
         ) => {
           // The editor is the source of truth for style + size during an
           // edit; pickers update style via refreshStyle and the corner grip
@@ -173,6 +174,10 @@ export const AnnoscrWindow = GObject.registerClass(
           );
           if (replaceIndex !== undefined) {
             this.canvas.replaceAction(replaceIndex, action);
+            // An Enter commit of a re-edit leaves the annotation selected so
+            // it's immediately movable/resizable/re-editable; click-away and
+            // other incidental commits pass false and leave it unselected.
+            if (selectAfter) this.canvas.selectIndex(replaceIndex);
           } else {
             this.canvas.addAction(action);
           }
@@ -224,6 +229,9 @@ export const AnnoscrWindow = GObject.registerClass(
           this.styleBar.refresh();
         }
       );
+      // A canvas press outside the editor while re-editing finishes the edit.
+      // The editor's own callbacks (onCommit/onDelete) refresh the style bar.
+      this.canvas.setCommitRequestHandler(() => this.editor.commitIfActive());
 
       const contentOverlay = new Gtk.Overlay();
       contentOverlay.set_child(this.canvas);
@@ -578,11 +586,17 @@ export const AnnoscrWindow = GObject.registerClass(
       // keyboard twin of Shift+Click. Shift avoids bare Space activating a
       // focused tool button; the editor captures it while typing.
       this.bindShortcut(controller, '<Shift>space', () => this.canvas.toggleHoverCandidate());
-      // Enter and Escape only do anything when resize mode is active. The text
-      // editor consumes these in its CAPTURE-phase controller before they
-      // reach here, so we never conflict during editing.
+      // Enter confirms resize mode, or — with the select tool — opens the
+      // editor on a lone selected text annotation (the keyboard twin of
+      // double-clicking it). Escape only acts in resize/select. The text editor
+      // consumes both in its CAPTURE-phase controller before they reach here,
+      // so we never conflict during editing.
       this.bindShortcut(controller, 'Return', () => {
-        if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(true);
+        if (this.canvas.getTool() === 'resize') {
+          this.toolbar.exitResizeMode(true);
+          return true;
+        }
+        return this.canvas.editSelectedText();
       });
       this.bindShortcut(controller, 'Escape', () => {
         if (this.canvas.getTool() === 'resize') {

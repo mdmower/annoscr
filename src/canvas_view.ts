@@ -80,6 +80,12 @@ export type TextEditRequest = (
   options?: TextEditRequestOptions
 ) => void;
 
+// Asks the host to commit any in-progress text edit. The canvas holds no
+// editor reference of its own (it reaches the editor only through callbacks),
+// so a canvas press that should finish a re-edit routes the commit back out
+// through this. The window wires it to TextEditor.commitIfActive.
+export type CommitRequest = () => void;
+
 function isShift(gesture: Gtk.GestureDrag): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
 }
@@ -288,6 +294,13 @@ export const CanvasView = GObject.registerClass(
     // (the live editor widget shows in its place).
     private editingActionIndex: number = -1;
 
+    // Set when a press finished an in-progress re-edit (a canvas click outside
+    // the editor); makes that same press not also select/move. The press's
+    // drag-begin fires too and may run after the commit cleared
+    // editingActionIndex, so the editing-index check alone can't stop it.
+    // Reset in onDragEnd (fires for every primary press) so it never leaks.
+    private suppressSelectThisPress: boolean = false;
+
     // Raw resize region while in resize mode (image-space coords; may extend
     // outside current image bounds in any direction).
     private resizeRegion: {
@@ -312,6 +325,7 @@ export const CanvasView = GObject.registerClass(
     private actionPreview: Action | null = null;
 
     private onTextEditRequest: TextEditRequest | null = null;
+    private onCommitRequest: CommitRequest | null = null;
     private onStateChange: (() => void) | null = null;
 
     // Invoked after an action is placed (addAction), with its index. The window
@@ -615,6 +629,10 @@ export const CanvasView = GObject.registerClass(
 
     setTextEditRequestHandler(handler: TextEditRequest | null): void {
       this.onTextEditRequest = handler;
+    }
+
+    setCommitRequestHandler(handler: CommitRequest | null): void {
+      this.onCommitRequest = handler;
     }
 
     setStateChangeHandler(handler: (() => void) | null): void {
@@ -986,7 +1004,7 @@ export const CanvasView = GObject.registerClass(
         if (tid) tools.add(tid);
         // Re-picking the value an action already has would push a content-
         // identical (new-reference) state — an undo step that does nothing
-        // visible. Skip those actions. See P1-03.
+        // visible. Skip those actions.
         if (valuesEqual(current, value)) return a;
         changed = true;
         return apply(a, value);
@@ -1401,6 +1419,18 @@ export const CanvasView = GObject.registerClass(
           this.onSelectDoubleClick(x, y);
           return;
         }
+        // A first press on the canvas (necessarily outside the editor frame,
+        // which would have swallowed it) while a text is being re-edited
+        // finishes that edit, consistent with the text tool. The press is
+        // consumed — it doesn't select or move anything; a second press
+        // selects normally. n_press === 1 keeps this off the press that opens
+        // the editor (n_press === 2 above) and off that double-click's first
+        // press (editingActionIndex is still -1 then).
+        if (n_press === 1 && this.currentToolId === 'select' && this.editingActionIndex >= 0) {
+          this.suppressSelectThisPress = true;
+          if (this.onCommitRequest) this.onCommitRequest();
+          return;
+        }
         this.onCanvasPress(x, y);
       });
       this.add_controller(click);
@@ -1555,9 +1585,9 @@ export const CanvasView = GObject.registerClass(
 
     // Toggle the hover candidate's membership in the selection — the keyboard
     // equivalent of Shift+Click on it (bound to Shift+Space). Aims at whatever
-    // the pointer is hovering (after any [ / ] dig). Returns true if it acted,
+    // the pointer is hovering (after any , / . dig). Returns true if it acted,
     // so the key is consumed only when there's a candidate. Gated during a
-    // text re-edit for the same reason onDragBegin is (see P1-02).
+    // text re-edit, the same as onDragBegin's select branch.
     toggleHoverCandidate(): boolean {
       if (this.currentToolId !== 'select' || this.editingActionIndex >= 0) return false;
       const i = this.hoverCandidate;
@@ -1573,10 +1603,13 @@ export const CanvasView = GObject.registerClass(
     private onDragBegin(wx: number, wy: number, gesture: Gtk.GestureDrag): void {
       if (!this.state.surface) return;
       if (this.currentToolId === 'select') {
+        // This press already committed a re-edit (handled in the GestureClick
+        // controller); don't let its drag-begin select/move too.
+        if (this.suppressSelectThisPress) return;
         // A text action is mid-re-edit (hidden, live editor in its place).
         // Suspend canvas selection until the edit commits/cancels so a press
         // can't select+delete another action and leave editingActionIndex
-        // stale (which would later replace the wrong action). See P1-02.
+        // stale (which would later replace the wrong action).
         if (this.editingActionIndex >= 0) return;
         // A handle of the lone selected action takes priority over move /
         // reselection, so a corner/endpoint drag reshapes, and the rotate
@@ -1700,6 +1733,11 @@ export const CanvasView = GObject.registerClass(
     }
 
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
+      // Clear the commit-press latch here: drag-end fires for every primary
+      // press (clicks included), so it's reset before the next press whatever
+      // order GestureClick and GestureDrag ran in. When the latch was set this
+      // press, onDragBegin returned early, so nothing below started anyway.
+      this.suppressSelectThisPress = false;
       if (this.currentToolId === 'select') {
         // Per-action resize/rotate: commit the reshaped/rotated action in one
         // history entry (a click without a drag, or a drag back to the original,
@@ -1714,7 +1752,7 @@ export const CanvasView = GObject.registerClass(
           return;
         }
         // Skip a drag that ended back at the origin: translate(0, 0) would
-        // still push a new (content-identical) state. See P1-03.
+        // still push a new (content-identical) state.
         if (
           this.moving &&
           this.selectedIndices.size > 0 &&
@@ -1794,12 +1832,19 @@ export const CanvasView = GObject.registerClass(
       // picked via the dig gesture still opens for editing; otherwise fall
       // back to the current aim (hover candidate), not just the topmost.
       const selHit = this.selectedIndexAt(ix, iy);
-      const idx = selHit >= 0 ? selHit : this.resolveCandidate(ix, iy);
-      if (idx < 0) return;
+      this.openTextEditor(selHit >= 0 ? selHit : this.resolveCandidate(ix, iy));
+    }
+
+    // Open the floating editor on the text action at `idx`, hiding it from the
+    // canvas while the live editor stands in. No-op (returns false) unless the
+    // index is a valid text action. Shared by double-click and the Enter
+    // shortcut.
+    private openTextEditor(idx: number): boolean {
+      if (idx < 0 || idx >= this.state.actions.length) return false;
       const action = this.state.actions[idx];
-      if (!isTextAction(action)) return;
+      if (!isTextAction(action)) return false;
       const state = getTextEditState(action);
-      if (!state) return;
+      if (!state) return false;
       this.editingActionIndex = idx;
       this.selectedIndices.clear();
       this.queue_draw();
@@ -1816,6 +1861,15 @@ export const CanvasView = GObject.registerClass(
           editorSize: state.editorSize,
         });
       }
+      return true;
+    }
+
+    // Open the editor on the sole selected action when it's a text annotation
+    // (the Enter shortcut). Returns true only when it opened, so the key falls
+    // through otherwise (multi-selection, a non-text selection, or nothing).
+    editSelectedText(): boolean {
+      if (this.currentToolId !== 'select' || this.editingActionIndex >= 0) return false;
+      return this.openTextEditor(this.soleSelectedIndex());
     }
 
     // Every action whose bounds contain (ix, iy), topmost-first (highest index
@@ -1863,7 +1917,7 @@ export const CanvasView = GObject.registerClass(
     // (or a click on a handle without a drag), which would otherwise push a
     // content-identical, do-nothing undo step. Handle positions encode the full
     // geometry of every resizable type (box corners/edges, line endpoints,
-    // stamp center+radius). See P1-03.
+    // stamp center+radius).
     private actionHandlesEqual(a: Action, b: Action): boolean {
       const ha = a.getResizeHandles();
       const hb = b.getResizeHandles();
@@ -1939,7 +1993,7 @@ export const CanvasView = GObject.registerClass(
     // Commit an in-progress per-action resize or rotate at drag-end, pushing one
     // history entry only if the geometry (resize) or angle (rotate) actually
     // changed — so a click on a handle/gizmo without a drag, or a drag back to
-    // the original, pushes nothing (P1-03). Returns true if a reshape was in
+    // the original, pushes nothing. Returns true if a reshape was in
     // progress, so onDragEnd consumes the gesture.
     private commitActionReshape(): boolean {
       const wasResize = this.actionGrab !== null;

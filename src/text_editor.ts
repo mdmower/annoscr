@@ -85,7 +85,11 @@ interface TextEditorCallbacks {
     rotation: number,
     style: TextEditorStyle,
     editorSize: EditorSize,
-    replaceIndex?: number
+    replaceIndex?: number,
+    // True when an explicit Enter commit should leave the result selected (so a
+    // re-edit stays in hand for move/resize/re-edit). False for incidental
+    // commits — click-away, tool switch, save/copy — which leave it unselected.
+    selectAfter?: boolean
   ) => void;
   onCancel: (replaceIndex?: number) => void;
   // Empty/whitespace-only text committed over an existing action (re-edit) →
@@ -346,7 +350,7 @@ export class TextEditor {
     this.syncButtonStates();
   }
 
-  commitIfActive(): void {
+  commitIfActive(selectAfter = false): void {
     if (!this.active) return;
     const start = this.buffer.get_start_iter();
     const end = this.buffer.get_end_iter();
@@ -384,7 +388,8 @@ export class TextEditor {
       rotation,
       style,
       editorSize,
-      replaceIndex
+      replaceIndex,
+      selectAfter
     );
   }
 
@@ -481,7 +486,8 @@ export class TextEditor {
     }
     if (keyval === Gdk.KEY_Return || keyval === Gdk.KEY_KP_Enter) {
       if (shift) return false; // let TextView insert a newline
-      this.commitIfActive();
+      // Explicit commit: keep the result selected so a re-edit stays in hand.
+      this.commitIfActive(true);
       return true;
     }
     if (ctrl && !alt) {

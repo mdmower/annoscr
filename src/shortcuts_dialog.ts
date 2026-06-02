@@ -49,6 +49,7 @@ const SECTIONS: Section[] = [
       {keys: ['Esc'], desc: N_('Deselect')},
       {keys: [','], alt: ['.'], desc: N_('Aim through overlapping items (select tool)')},
       {keys: ['Shift', 'Space'], desc: N_('Add/remove aimed item (select tool)')},
+      {keys: ['Enter'], desc: N_('Edit selected text (select tool)')},
     ],
   },
   {
