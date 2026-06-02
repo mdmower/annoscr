@@ -23,6 +23,7 @@ import {
   actionToolId,
   createLiveStroke,
   defaultColorForTool,
+  defaultTextColorForTool,
   defaultDashForTool,
   defaultFillForTool,
   defaultFilledHeadForTool,
@@ -324,6 +325,10 @@ export const CanvasView = GObject.registerClass(
     // editable color, so they never get an entry.
     private toolColors: Map<ToolId, ColorRGBA> = new Map();
 
+    // Per-tool current text-foreground color (the getTextColor channel). Only
+    // the text tool has one today; other tools never get an entry.
+    private toolTextColors: Map<ToolId, ColorRGBA> = new Map();
+
     // Per-tool current stroke/outline width. Same lifetime story as
     // toolColors; tools without a width (text, number, select, resize)
     // never have an entry here.
@@ -624,12 +629,26 @@ export const CanvasView = GObject.registerClass(
     // default if nothing has been set yet. Returns null for select and resize,
     // which have no editable color.
     getToolColor(toolId: ToolId): ColorRGBA | null {
-      if (toolId === 'select' || toolId === 'resize') return null;
+      // 'text' has no stroke/outline — its glyph color is the text-color
+      // channel (getToolTextColor), so the generic Color control hides for it.
+      if (toolId === 'select' || toolId === 'resize' || toolId === 'text') return null;
       return this.toolColors.get(toolId) ?? defaultColorForTool(toolId);
     }
 
     setToolColor(toolId: ToolId, color: ColorRGBA): void {
       this.toolColors.set(toolId, color);
+    }
+
+    // Current text-foreground color for the given tool, falling back to the
+    // static default. Null for tools with no editable text color.
+    getToolTextColor(toolId: ToolId): ColorRGBA | null {
+      const def = defaultTextColorForTool(toolId);
+      if (def === null) return null;
+      return this.toolTextColors.get(toolId) ?? def;
+    }
+
+    setToolTextColor(toolId: ToolId, color: ColorRGBA): void {
+      this.toolTextColors.set(toolId, color);
     }
 
     // Current width for the given tool, falling back to the tool's static
@@ -860,6 +879,7 @@ export const CanvasView = GObject.registerClass(
       const tools: Record<string, ToolStyleEntry> = {};
       const ensure = (id: ToolId): ToolStyleEntry => (tools[id] ??= {});
       for (const [id, c] of this.toolColors) ensure(id).color = c;
+      for (const [id, c] of this.toolTextColors) ensure(id).textColor = c;
       for (const [id, w] of this.toolWidths) ensure(id).width = w;
       for (const [id, f] of this.toolFills) ensure(id).fill = f;
       for (const [id, d] of this.toolDashes) ensure(id).dash = d;
@@ -880,6 +900,7 @@ export const CanvasView = GObject.registerClass(
       for (const [id, e] of Object.entries(snap.tools ?? {})) {
         const toolId = id as ToolId;
         if (e.color) this.toolColors.set(toolId, e.color);
+        if (e.textColor) this.toolTextColors.set(toolId, e.textColor);
         if (e.width !== undefined) this.toolWidths.set(toolId, e.width);
         if (e.fill) this.toolFills.set(toolId, e.fill);
         if (e.dash) this.toolDashes.set(toolId, e.dash);
@@ -1002,6 +1023,16 @@ export const CanvasView = GObject.registerClass(
         color,
         'color',
         (tid, v) => this.setToolColor(tid, v)
+      );
+    }
+
+    replaceSelectedTextColor(color: ColorRGBA): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getTextColor(),
+        (a, v) => a.withTextColor(v),
+        color,
+        'textColor',
+        (tid, v) => this.setToolTextColor(tid, v)
       );
     }
 

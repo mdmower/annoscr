@@ -23,6 +23,9 @@ export type ColorScheme = 'system' | 'light' | 'dark';
 // future change to a tool's static default still wins for untouched tools.
 export interface ToolStyleEntry {
   color?: ColorRGBA;
+  // Text-foreground color (the getTextColor channel). Only the text tool writes
+  // it today.
+  textColor?: ColorRGBA;
   width?: number;
   fill?: ColorRGBA;
   dash?: DashStyle;
@@ -122,6 +125,8 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
       const entry: ToolStyleEntry = {};
       const color = asColor(raw.color);
       if (color) entry.color = color;
+      const textColor = asColor(raw.textColor);
+      if (textColor) entry.textColor = textColor;
       const width = asClampedNumber(raw.width, WIDTH_MIN, WIDTH_MAX);
       if (width !== undefined) entry.width = width;
       const fill = asColor(raw.fill);

@@ -61,11 +61,18 @@ export interface Action {
   // are the source image dimensions BEFORE the rotation; the action's stored
   // coords are interpreted in the old image's coordinate space.
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
-  // The action's editable foreground color (stroke / outline / text / number
-  // stamp border+digit), or null for actions where there is no editable
-  // foreground.
+  // The action's editable stroke / outline / foreground color (pen ink, line /
+  // arrow / shape outline, number stamp border+digit), or null where there's no
+  // such color. Text foreground is NOT here — it's getTextColor, so a shape can
+  // expose its outline (getColor) and embedded-text color (getTextColor)
+  // independently.
   getColor(): ColorRGBA | null;
   withColor(color: ColorRGBA): Action;
+  // The foreground color of text the action carries: a standalone text's glyphs,
+  // or the text embedded in a shape. Null for actions with no text. Kept
+  // separate from getColor so a shape's outline and its text color don't collide.
+  getTextColor(): ColorRGBA | null;
+  withTextColor(color: ColorRGBA): Action;
   // The action's editable stroke / outline width in image-space pixels, or
   // null for actions where the width isn't a single user-editable scalar
   // (text uses font size, number stamp uses radius + borderWidth).
@@ -195,6 +202,10 @@ export interface TextStyle {
   color: ColorRGBA;
   size: number; // image-space pixels (font height)
   fontDesc: string; // Pango font description string
+  // Background plate drawn behind the glyphs for legibility over busy images.
+  // Alpha 0 = no plate. Defaults to transparent white so the opacity slider
+  // reveals a translucent white background.
+  bg: ColorRGBA;
 }
 
 // Editor frame dimensions in widget-space pixels — stored on TextAction so
@@ -241,11 +252,20 @@ const HIGHLIGHTER_STYLE: Style = {
 const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
+// Transparent white: no visible plate until the user raises the opacity.
+const TEXT_BG_DEFAULT: ColorRGBA = [1, 1, 1, 0];
 export const TEXT_STYLE: TextStyle = {
   color: DEFAULT_COLOR,
   size: 24,
   fontDesc: 'Sans',
+  bg: TEXT_BG_DEFAULT,
 };
+
+// Text background plate geometry (image-space px). Corner radius is a small
+// constant ("slightly rounded"); padding scales with the font so the plate
+// stays proportional. Starting values — tune in testing.
+const TEXT_BG_RADIUS = 6;
+const TEXT_BG_PAD_RATIO = 0.25;
 
 const DEFAULT_NUMBER_STAMP_FG: ColorRGBA = [1, 1, 1, 1];
 
@@ -266,6 +286,13 @@ export function defaultColorForTool(toolId: ToolId): ColorRGBA {
   if (toolId === 'highlighter') return DEFAULT_HIGHLIGHTER_COLOR;
   if (toolId === 'number') return DEFAULT_NUMBER_STAMP_FG;
   return DEFAULT_COLOR;
+}
+
+// Default per-tool text-foreground color (the getTextColor channel). Only the
+// text tool carries one today; other tools return null and the "Text color"
+// control hides accordingly. (Shapes gain an embedded-text color later.)
+export function defaultTextColorForTool(toolId: ToolId): ColorRGBA | null {
+  return toolId === 'text' ? TEXT_STYLE.color : null;
 }
 
 // Build a NumberStampStyle with a user-chosen foreground, fill, and radius,
@@ -365,6 +392,12 @@ abstract class BaseAction implements Action {
   withColor(_color: ColorRGBA): Action {
     return this;
   }
+  getTextColor(): ColorRGBA | null {
+    return null;
+  }
+  withTextColor(_color: ColorRGBA): Action {
+    return this;
+  }
   getWidth(): number | null {
     return null;
   }
@@ -436,6 +469,32 @@ function getMeasureContext(): Cairo.Context {
   return measureContext;
 }
 
+// Append a rounded-rectangle subpath to the current path: a rect at (x, y) of
+// size w×h with corner radius `radius`, clamped to half the smaller side so it
+// degenerates to a clean rectangle rather than overshooting. Caller fills or
+// strokes. Shared by the text background plate, shapes, and the rounded-corner
+// rectangle tool.
+export function roundedRectPath(
+  cr: Cairo.Context,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number
+): void {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  if (r <= 0) {
+    cr.rectangle(x, y, w, h);
+    return;
+  }
+  cr.newSubPath();
+  cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0); // top-right
+  cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2); // bottom-right
+  cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI); // bottom-left
+  cr.arc(x + r, y + r, r, Math.PI, (3 * Math.PI) / 2); // top-left
+  cr.closePath();
+}
+
 class TextAction extends BaseAction {
   // Immutable action ⇒ immutable bounds: measured once at construction (no
   // mutable cache, no pre-paint fallback). A withX()/translate() clone is a
@@ -473,14 +532,23 @@ class TextAction extends BaseAction {
   draw(cr: Cairo.Context, _scale: number): void {
     if (!this.markup) return;
     const layout = this.buildLayout(cr);
-    const [r, g, b, a] = this.style.color;
-    cr.setSourceRGBA(r, g, b, a);
     cr.save();
     // Rotate about the layout's center so the text spins in place, then draw
     // from the (unrotated) top-left in that rotated frame.
     cr.translate(this.x + this.w / 2, this.y + this.h / 2);
     if (this.rotation !== 0) cr.rotate(this.rotation);
     cr.translate(-this.w / 2, -this.h / 2);
+    // Background plate behind the glyphs (padded, slightly rounded), in the
+    // same rotated frame so it tilts with the text. Skipped when transparent.
+    const bg = this.style.bg;
+    if (bg[3] > 0) {
+      const pad = Math.round(this.style.size * TEXT_BG_PAD_RATIO);
+      roundedRectPath(cr, -pad, -pad, this.w + 2 * pad, this.h + 2 * pad, TEXT_BG_RADIUS);
+      cr.setSourceRGBA(bg[0], bg[1], bg[2], bg[3]);
+      cr.fill();
+    }
+    const [r, g, b, a] = this.style.color;
+    cr.setSourceRGBA(r, g, b, a);
     cr.moveTo(0, 0);
     PangoCairo.show_layout(cr, layout);
     cr.restore();
@@ -558,11 +626,14 @@ class TextAction extends BaseAction {
     return Math.abs(lx) <= this.w / 2 && Math.abs(ly) <= this.h / 2;
   }
 
-  getColor(): ColorRGBA {
+  // Text has no stroke/outline (getColor stays null, inherited); its glyph
+  // color lives in the text-color channel so it shares one control with the
+  // text embedded in shapes.
+  getTextColor(): ColorRGBA {
     return this.style.color;
   }
 
-  withColor(color: ColorRGBA): Action {
+  withTextColor(color: ColorRGBA): Action {
     return new TextAction(
       this.x,
       this.y,
@@ -611,6 +682,25 @@ class TextAction extends BaseAction {
       this.editorSize
     );
   }
+
+  // The Fill control carries the text background plate (transparent = none).
+  getFill(): ColorRGBA {
+    return this.style.bg;
+  }
+
+  withFill(bg: ColorRGBA): Action {
+    return new TextAction(
+      this.x,
+      this.y,
+      this.markup,
+      this.rotation,
+      {
+        ...this.style,
+        bg,
+      },
+      this.editorSize
+    );
+  }
 }
 
 export function makeTextAction(
@@ -621,6 +711,7 @@ export function makeTextAction(
   color: ColorRGBA = DEFAULT_COLOR,
   fontDesc: string = TEXT_STYLE.fontDesc,
   fontSize: number = TEXT_STYLE.size,
+  bg: ColorRGBA = TEXT_STYLE.bg,
   editorSize?: EditorSize
 ): Action {
   return new TextAction(
@@ -633,6 +724,7 @@ export function makeTextAction(
       color,
       fontDesc,
       size: fontSize,
+      bg,
     },
     editorSize
   );
@@ -1672,11 +1764,13 @@ export function defaultFillForTool(toolId: ToolId): ColorRGBA | null {
       return NUMBER_STAMP_STYLE.fillColor;
     case 'resize':
       return TRANSPARENT_FILL;
+    case 'text':
+      // The text "Fill" is the background plate; default transparent white.
+      return TEXT_STYLE.bg;
     case 'pen':
     case 'highlighter':
     case 'line':
     case 'arrow':
-    case 'text':
     case 'select':
     default:
       return null;

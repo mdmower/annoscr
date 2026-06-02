@@ -22,6 +22,7 @@ import {
   defaultFilledHeadForTool,
   defaultFontDescForTool,
   defaultFontSizeForTool,
+  defaultTextColorForTool,
   defaultWidthForTool,
   numberStampGroup,
   numberStampVariant,
@@ -84,6 +85,9 @@ export class StyleBar {
   private colorGroup!: Gtk.Box;
   private colorLabel!: Gtk.Label;
   private colorSwatchSet!: (c: ColorRGBA | null) => void;
+  private textColorGroup!: Gtk.Box;
+  private textColorLabel!: Gtk.Label;
+  private textColorSwatchSet!: (c: ColorRGBA | null) => void;
   private fillGroup!: Gtk.Box;
   private fillLabel!: Gtk.Label;
   private fillSwatchSet!: (c: ColorRGBA | null) => void;
@@ -216,6 +220,15 @@ export class StyleBar {
     this.colorGroup = makeGroup(colorSep, this.colorLabel, colorSwatch.button);
     styleBar.append(this.colorGroup);
 
+    // Text color group — the getTextColor channel (a text's glyphs, or the text
+    // embedded in a shape), distinct from the stroke/outline Color above.
+    const textColorSep = makeSep();
+    const textColorSwatch = this.makeSwatchButton((c) => this.onTextColorPicked(c));
+    this.textColorSwatchSet = textColorSwatch.setColor;
+    this.textColorLabel = new Gtk.Label({label: _('Text color'), css_classes: ['caption']});
+    this.textColorGroup = makeGroup(textColorSep, this.textColorLabel, textColorSwatch.button);
+    styleBar.append(this.textColorGroup);
+
     // Fill group
     const fillSep = makeSep();
     const fillSwatch = this.makeSwatchButton((c) => this.onFillPicked(c));
@@ -319,6 +332,7 @@ export class StyleBar {
       {group: this.duplicateGroup, sep: duplicateSep},
       {group: this.zorderGroup, sep: zorderSep},
       {group: this.colorGroup, sep: colorSep},
+      {group: this.textColorGroup, sep: textColorSep},
       {group: this.fillGroup, sep: fillSep},
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
@@ -519,6 +533,15 @@ export class StyleBar {
       this.colorLabel,
       _('Color'),
       this.selectionMixed((a) => a.getColor())
+    );
+
+    const textColor = this.styleTargetTextColor();
+    this.textColorGroup.set_visible(textColor !== null);
+    this.textColorSwatchSet(textColor);
+    setCaption(
+      this.textColorLabel,
+      _('Text color'),
+      this.selectionMixed((a) => a.getTextColor())
     );
 
     const fill = this.styleTargetFill();
@@ -792,17 +815,29 @@ export class StyleBar {
     return this.canvas.getToolFontDesc(tool);
   }
 
-  // The color that the picker should currently display, or null when the
-  // picker has no meaningful color to show (and should be disabled).
+  // The stroke/outline color the picker should display, or null when there's
+  // none. During a text edit this is null (text has no stroke) — the glyph
+  // color rides the text-color channel below.
   private styleTargetColor(): ColorRGBA | null {
-    if (this.editor.isActive()) {
-      return this.editor.getCurrentStyle()?.color ?? null;
-    }
+    if (this.editor.isActive()) return null;
     const tool = this.canvas.getTool();
     if (tool === 'select') {
       return this.selectionSummary((a) => a.getColor()).value;
     }
     return this.canvas.getToolColor(tool);
+  }
+
+  // The text-foreground color to display: the editor owns it during an edit
+  // (the committed glyph color), else the selection summary or tool default.
+  private styleTargetTextColor(): ColorRGBA | null {
+    if (this.editor.isActive()) {
+      return this.editor.getCurrentStyle()?.color ?? null;
+    }
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      return this.selectionSummary((a) => a.getTextColor()).value;
+    }
+    return this.canvas.getToolTextColor(tool);
   }
 
   private styleTargetWidth(): number | null {
@@ -814,6 +849,11 @@ export class StyleBar {
   }
 
   private styleTargetFill(): ColorRGBA | null {
+    // During a text edit the Fill control carries the text background plate;
+    // the editor owns it (like color/font) so show what will be committed.
+    if (this.editor.isActive()) {
+      return this.editor.getCurrentStyle()?.bg ?? null;
+    }
     const tool = this.canvas.getTool();
     if (tool === 'select') {
       return this.selectionSummary((a) => a.getFill()).value;
@@ -846,11 +886,19 @@ export class StyleBar {
   // selected action flattens a mixed selection as intended.
   private onFillPicked(fill: ColorRGBA): void {
     const tool = this.canvas.getTool();
-    if (tool === 'select') {
-      // Same select-edit shape as the color picker; coalesce-by-key gives
-      // a single history entry for a drag (see pushState in canvas_view.ts).
+    const editorActive = this.editor.isActive();
+    // Same routing as the color picker: the editor wins during an active text
+    // edit (Fill = the background plate); otherwise apply to the selection.
+    if (editorActive) {
+      this.patchEditorStyle({bg: fill});
+    } else if (tool === 'select') {
+      // Coalesce-by-key gives a single history entry for a drag (see pushState
+      // in canvas_view.ts).
       this.canvas.replaceSelectedFill(fill);
-    } else if (defaultFillForTool(tool) !== null) {
+    }
+    // Sticky tool default for any non-select tool that carries a fill
+    // (rect/oval/number/text plus the resize padding fill).
+    if (tool !== 'select' && defaultFillForTool(tool) !== null) {
       this.canvas.setToolFill(tool, fill);
     }
     this.widthPreview.queue_draw();
@@ -882,15 +930,11 @@ export class StyleBar {
 
   // Called from the color swatch's dialog on OK (with the chosen color); see
   // onFillPicked for why this commits regardless of whether the value changed.
+  // This is the stroke/outline Color — hidden during a text edit, so (unlike
+  // the text-color picker) it has no editor branch.
   private onColorPicked(color: ColorRGBA): void {
     const tool = this.canvas.getTool();
-    const editorActive = this.editor.isActive();
-    // Same routing as the font picker: editor wins during an active edit;
-    // otherwise apply to selection or tool default. Tool default updates
-    // for any non-select tool so picker changes are sticky.
-    if (editorActive) {
-      this.patchEditorStyle({color});
-    } else if (tool === 'select') {
+    if (tool === 'select') {
       // Recolor the selected action in place. No-op if no action selected
       // or its color isn't editable (refresh() will have already
       // disabled the picker in that case, but guard anyway).
@@ -898,6 +942,23 @@ export class StyleBar {
     }
     if (tool !== 'select' && tool !== 'resize') {
       this.canvas.setToolColor(tool, color);
+    }
+    this.widthPreview.queue_draw();
+  }
+
+  // The text-foreground color picker (getTextColor). The editor owns it during
+  // an active text edit; otherwise it broadcasts to the selection / sticks as
+  // the tool default — same shape as onColorPicked.
+  private onTextColorPicked(color: ColorRGBA): void {
+    const tool = this.canvas.getTool();
+    const editorActive = this.editor.isActive();
+    if (editorActive) {
+      this.patchEditorStyle({color});
+    } else if (tool === 'select') {
+      this.canvas.replaceSelectedTextColor(color);
+    }
+    if (tool !== 'select' && tool !== 'resize' && defaultTextColorForTool(tool) !== null) {
+      this.canvas.setToolTextColor(tool, color);
     }
     this.widthPreview.queue_draw();
   }

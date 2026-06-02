@@ -12,7 +12,7 @@ import {CanvasView} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
-import {ColorRGBA, TEXT_STYLE, defaultColorForTool, makeTextAction} from './actions.js';
+import {ColorRGBA, TEXT_STYLE, makeTextAction} from './actions.js';
 import {TextEditor, TextEditorBeginOptions} from './text_editor.js';
 import {
   FORMATS,
@@ -168,6 +168,7 @@ export const AnnoscrWindow = GObject.registerClass(
             style.color,
             style.fontDesc,
             style.size,
+            style.bg,
             editorSize
           );
           if (replaceIndex !== undefined) {
@@ -215,7 +216,8 @@ export const AnnoscrWindow = GObject.registerClass(
           const color = this.textColorFor(options?.replaceIndex);
           const fontDesc = this.textFontDescFor(options?.replaceIndex);
           const fontSize = this.textFontSizeFor(options?.replaceIndex);
-          const style = {color, fontDesc, size: fontSize};
+          const bg = this.textBgFor(options?.replaceIndex);
+          const style = {color, fontDesc, size: fontSize, bg};
           this.editor.beginAt(ix, iy, wx, wy, {...options, style});
           // Picker now reflects the editor's style (color + font of the
           // in-progress edit), so refresh to point dropdown + buttons at it.
@@ -338,10 +340,10 @@ export const AnnoscrWindow = GObject.registerClass(
     private textColorFor(replaceIndex: number | undefined): ColorRGBA {
       if (replaceIndex !== undefined) {
         const existing = this.canvas.getActionAt(replaceIndex);
-        const c = existing?.getColor();
+        const c = existing?.getTextColor();
         if (c) return c;
       }
-      return this.canvas.getToolColor('text') ?? defaultColorForTool('text');
+      return this.canvas.getToolTextColor('text') ?? TEXT_STYLE.color;
     }
 
     private textFontDescFor(replaceIndex: number | undefined): string {
@@ -360,6 +362,17 @@ export const AnnoscrWindow = GObject.registerClass(
         if (s) return s;
       }
       return this.canvas.getToolFontSize('text') ?? TEXT_STYLE.size;
+    }
+
+    // The text background plate (the Fill control). Re-edits keep the existing
+    // action's plate; fresh text uses the tool default (transparent white).
+    private textBgFor(replaceIndex: number | undefined): ColorRGBA {
+      if (replaceIndex !== undefined) {
+        const existing = this.canvas.getActionAt(replaceIndex);
+        const b = existing?.getFill();
+        if (b) return b;
+      }
+      return this.canvas.getToolFill('text') ?? TEXT_STYLE.bg;
     }
 
     private showToast(title: string): void {

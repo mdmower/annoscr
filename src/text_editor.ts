@@ -50,6 +50,10 @@ export interface TextEditorStyle {
   color: ColorRGBA;
   fontDesc: string;
   size: number; // image-space pixels (font height)
+  // Background plate color committed onto the TextAction (alpha 0 = none).
+  // Carried through the edit so the Fill picker round-trips; v1 doesn't render
+  // it inside the editor frame.
+  bg: ColorRGBA;
 }
 
 const TAG_NAMES = ['bold', 'italic', 'underline'] as const;

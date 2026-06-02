@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-02 16:53-0700\n"
+"POT-Creation-Date: 2026-06-02 16:54-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -114,11 +114,11 @@ msgstr ""
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:78 src/style_bar.ts:305 src/style_bar.ts:579
+#: src/dialogs.ts:78 src/style_bar.ts:318 src/style_bar.ts:602
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:91 src/style_bar.ts:249 src/style_bar.ts:538
+#: src/dialogs.ts:91 src/style_bar.ts:262 src/style_bar.ts:561
 msgid "Width"
 msgstr ""
 
@@ -126,7 +126,7 @@ msgstr ""
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:131 src/style_bar.ts:223 src/style_bar.ts:529
+#: src/dialogs.ts:131 src/style_bar.ts:236 src/style_bar.ts:552
 msgid "Fill"
 msgstr ""
 
@@ -216,7 +216,7 @@ msgstr ""
 msgid "General"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:31 src/window.ts:380
+#: src/shortcuts_dialog.ts:31 src/window.ts:393
 msgid "Open image"
 msgstr ""
 
@@ -224,7 +224,7 @@ msgstr ""
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:33 src/window.ts:656
+#: src/shortcuts_dialog.ts:33 src/window.ts:669
 msgid "Save image"
 msgstr ""
 
@@ -328,7 +328,7 @@ msgstr ""
 msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:72 src/style_bar.ts:257 src/style_bar.ts:547
+#: src/shortcuts_dialog.ts:72 src/style_bar.ts:270 src/style_bar.ts:570
 #: src/window_constants.ts:98
 msgid "Line"
 msgstr ""
@@ -385,79 +385,83 @@ msgstr ""
 msgid "or"
 msgstr ""
 
-#: src/style_bar.ts:43
+#: src/style_bar.ts:44
 msgid "(mixed)"
 msgstr ""
 
-#: src/style_bar.ts:177
+#: src/style_bar.ts:181
 msgid "Duplicate selection (Ctrl+D)"
 msgstr ""
 
-#: src/style_bar.ts:188
+#: src/style_bar.ts:192
 msgid "Stamps renumber within their group."
 msgstr ""
 
-#: src/style_bar.ts:204
+#: src/style_bar.ts:208
 msgid "Send to back (Ctrl+Shift+[)"
 msgstr ""
 
-#: src/style_bar.ts:205
+#: src/style_bar.ts:209
 msgid "Send backward (Ctrl+[)"
 msgstr ""
 
-#: src/style_bar.ts:206
+#: src/style_bar.ts:210
 msgid "Bring forward (Ctrl+])"
 msgstr ""
 
-#: src/style_bar.ts:207
+#: src/style_bar.ts:211
 msgid "Bring to front (Ctrl+Shift+])"
 msgstr ""
 
-#: src/style_bar.ts:215 src/style_bar.ts:520
+#: src/style_bar.ts:219 src/style_bar.ts:534
 msgid "Color"
 msgstr ""
 
-#: src/style_bar.ts:255
+#: src/style_bar.ts:228 src/style_bar.ts:543
+msgid "Text color"
+msgstr ""
+
+#: src/style_bar.ts:268
 msgid "Solid"
 msgstr ""
 
-#: src/style_bar.ts:255
+#: src/style_bar.ts:268
 msgid "Dashed"
 msgstr ""
 
-#: src/style_bar.ts:255
+#: src/style_bar.ts:268
 msgid "Dotted"
 msgstr ""
 
-#: src/style_bar.ts:263
+#: src/style_bar.ts:276
 msgid "Open"
 msgstr ""
 
-#: src/style_bar.ts:263
+#: src/style_bar.ts:276
 msgid "Filled"
 msgstr ""
 
-#: src/style_bar.ts:265 src/style_bar.ts:556
+#: src/style_bar.ts:278 src/style_bar.ts:579
 msgid "Arrowhead"
 msgstr ""
 
-#: src/style_bar.ts:275 src/style_bar.ts:641
+#: src/style_bar.ts:288 src/style_bar.ts:664
 msgid "Group"
 msgstr ""
 
-#: src/style_bar.ts:281 src/window_constants.ts:97
+#: src/style_bar.ts:294 src/window_constants.ts:97
 msgid "Number"
 msgstr ""
 
-#: src/style_bar.ts:281
+#: src/style_bar.ts:294
 msgid "Letter"
 msgstr ""
 
-#: src/style_bar.ts:283 src/style_bar.ts:656
+#: src/style_bar.ts:296 src/style_bar.ts:679
 msgid "Variant"
 msgstr ""
 
-#: src/style_bar.ts:303 src/style_bar.ts:570
+#: src/style_bar.ts:316 src/style_bar.ts:593
 msgid "Font"
 msgstr ""
 
@@ -465,44 +469,44 @@ msgstr ""
 #. popover and unparents it on dispose, avoiding the "Finalizing GtkButton …
 #. still has children left" warning at quit. No dropdown arrow because the
 #. swatch is a custom child and always-show-arrow defaults off.
-#: src/style_bar.ts:358
+#: src/style_bar.ts:372
 msgid "Pick a color"
 msgstr ""
 
-#: src/style_bar.ts:370
+#: src/style_bar.ts:384
 msgid "Hex"
 msgstr ""
 
-#: src/style_bar.ts:375
+#: src/style_bar.ts:389
 msgid "#RGB, #RGBA, #RRGGBB, or #RRGGBBAA"
 msgstr ""
 
-#: src/style_bar.ts:381
+#: src/style_bar.ts:395
 msgid "Opacity"
 msgstr ""
 
-#: src/style_bar.ts:397
+#: src/style_bar.ts:411
 msgid "Palette…"
 msgstr ""
 
-#: src/style_bar.ts:666
+#: src/style_bar.ts:689
 #, javascript-format
 msgid "Group %d"
 msgstr ""
 
-#: src/style_bar.ts:667
+#: src/style_bar.ts:690
 msgid "+ New group"
 msgstr ""
 
-#: src/text_editor.ts:175
+#: src/text_editor.ts:179
 msgid "Bold (Ctrl+B)"
 msgstr ""
 
-#: src/text_editor.ts:176
+#: src/text_editor.ts:180
 msgid "Italic (Ctrl+I)"
 msgstr ""
 
-#: src/text_editor.ts:179
+#: src/text_editor.ts:183
 msgid "Underline (Ctrl+U)"
 msgstr ""
 
@@ -558,80 +562,80 @@ msgstr ""
 msgid "Rotate left (90°)"
 msgstr ""
 
-#: src/window.ts:244
+#: src/window.ts:246
 msgid ""
 "Create a blank canvas, open an image, paste from the clipboard, or drop a "
 "file here."
 msgstr ""
 
-#: src/window.ts:327
+#: src/window.ts:329
 msgid "Closing the window"
 msgstr ""
 
-#: src/window.ts:374
+#: src/window.ts:387
 msgid "Opening a new image"
 msgstr ""
 
-#: src/window.ts:382
+#: src/window.ts:395
 msgid "Images"
 msgstr ""
 
 #. Guards an unsaved canvas before replacing it. Harmless at cold startup
 #. (confirmDiscard proceeds immediately when nothing is dirty); the guard
 #. matters now that `--new` can reach an already-running instance.
-#: src/window.ts:406 src/window.ts:412
+#: src/window.ts:419 src/window.ts:425
 msgid "Creating a blank canvas"
 msgstr ""
 
-#: src/window.ts:420
+#: src/window.ts:433
 msgid "Opening this image"
 msgstr ""
 
-#: src/window.ts:436
+#: src/window.ts:449
 msgid "Opening the screenshot"
 msgstr ""
 
-#: src/window.ts:444
+#: src/window.ts:457
 msgid "Screenshot cancelled"
 msgstr ""
 
-#: src/window.ts:459
+#: src/window.ts:472
 #, javascript-format
 msgid "Could not open \"%s\""
 msgstr ""
 
-#: src/window.ts:477
+#: src/window.ts:490
 msgid "Opening the dropped image"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:665
+#: src/window.ts:678
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:709
+#: src/window.ts:722
 msgid "Could not save image"
 msgstr ""
 
-#: src/window.ts:721
+#: src/window.ts:734
 msgid "Image copied to clipboard"
 msgstr ""
 
-#: src/window.ts:724
+#: src/window.ts:737
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:729
+#: src/window.ts:742
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:755
+#: src/window.ts:768
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:767
+#: src/window.ts:780
 msgid "Clipboard has no image to paste"
 msgstr ""
 
