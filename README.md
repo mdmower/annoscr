@@ -1,19 +1,19 @@
 # Annoscr
 
-A lightweight screenshot annotation tool for GNOME, written in TypeScript on GJS + GTK4 + Libadwaita.
+Annoscr is a lightweight screenshot annotation tool for GNOME.
 
-Annoscr is a reimplementation of a subset of [Gradia](https://github.com/AlexanderVanhee/Gradia), focused primarily on annotation. The canvas/action design is inspired by Gradia's.
+<img width="541" height="381" src="data/screenshot.png" alt="Screenshot of Annoscr">
 
 ## Features
 
-**Annotation tools:** Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, Number stamp (icon toolbar with tooltips)
-**Transforms:** Rotation, Resize (crop / canvas expansion)
-**I/O:** Open file, capture a screenshot via the desktop portal, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
-**Editing:** Per-tool color, fill, stroke width, line style (solid/dashed/dotted), font family, font size; select one or several annotations (Shift+Click) to move, delete, duplicate (Ctrl+D), or restyle them together; resize a single selected line, arrow, rectangle, oval, or number stamp by dragging its handles (Shift squares a rect/oval corner or side); rotate a single selected text, number stamp, rectangle, or oval to any angle with its rotate gizmo (Shift snaps to 15°); undo/redo; discard confirmation
-**Number stamps:** per-group numbering with a Number/Letter variant per group; pick or reassign groups from the style bar, start a new group with Ctrl+G, and selecting a stamp badges the rest of its group on-canvas
-**View:** Fit-to-window and 1:1, plus a continuous 25%-400% zoom slider with scrollbars (Shift-drag to fine-tune); Ctrl+scroll to zoom at the cursor; Ctrl+/Ctrl- step the 25/50/100/200/400% detents; Ctrl+0 / Ctrl+1 shortcuts
-**App:** Primary menu with Preferences, a Keyboard shortcuts reference, and About
-**Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme (system/light/dark), remember tool styles between sessions, default save folder + format, confirm-before-discard toggle
+- **Annotation tools:** Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, Number stamp (icon toolbar with tooltips)
+- **Transforms:** Rotation, Resize (crop / canvas expansion)
+- **I/O:** Open file, capture a screenshot via the desktop portal, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
+- **Editing:** Per-tool color, fill, stroke width, line style (solid/dashed/dotted), font family, font size; select one or several annotations (Shift+Click) to move, delete, duplicate (Ctrl+D), or restyle them together; resize a single selected line, arrow, rectangle, oval, or number stamp by dragging its handles (Shift squares a rect/oval corner or side); rotate a single selected text, number stamp, rectangle, or oval to any angle with its rotate gizmo (Shift snaps to 15°); undo/redo; discard confirmation
+- **Number stamps:** per-group numbering with a Number/Letter variant per group; pick or reassign groups from the style bar, start a new group with Ctrl+G, and selecting a stamp badges the rest of its group on-canvas
+- **View:** Fit-to-window and 1:1, plus a continuous 25%-400% zoom slider with scrollbars (Shift-drag to fine-tune); Ctrl+scroll to zoom at the cursor; Ctrl+/Ctrl- step the 25/50/100/200/400% detents; Ctrl+0 / Ctrl+1 shortcuts
+- **App:** Primary menu with Preferences, a Keyboard shortcuts reference, and About
+- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme (system/light/dark), remember tool styles between sessions, default save folder + format, confirm-before-discard toggle
 
 ## Status
 
@@ -55,56 +55,38 @@ dpkg-buildpackage -us -uc -b
 
 ## Translations
 
-The UI is gettext-enabled under the text domain `annoscr`. The source strings
-are US English, and gettext returns them unchanged when the running locale has
-no catalogue — so English is the fallback with no extra configuration. Compiled
-`.mo` files install to `<prefix>/share/locale/<lang>/LC_MESSAGES/` and load
-automatically; the launcher binds the domain to that directory.
+The UI is gettext-enabled under the text domain `annoscr`. The source strings are US English, and gettext returns them unchanged when the running locale has no catalogue — so English is the fallback with no extra configuration. Compiled `.mo` files install to `<prefix>/share/locale/<lang>/LC_MESSAGES/` and load automatically; the launcher binds the domain to that directory.
 
 ### Marking strings for translation
 
 Wrap user-facing strings with the helpers in [src/i18n.ts](src/i18n.ts):
 
-- `_(s)` — translate `s` now. Use it everywhere a string is built at runtime
-  (widget construction, dialogs, labels, tooltips).
-- `N_(s)` — mark `s` for extraction but return it unchanged. Use it for strings
-  defined at module load (constant tables such as the tool list or size
-  presets), which are evaluated before the domain is bound; translate them with
-  `_()` where they're used.
-- `formatN(s, n)` — translate `s` and substitute a single `%d`/`%s`, keeping the
-  variable out of the translatable text.
+- `_(s)` — translate `s` now. Use it everywhere a string is built at runtime (widget construction, dialogs, labels, tooltips).
+- `N_(s)` — mark `s` for extraction but return it unchanged. Use it for strings defined at module load (constant tables such as the tool list or size presets), which are evaluated before the domain is bound; translate them with `_()` where they're used.
+- `formatN(s, n)` — translate `s` and substitute a single `%d`/`%s`, keeping the variable out of the translatable text.
 
 After adding strings, list the source file in [po/POTFILES](po/POTFILES).
 
 ### Adding a translation
 
-Generate a `.po` from the template and fill in the `msgstr`s — with a tool
-(Poedit, GNOME Translation Editor, Lokalize) or on the command line:
+Generate a `.po` from the template and fill in the `msgstr`s — with a tool (Poedit, GNOME Translation Editor, Lokalize) or on the command line:
 
 ```sh
 msginit --input=po/annoscr.pot --locale=de --output=po/de.po
 ```
 
-Add the language code to [po/LINGUAS](po/LINGUAS); the build compiles each
-listed `.po` to a `.mo` automatically. When source strings change, regenerate
-the template and merge it into existing catalogues with `meson compile -C build
-annoscr-update-po`.
+Add the language code to [po/LINGUAS](po/LINGUAS); the build compiles each listed `.po` to a `.mo` automatically. When source strings change, regenerate the template and merge it into existing catalogues with `meson compile -C build annoscr-update-po`.
 
-Editing or regenerating the template (`po/annoscr.pot`) needs GNU gettext
-**≥ 0.25**, the first release whose `xgettext` understands TypeScript sources.
-Distribution gettext is often older, so point meson at a newer build via a
-native file:
+Editing or regenerating the template (`po/annoscr.pot`) needs GNU gettext **≥ 0.25**, the first release whose `xgettext` understands TypeScript sources. Distribution gettext is often older, so point meson at a newer build via a native file:
 
 ```sh
 cp build-aux/xgettext.ini.example build-aux/xgettext.ini
 # edit the xgettext path inside to your gettext ≥0.25 build, then:
 meson setup build --native-file build-aux/xgettext.ini
-meson compile -C build annoscr-pot          # writes po/annoscr.pot
+meson compile -C build annoscr-pot # writes po/annoscr.pot
 ```
 
-This affects template _extraction_ only. Compiling catalogues uses `msgfmt`
-(`.po` → `.mo`), which any gettext provides, so a newer `xgettext` is a
-translator/maintainer tool — never a build or runtime dependency.
+This affects template _extraction_ only. Compiling catalogues uses `msgfmt` (`.po` → `.mo`), which any gettext provides, so a newer `xgettext` is a translator/maintainer tool — never a build or runtime dependency.
 
 ## License
 
@@ -112,4 +94,8 @@ GPL-3.0-or-later. See [COPYING](COPYING).
 
 ## Credits
 
-Design inspired by [Gradia](https://github.com/AlexanderVanhee/Gradia) by Alexander Vanhee.
+Inspired by [Gradia](https://github.com/AlexanderVanhee/Gradia) by Alexander Vanhee.
+
+### Background
+
+I liked Gradia but wanted something slightly different, and I also prefer native packages to portable ones. Rather than fork the application, I decided to use this as a learning opportunity for writing GNOME applications and working with AI (Claude, specifically). I chose TypeScript to write the application because that's where I'm most comfortable; I wanted to be able to scrutinize the generated code. The result is a screenshot annotation tool that I use regularly. While there is overlap in functionality between Gradia and Annoscr, this project is not just a reimplementation of Gradia in TypeScript; thought has gone into every feature (undeniably tailored to my interests).
