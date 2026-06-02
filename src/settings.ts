@@ -5,6 +5,8 @@ import {
   DashStyle,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
+  STAMP_RADIUS_MAX,
+  STAMP_RADIUS_MIN,
   StampVariant,
   TOOL_IDS,
   WIDTH_MAX,
@@ -26,6 +28,8 @@ export interface ToolStyleEntry {
   dash?: DashStyle;
   fontDesc?: string;
   fontSize?: number;
+  // Number-stamp radius (image-space px). Only the number tool writes it.
+  stampRadius?: number;
 }
 
 export interface ToolStylesSnapshot {
@@ -40,6 +44,10 @@ export interface AnnoscrSettings {
   defaultSaveFolder: string;
   defaultSaveFormat: ImageFormat;
   confirmDiscard: boolean;
+  // After placing an annotation, switch to the select tool with the new item
+  // selected (so it's immediately editable/resizable/rotatable). Off keeps the
+  // current tool for rapid repeated placement.
+  selectAfterPlacement: boolean;
   // Only populated when rememberToolStyles is on.
   toolStyles?: ToolStylesSnapshot;
 }
@@ -50,6 +58,7 @@ const DEFAULTS: AnnoscrSettings = {
   defaultSaveFolder: '',
   defaultSaveFormat: 'png',
   confirmDiscard: true,
+  selectAfterPlacement: true,
 };
 
 function settingsPath(): string {
@@ -121,6 +130,8 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
       if (typeof raw.fontDesc === 'string') entry.fontDesc = raw.fontDesc;
       const fontSize = asClampedNumber(raw.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
       if (fontSize !== undefined) entry.fontSize = fontSize;
+      const stampRadius = asClampedNumber(raw.stampRadius, STAMP_RADIUS_MIN, STAMP_RADIUS_MAX);
+      if (stampRadius !== undefined) entry.stampRadius = stampRadius;
       if (Object.keys(entry).length > 0) tools[id] = entry;
     }
   }
@@ -139,6 +150,7 @@ function sanitize(raw: unknown): AnnoscrSettings {
     defaultSaveFolder: asString(raw.defaultSaveFolder, DEFAULTS.defaultSaveFolder),
     defaultSaveFormat: asFormat(raw.defaultSaveFormat),
     confirmDiscard: asBool(raw.confirmDiscard, DEFAULTS.confirmDiscard),
+    selectAfterPlacement: asBool(raw.selectAfterPlacement, DEFAULTS.selectAfterPlacement),
   };
   const toolStyles = asToolStyles(raw.toolStyles);
   if (toolStyles) out.toolStyles = toolStyles;

@@ -193,7 +193,23 @@ export const AnnoscrWindow = GObject.registerClass(
           // Click on canvas with text tool active (or double-click with select tool):
           // commit any prior edit, then begin a new one. Pass-through options
           // carry markup + replaceIndex for re-edit of an existing TextAction.
+          const wasActive = this.editor.isActive();
           this.editor.commitIfActive();
+          // With select-after-placement on, committing a fresh text just
+          // switched us to the select tool with that text selected (one
+          // placement = one selection), so this click already "finished" the
+          // text — don't also reopen a new editor at it. Re-edits
+          // (replaceIndex) and the first open of a chain (nothing was active)
+          // still proceed. getTool()==='select' is the precise signal that the
+          // commit triggered the switch.
+          if (
+            wasActive &&
+            options?.replaceIndex === undefined &&
+            this.canvas.getTool() === 'select'
+          ) {
+            this.styleBar.refresh();
+            return;
+          }
           // Editor preview uses the same color/font the commit will use, so
           // placement and sizing reflect the final TextAction.
           const color = this.textColorFor(options?.replaceIndex);
@@ -249,6 +265,14 @@ export const AnnoscrWindow = GObject.registerClass(
       this.canvas.setStateChangeHandler(() => {
         this.zoom.refresh();
         this.styleBar.refresh();
+      });
+      this.canvas.setPlacementHandler((index) => {
+        if (!getSettings().selectAfterPlacement) return;
+        // Switch via the toolbar so the tool palette's toggle buttons stay in
+        // sync, then select the just-placed action so it's immediately
+        // editable/resizable/rotatable.
+        this.toolbar.selectTool('select');
+        this.canvas.selectIndex(index);
       });
       this.canvas.connect('resize', () => {
         this.zoom.refresh();
@@ -674,6 +698,7 @@ export const AnnoscrWindow = GObject.registerClass(
       if (!surface) return;
       try {
         copySurfaceToClipboard(this.get_clipboard(), surface);
+        this.showToast(_('Image copied to clipboard'));
       } catch (e) {
         console.error('copySurfaceToClipboard failed', e);
         this.showToast(_('Could not copy image'));

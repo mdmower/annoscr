@@ -131,6 +131,16 @@ export function presentPreferences(parent: Gtk.Window): void {
     updateSettings({confirmDiscard: confirmRow.get_active()});
   });
   behavior.add(confirmRow);
+
+  const selectAfterRow = new Adw.SwitchRow({
+    title: _('Select after placing'),
+    subtitle: _('Switch to the select tool and select each annotation right after you place it'),
+    active: s.selectAfterPlacement,
+  });
+  selectAfterRow.connect('notify::active', () => {
+    updateSettings({selectAfterPlacement: selectAfterRow.get_active()});
+  });
+  behavior.add(selectAfterRow);
   page.add(behavior);
 
   dialog.present(parent);

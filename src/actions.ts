@@ -263,13 +263,25 @@ export function defaultColorForTool(toolId: ToolId): ColorRGBA {
   return DEFAULT_COLOR;
 }
 
-// Build a NumberStampStyle with a user-chosen foreground and fill, falling
-// back to the static defaults.
+// Build a NumberStampStyle with a user-chosen foreground, fill, and radius,
+// falling back to the static defaults. The border width and digit size scale
+// with the radius by the same factor resizeByHandle uses, so a remembered
+// larger/smaller stamp stays visually proportional (not a thin border and tiny
+// digit on a big disc).
 export function numberStampStyle(
   foregroundColor: ColorRGBA,
-  fillColor: ColorRGBA
+  fillColor: ColorRGBA,
+  radius: number = NUMBER_STAMP_STYLE.radius
 ): NumberStampStyle {
-  return {...NUMBER_STAMP_STYLE, foregroundColor, fillColor};
+  const k = radius / NUMBER_STAMP_STYLE.radius;
+  return {
+    ...NUMBER_STAMP_STYLE,
+    foregroundColor,
+    fillColor,
+    radius,
+    borderWidth: NUMBER_STAMP_STYLE.borderWidth * k,
+    fontSize: NUMBER_STAMP_STYLE.fontSize * k,
+  };
 }
 
 // Default per-tool stroke/outline widths. Tools without an editable width
@@ -328,9 +340,13 @@ export const CANVAS_SIZE_MAX = 8192;
 
 const SHAPE_MIN_EXTENT = 2;
 
-// Smallest radius a number stamp can be resized to, so a corner drag can't
-// collapse it to a dot.
-const STAMP_MIN_RADIUS = 4;
+// Number-stamp radius bounds (image-space px). MIN is the resize floor (a corner
+// drag can't collapse the stamp to a dot) and the persistence clamp floor; MAX
+// only bounds a remembered value loaded from settings.json against junk.
+export const STAMP_RADIUS_MIN = 4;
+export const STAMP_RADIUS_MAX = 512;
+// The static placement radius before any remembered size (#6).
+export const DEFAULT_STAMP_RADIUS = NUMBER_STAMP_STYLE.radius;
 
 abstract class BaseAction implements Action {
   abstract draw(cr: Cairo.Context, scale: number): void;
@@ -854,7 +870,7 @@ class NumberStampAction extends BaseAction {
         return this; // edge / endpoint handles don't apply to a stamp
     }
     const [sx, sy] = constrainSquare(ax, ay, ix, iy);
-    const half = Math.max(STAMP_MIN_RADIUS, Math.abs(sx - ax) / 2);
+    const half = Math.max(STAMP_RADIUS_MIN, Math.abs(sx - ax) / 2);
     const sgnX = Math.sign(sx - ax) || 1;
     const sgnY = Math.sign(sy - ay) || 1;
     // Scale border + digit by the same factor as the radius so a bigger circle
@@ -905,6 +921,12 @@ export function numberStampVariant(action: Action): StampVariant | null {
   return action instanceof NumberStampAction ? action.variant : null;
 }
 
+// The stamp's radius (image-space px), or null for non-stamp actions. Lets the
+// canvas remember a resized stamp's size as the next placement's default (#6).
+export function numberStampRadius(action: Action): number | null {
+  return action instanceof NumberStampAction ? action.style.radius : null;
+}
+
 // Move a stamp into a different group, adopting that group's variant so a
 // group stays uniformly Number or Letter. Non-stamp actions pass through.
 export function reassignStamp(action: Action, groupId: number, variant: StampVariant): Action {
@@ -953,12 +975,22 @@ export function setStampVariantInGroup(
 
 // ---------- Pen / Highlighter (multi-point stroke) ----------
 
+// Pen and highlighter both produce a StrokeAction; the tag records which tool
+// drew it so a select-mode style edit can write back to the right tool default
+// (#5). It's the only thing distinguishing the two once committed.
+type StrokeTool = 'pen' | 'highlighter';
+
 class StrokeAction extends BaseAction {
   constructor(
     private readonly points: ReadonlyArray<[number, number]>,
-    private readonly style: Style
+    private readonly style: Style,
+    private readonly tool: StrokeTool
   ) {
     super();
+  }
+
+  toolId(): StrokeTool {
+    return this.tool;
   }
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -985,14 +1017,14 @@ class StrokeAction extends BaseAction {
 
   translate(dx: number, dy: number): Action {
     const moved: Array<[number, number]> = this.points.map(([x, y]) => [x + dx, y + dy]);
-    return new StrokeAction(moved, this.style);
+    return new StrokeAction(moved, this.style, this.tool);
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
     const moved: Array<[number, number]> = this.points.map(([x, y]) =>
       rotatePoint(x, y, direction, oldW, oldH)
     );
-    return new StrokeAction(moved, this.style);
+    return new StrokeAction(moved, this.style, this.tool);
   }
 
   getColor(): ColorRGBA {
@@ -1000,7 +1032,7 @@ class StrokeAction extends BaseAction {
   }
 
   withColor(color: ColorRGBA): Action {
-    return new StrokeAction(this.points, {...this.style, color});
+    return new StrokeAction(this.points, {...this.style, color}, this.tool);
   }
 
   getWidth(): number {
@@ -1008,7 +1040,7 @@ class StrokeAction extends BaseAction {
   }
 
   withWidth(width: number): Action {
-    return new StrokeAction(this.points, {...this.style, width});
+    return new StrokeAction(this.points, {...this.style, width}, this.tool);
   }
 }
 
@@ -1018,7 +1050,8 @@ class StrokeLiveStroke implements LiveStroke {
   constructor(
     x: number,
     y: number,
-    private readonly style: Style
+    private readonly style: Style,
+    private readonly tool: StrokeTool
   ) {
     this.points = [[x, y]];
   }
@@ -1029,12 +1062,12 @@ class StrokeLiveStroke implements LiveStroke {
 
   finish(): Action | null {
     if (this.points.length < 2) return null;
-    return new StrokeAction(this.points, this.style);
+    return new StrokeAction(this.points, this.style, this.tool);
   }
 
   draw(cr: Cairo.Context, scale: number): void {
     if (this.points.length < 2) return;
-    new StrokeAction(this.points, this.style).draw(cr, scale);
+    new StrokeAction(this.points, this.style, this.tool).draw(cr, scale);
   }
 }
 
@@ -1551,9 +1584,9 @@ export function createLiveStroke(
 ): LiveStroke {
   switch (toolId) {
     case 'pen':
-      return new StrokeLiveStroke(x, y, {...PEN_STYLE, color, width});
+      return new StrokeLiveStroke(x, y, {...PEN_STYLE, color, width}, 'pen');
     case 'highlighter':
-      return new StrokeLiveStroke(x, y, {...HIGHLIGHTER_STYLE, color, width});
+      return new StrokeLiveStroke(x, y, {...HIGHLIGHTER_STYLE, color, width}, 'highlighter');
     case 'line':
       return new LineLiveStroke(x, y, {...LINE_STYLE, color, width, dash});
     case 'arrow':
@@ -1615,6 +1648,21 @@ export function defaultDashForTool(toolId: ToolId): DashStyle | null {
     default:
       return null;
   }
+}
+
+// The tool that produces an action of this type, so a select-mode style edit can
+// be written back to the matching tool's default (#5). StrokeAction carries its
+// own pen/highlighter tag; the rest map by concrete class. Null for any action
+// with no single originating tool (none today).
+export function actionToolId(action: Action): ToolId | null {
+  if (action instanceof StrokeAction) return action.toolId();
+  if (action instanceof LineAction) return 'line';
+  if (action instanceof ArrowAction) return 'arrow';
+  if (action instanceof RectAction) return 'rect';
+  if (action instanceof OvalAction) return 'oval';
+  if (action instanceof TextAction) return 'text';
+  if (action instanceof NumberStampAction) return 'number';
+  return null;
 }
 
 // ---------- helpers ----------

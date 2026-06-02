@@ -14,11 +14,13 @@ import {
   HandleId,
   OrientedBounds,
   DEFAULT_DASH,
+  DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_VARIANT,
   LiveStroke,
   StampVariant,
   ToolId,
   TRANSPARENT_FILL,
+  actionToolId,
   createLiveStroke,
   defaultColorForTool,
   defaultDashForTool,
@@ -31,6 +33,7 @@ import {
   getTextEditState,
   makeNumberStampAction,
   numberStampGroup,
+  numberStampRadius,
   numberStampStyle,
   numberStampVariant,
   reassignStamp,
@@ -309,6 +312,12 @@ export const CanvasView = GObject.registerClass(
     private onTextEditRequest: TextEditRequest | null = null;
     private onStateChange: (() => void) | null = null;
 
+    // Invoked after an action is placed (addAction), with its index. The window
+    // uses it to apply the "select after placement" preference — switch to the
+    // select tool and select the new item. The canvas stays policy-free here
+    // and just reports the placement.
+    private onPlaced: ((index: number) => void) | null = null;
+
     // Per-tool current color. Drawing a new action reads from here; the color
     // picker writes here for the active tool. select and resize have no
     // editable color, so they never get an entry.
@@ -346,6 +355,12 @@ export const CanvasView = GObject.registerClass(
     // Per-tool current font size (image-space pixels). Only 'text' has an
     // entry today; other tools return null from getToolFontSize.
     private toolFontSizes: Map<ToolId, number> = new Map();
+
+    // Per-tool remembered number-stamp radius (image-space pixels). Only
+    // 'number' ever has an entry — set when a stamp is resized (so the next
+    // placement inherits the size), read at placement (#6). Not a "width", so
+    // it gets its own slot rather than reusing toolWidths.
+    private toolStampRadii: Map<ToolId, number> = new Map();
 
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save or fresh-image-load. If the current state
@@ -596,6 +611,10 @@ export const CanvasView = GObject.registerClass(
       this.onStateChange = handler;
     }
 
+    setPlacementHandler(handler: ((index: number) => void) | null): void {
+      this.onPlaced = handler;
+    }
+
     // Current color for the given tool, falling back to the tool's static
     // default if nothing has been set yet. Returns null for select and resize,
     // which have no editable color.
@@ -829,6 +848,7 @@ export const CanvasView = GObject.registerClass(
       for (const [id, d] of this.toolDashes) ensure(id).dash = d;
       for (const [id, f] of this.toolFontDescs) ensure(id).fontDesc = f;
       for (const [id, s] of this.toolFontSizes) ensure(id).fontSize = s;
+      for (const [id, r] of this.toolStampRadii) ensure(id).stampRadius = r;
       const snap: ToolStylesSnapshot = {tools};
       if (this.defaultStampVariant !== DEFAULT_STAMP_VARIANT)
         snap.stampVariant = this.defaultStampVariant;
@@ -847,6 +867,7 @@ export const CanvasView = GObject.registerClass(
         if (e.dash) this.toolDashes.set(toolId, e.dash);
         if (e.fontDesc) this.toolFontDescs.set(toolId, e.fontDesc);
         if (e.fontSize !== undefined) this.toolFontSizes.set(toolId, e.fontSize);
+        if (e.stampRadius !== undefined) this.toolStampRadii.set(toolId, e.stampRadius);
       }
       if (snap.stampVariant) this.defaultStampVariant = snap.stampVariant;
     }
@@ -881,6 +902,18 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
+    // Select exactly one action by index, clearing any prior selection. Used by
+    // the select-after-placement flow once the tool has been switched to select.
+    // No-op for an out-of-range index.
+    selectIndex(index: number): void {
+      if (index < 0 || index >= this.state.actions.length) return;
+      this.selectedIndices.clear();
+      this.selectedIndices.add(index);
+      this.lastCoalesceKey = null;
+      this.queue_draw();
+      this.notifyStateChange();
+    }
+
     getActionAt(index: number): Action | null {
       const cur = this.state.actions;
       if (index < 0 || index >= cur.length) return null;
@@ -891,7 +924,8 @@ export const CanvasView = GObject.registerClass(
       get: (a: Action) => T | null,
       apply: (a: Action, v: T) => Action,
       value: T,
-      key: string
+      key: string,
+      setToolDefault: (toolId: ToolId, v: T) => void
     ): boolean {
       const cur = this.state.actions;
       if (this.selectedIndices.size === 0) return false;
@@ -900,11 +934,16 @@ export const CanvasView = GObject.registerClass(
       // untouched; this is the "shared control" rule the style bar mirrors.
       let applicable = false;
       let changed = false;
+      // The tools of the edited action types, so the edit can be remembered as
+      // each one's default (#5).
+      const tools = new Set<ToolId>();
       const next = cur.map((a, j) => {
         if (!this.selectedIndices.has(j)) return a;
         const current = get(a);
         if (current === null) return a;
         applicable = true;
+        const tid = actionToolId(a);
+        if (tid) tools.add(tid);
         // Re-picking the value an action already has would push a content-
         // identical (new-reference) state — an undo step that does nothing
         // visible. Skip those actions. See P1-03.
@@ -915,6 +954,12 @@ export const CanvasView = GObject.registerClass(
       // No selected action supports this property — the picker shouldn't have
       // been active; treat as not handled.
       if (!applicable) return false;
+      // Remember this select-mode edit as the matching tools' default so the
+      // next placement with that tool inherits it (#5). Only the edited types'
+      // tools are touched — recoloring a rect updates rect's default, not pen's.
+      // Written even when nothing changed (every selected item already had the
+      // value), since the user still explicitly chose it.
+      for (const tid of tools) setToolDefault(tid, value);
       // Applicable but every selected action already had the value: handled,
       // but nothing to push.
       if (!changed) return true;
@@ -936,7 +981,8 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getColor(),
         (a, v) => a.withColor(v),
         color,
-        'color'
+        'color',
+        (tid, v) => this.setToolColor(tid, v)
       );
     }
 
@@ -945,7 +991,8 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getWidth(),
         (a, v) => a.withWidth(v),
         width,
-        'width'
+        'width',
+        (tid, v) => this.setToolWidth(tid, v)
       );
     }
 
@@ -954,7 +1001,8 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getFill(),
         (a, v) => a.withFill(v),
         fill,
-        'fill'
+        'fill',
+        (tid, v) => this.setToolFill(tid, v)
       );
     }
 
@@ -963,7 +1011,8 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getDash(),
         (a, v) => a.withDash(v),
         dash,
-        'dash'
+        'dash',
+        (tid, v) => this.setToolDash(tid, v)
       );
     }
 
@@ -972,7 +1021,8 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getFontDesc(),
         (a, v) => a.withFontDesc(v),
         fontDesc,
-        'font'
+        'font',
+        (tid, v) => this.setToolFontDesc(tid, v)
       );
     }
 
@@ -981,7 +1031,8 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getFontSize(),
         (a, v) => a.withFontSize(v),
         size,
-        'fontSize'
+        'fontSize',
+        (tid, v) => this.setToolFontSize(tid, v)
       );
     }
 
@@ -1030,6 +1081,10 @@ export const CanvasView = GObject.registerClass(
         actions: [...this.state.actions, action],
       });
       this.queue_draw();
+      // Report the placement (last index) so the window can apply the
+      // select-after-placement preference. Every placement path — shapes,
+      // stamps, new text — funnels through here.
+      if (this.onPlaced) this.onPlaced(this.state.actions.length - 1);
     }
 
     replaceAction(index: number, action: Action): void {
@@ -1572,7 +1627,8 @@ export const CanvasView = GObject.registerClass(
         // requiring a post-place select-edit round trip.
         const fg = this.getToolColor('number') ?? defaultColorForTool('number');
         const interior = this.getToolFill('number') ?? defaultFillForTool('number') ?? fg;
-        const style = numberStampStyle(fg, interior);
+        const radius = this.toolStampRadii.get('number') ?? DEFAULT_STAMP_RADIUS;
+        const style = numberStampStyle(fg, interior, radius);
         this.addAction(
           makeNumberStampAction(
             ix,
@@ -1760,6 +1816,13 @@ export const CanvasView = GObject.registerClass(
             surface: this.state.surface,
             actions: cur.map((a, j) => (j === i ? preview : a)),
           });
+          // Remember a resized stamp's new radius as the next placement's
+          // default (#6); persisted with the other tool styles when
+          // rememberToolStyles is on. Rotations don't change the radius.
+          if (wasResize) {
+            const r = numberStampRadius(preview);
+            if (r !== null) this.toolStampRadii.set('number', r);
+          }
         }
       }
       this.queue_draw();
