@@ -101,6 +101,11 @@ export interface Action {
   // actions that don't carry one. Only TextAction does today.
   getFontSize(): number | null;
   withFontSize(size: number): Action;
+  // The action's text alignment (left / center / right), or null for actions
+  // with no alignable text. Only a shape that contains text returns one
+  // (standalone TextAction stays left-only — its editor can't preview alignment).
+  getAlign(): TextAlign | null;
+  withAlign(align: TextAlign): Action;
   // Per-action resize handles, in image space, for the select tool to draw and
   // hit-test — or null for actions that aren't directly resizable (pen,
   // highlighter, text). Box shapes return 8 handles, line/arrow 2 endpoints,
@@ -198,6 +203,12 @@ export const TOOL_IDS = [
 
 export type ToolId = (typeof TOOL_IDS)[number];
 
+// Horizontal alignment of multi-line text within its layout. Stored as a string
+// (not Pango.Alignment) so it serializes cleanly; mapped at render via
+// pangoAlignment. Only exposed as an editable property on shape text (a shape's
+// box gives a fixed width to align within); standalone TextAction stays left.
+export type TextAlign = 'left' | 'center' | 'right';
+
 export interface TextStyle {
   color: ColorRGBA;
   size: number; // image-space pixels (font height)
@@ -206,6 +217,8 @@ export interface TextStyle {
   // Alpha 0 = no plate. Defaults to transparent white so the opacity slider
   // reveals a translucent white background.
   bg: ColorRGBA;
+  // Horizontal alignment of the lines within the text block.
+  align: TextAlign;
 }
 
 // Editor frame dimensions in widget-space pixels — stored on TextAction so
@@ -259,7 +272,47 @@ export const TEXT_STYLE: TextStyle = {
   size: 24,
   fontDesc: 'Sans',
   bg: TEXT_BG_DEFAULT,
+  align: 'left',
 };
+
+// Default text style for a shape's embedded text: centered, on a slightly
+// smaller font than standalone text, no background plate (the shape fill is the
+// backdrop). Color/font are the standalone defaults.
+export const SHAPE_TEXT_STYLE: TextStyle = {
+  color: DEFAULT_COLOR,
+  size: 20,
+  fontDesc: 'Sans',
+  bg: [0, 0, 0, 0],
+  align: 'center',
+};
+
+// Optional centered text carried by a box shape (rect / oval). Empty markup =
+// no text (no controls, nothing drawn). The style is the text's own
+// color/font/size/align — independent of the box's stroke Style and fill; the
+// bg field is unused (the shape fill is the backdrop).
+export interface ShapeText {
+  markup: string;
+  style: TextStyle;
+}
+
+const EMPTY_SHAPE_TEXT: ShapeText = {markup: '', style: SHAPE_TEXT_STYLE};
+
+// Inner padding for shape text as a fraction of the font size, so text doesn't
+// touch the box edge. Wrapping + alignment happen within (box width − 2·pad).
+const SHAPE_TEXT_PAD_RATIO = 0.25;
+
+// Image-space padding inside a shape's box for the given text size. Exported so
+// the editor overlay computes the same inner text rect the renderer draws into.
+export function shapeTextPadding(size: number): number {
+  return Math.round(size * SHAPE_TEXT_PAD_RATIO);
+}
+
+// Map a stored TextAlign onto Pango's alignment enum at render time.
+function pangoAlignment(align: TextAlign): Pango.Alignment {
+  if (align === 'center') return Pango.Alignment.CENTER;
+  if (align === 'right') return Pango.Alignment.RIGHT;
+  return Pango.Alignment.LEFT;
+}
 
 // Text background plate geometry (image-space px). Corner radius is a small
 // constant ("slightly rounded"); padding scales with the font so the plate
@@ -434,6 +487,12 @@ abstract class BaseAction implements Action {
   withFontSize(_size: number): Action {
     return this;
   }
+  getAlign(): TextAlign | null {
+    return null;
+  }
+  withAlign(_align: TextAlign): Action {
+    return this;
+  }
   getResizeHandles(): ResizeHandle[] | null {
     return null;
   }
@@ -495,6 +554,23 @@ export function roundedRectPath(
   cr.closePath();
 }
 
+// Create a Pango layout for `markup` at the given font (absolute pixel size).
+// Shared by standalone text and shape-embedded text; callers add width /
+// alignment / wrap afterward as needed.
+function createMarkupLayout(
+  cr: Cairo.Context,
+  fontDesc: string,
+  sizePx: number,
+  markup: string
+): Pango.Layout {
+  const layout = PangoCairo.create_layout(cr);
+  const desc = Pango.FontDescription.from_string(fontDesc);
+  desc.set_absolute_size(sizePx * Pango.SCALE);
+  layout.set_font_description(desc);
+  layout.set_markup(markup, -1);
+  return layout;
+}
+
 class TextAction extends BaseAction {
   // Immutable action ⇒ immutable bounds: measured once at construction (no
   // mutable cache, no pre-paint fallback). A withX()/translate() clone is a
@@ -521,12 +597,7 @@ class TextAction extends BaseAction {
   }
 
   private buildLayout(cr: Cairo.Context): Pango.Layout {
-    const layout = PangoCairo.create_layout(cr);
-    const desc = Pango.FontDescription.from_string(this.style.fontDesc);
-    desc.set_absolute_size(this.style.size * Pango.SCALE);
-    layout.set_font_description(desc);
-    layout.set_markup(this.markup, -1);
-    return layout;
+    return createMarkupLayout(cr, this.style.fontDesc, this.style.size, this.markup);
   }
 
   draw(cr: Cairo.Context, _scale: number): void {
@@ -1444,7 +1515,10 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     y2: number,
     style: Style,
     protected readonly fill: ColorRGBA,
-    protected readonly rotation: number
+    protected readonly rotation: number,
+    // Optional centered text inside the box. Defaults to none so existing
+    // call sites (live strokes, plain placement) are unaffected.
+    protected readonly text: ShapeText = EMPTY_SHAPE_TEXT
   ) {
     super(x1, y1, x2, y2, style);
   }
@@ -1461,7 +1535,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     y2: number,
     style: Style,
     fill: ColorRGBA,
-    rotation: number
+    rotation: number,
+    text: ShapeText
   ): Action;
 
   private center(): [number, number] {
@@ -1488,10 +1563,34 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     }
     applyStrokeStyle(cr, this.style, Cairo.LineCap.BUTT, Cairo.LineJoin.MITER);
     cr.stroke();
+    this.drawText(cr, cx, cy, hW);
+  }
+
+  // Centered text inside the box (in the box's rotated frame): word-wrapped and
+  // L/C/R-aligned within the inner width, vertically centered, no clip — so
+  // overflow spills past the box (and ellipse corners) rather than resizing it.
+  private drawText(cr: Cairo.Context, cx: number, cy: number, hW: number): void {
+    const {markup, style} = this.text;
+    if (!markup) return;
+    const pad = shapeTextPadding(style.size);
+    const innerW = Math.max(1, 2 * hW - 2 * pad);
+    const layout = createMarkupLayout(cr, style.fontDesc, style.size, markup);
+    layout.set_width(innerW * Pango.SCALE);
+    layout.set_alignment(pangoAlignment(style.align));
+    const [, textH] = layout.get_pixel_size();
+    cr.save();
+    cr.translate(cx, cy);
+    if (this.rotation !== 0) cr.rotate(this.rotation);
+    cr.translate(-innerW / 2, -textH / 2);
+    const [r, g, b, a] = style.color;
+    cr.setSourceRGBA(r, g, b, a);
+    cr.moveTo(0, 0);
+    PangoCairo.show_layout(cr, layout);
+    cr.restore();
   }
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return this.make(x1, y1, x2, y2, style, this.fill, this.rotation);
+    return this.make(x1, y1, x2, y2, style, this.fill, this.rotation, this.text);
   }
 
   getBounds(): Bounds {
@@ -1533,7 +1632,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       ncy + hH,
       this.style,
       this.fill,
-      normalizeAngle(this.rotation + dr)
+      normalizeAngle(this.rotation + dr),
+      this.text
     );
   }
 
@@ -1542,7 +1642,16 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   }
 
   withFill(fill: ColorRGBA): Action {
-    return this.make(this.x1, this.y1, this.x2, this.y2, this.style, fill, this.rotation);
+    return this.make(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.style,
+      fill,
+      this.rotation,
+      this.text
+    );
   }
 
   getRotation(): number {
@@ -1557,8 +1666,63 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.y2,
       this.style,
       this.fill,
-      normalizeAngle(rotation)
+      normalizeAngle(rotation),
+      this.text
     );
+  }
+
+  // ---- Embedded text ----
+
+  // The current text markup ('' = none) and its style, for the editor + commit.
+  getMarkup(): string {
+    return this.text.markup;
+  }
+
+  getTextStyle(): TextStyle {
+    return this.text.style;
+  }
+
+  // Set (or clear, with empty markup) the box's text. Used by the commit path.
+  withText(markup: string, style: TextStyle): Action {
+    return this.make(this.x1, this.y1, this.x2, this.y2, this.style, this.fill, this.rotation, {
+      markup,
+      style,
+    });
+  }
+
+  // The text-style channels are exposed (non-null) ONLY when the box has text,
+  // so the style bar shows Text color / Font / Size / Align for a shape-with-text
+  // and hides them for an empty shape. getColor stays the outline color.
+  getTextColor(): ColorRGBA | null {
+    return this.text.markup ? this.text.style.color : null;
+  }
+
+  withTextColor(color: ColorRGBA): Action {
+    return this.withText(this.text.markup, {...this.text.style, color});
+  }
+
+  getFontDesc(): string | null {
+    return this.text.markup ? this.text.style.fontDesc : null;
+  }
+
+  withFontDesc(fontDesc: string): Action {
+    return this.withText(this.text.markup, {...this.text.style, fontDesc});
+  }
+
+  getFontSize(): number | null {
+    return this.text.markup ? this.text.style.size : null;
+  }
+
+  withFontSize(size: number): Action {
+    return this.withText(this.text.markup, {...this.text.style, size});
+  }
+
+  getAlign(): TextAlign | null {
+    return this.text.markup ? this.text.style.align : null;
+  }
+
+  withAlign(align: TextAlign): Action {
+    return this.withText(this.text.markup, {...this.text.style, align});
   }
 
   getOrientedBounds(): OrientedBounds {
@@ -1602,7 +1766,7 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       iy,
       constrain
     );
-    return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation);
+    return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation, this.text);
   }
 }
 
@@ -1614,9 +1778,10 @@ class RectAction extends RotatableBoxAction {
     y2: number,
     style: Style,
     fill: ColorRGBA,
-    rotation: number = 0
+    rotation: number = 0,
+    text: ShapeText = EMPTY_SHAPE_TEXT
   ) {
-    super(x1, y1, x2, y2, style, fill, rotation);
+    super(x1, y1, x2, y2, style, fill, rotation, text);
   }
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
@@ -1630,9 +1795,10 @@ class RectAction extends RotatableBoxAction {
     y2: number,
     style: Style,
     fill: ColorRGBA,
-    rotation: number
+    rotation: number,
+    text: ShapeText
   ): Action {
-    return new RectAction(x1, y1, x2, y2, style, fill, rotation);
+    return new RectAction(x1, y1, x2, y2, style, fill, rotation, text);
   }
 }
 
@@ -1665,9 +1831,10 @@ class OvalAction extends RotatableBoxAction {
     y2: number,
     style: Style,
     fill: ColorRGBA,
-    rotation: number = 0
+    rotation: number = 0,
+    text: ShapeText = EMPTY_SHAPE_TEXT
   ) {
-    super(x1, y1, x2, y2, style, fill, rotation);
+    super(x1, y1, x2, y2, style, fill, rotation, text);
   }
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
@@ -1688,9 +1855,10 @@ class OvalAction extends RotatableBoxAction {
     y2: number,
     style: Style,
     fill: ColorRGBA,
-    rotation: number
+    rotation: number,
+    text: ShapeText
   ): Action {
-    return new OvalAction(x1, y1, x2, y2, style, fill, rotation);
+    return new OvalAction(x1, y1, x2, y2, style, fill, rotation, text);
   }
 }
 
@@ -1711,6 +1879,43 @@ class OvalLiveStroke extends EndpointLiveStroke {
   protected build(): Action {
     return new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill);
   }
+}
+
+// Whether the action is a box shape (rect / oval) that can carry centered text.
+export function isShapeAction(action: Action): boolean {
+  return action instanceof RotatableBoxAction;
+}
+
+export interface ShapeTextEditState {
+  markup: string; // '' when the shape has no text yet
+  style: TextStyle; // the shape's current (or default) text style
+  bounds: OrientedBounds; // box center/extents/angle, for positioning the editor
+}
+
+// Edit state for a box shape's text, or null for non-shapes. Used to open the
+// box editor and seed its style.
+export function getShapeTextEditState(action: Action): ShapeTextEditState | null {
+  if (!(action instanceof RotatableBoxAction)) return null;
+  return {
+    markup: action.getMarkup(),
+    style: action.getTextStyle(),
+    bounds: action.getOrientedBounds(),
+  };
+}
+
+// Apply (or clear, with empty markup) a box shape's text on commit; non-shapes
+// pass through unchanged.
+export function withShapeText(action: Action, markup: string, style: TextStyle): Action {
+  if (!(action instanceof RotatableBoxAction)) return action;
+  return action.withText(markup, style);
+}
+
+// A box shape with its text stripped (or the shape unchanged if it has none), or
+// null for non-shapes. Lets the canvas keep the box drawn while its text is being
+// edited — only the text is suppressed, not the whole shape.
+export function shapeWithoutText(action: Action): Action | null {
+  if (!(action instanceof RotatableBoxAction)) return null;
+  return action.getMarkup() ? action.withText('', action.getTextStyle()) : action;
 }
 
 // Transparent default fill for rect/oval — outline-only on creation. The user

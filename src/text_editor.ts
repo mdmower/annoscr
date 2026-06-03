@@ -1,47 +1,50 @@
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Pango from 'gi://Pango?version=1.0';
-import type {ColorRGBA, EditorSize} from './actions.js';
+import PangoCairo from 'gi://PangoCairo?version=1.0';
+import Cairo from 'cairo';
+import type {ColorRGBA, EditorSize, TextAlign} from './actions.js';
 import {_} from './i18n.js';
+
+// Shared 1×1 context for measuring the box-mode text height (to center it
+// vertically). Created lazily after GTK is up.
+let measureCtx: Cairo.Context | null = null;
+function getMeasureCtx(): Cairo.Context {
+  if (!measureCtx) {
+    measureCtx = new Cairo.Context(new Cairo.ImageSurface(Cairo.Format.ARGB32, 1, 1));
+  }
+  return measureCtx;
+}
 
 // Styling for the floating text editor, applied once at the display level (the
 // classes are editor-specific, so leaking onto other widgets is a non-issue).
-// The frame is transparent with rounded corners and a soft drop shadow, so it
-// reads as a card floating over the canvas — the image shows through — rather
-// than a boxed-in panel. The B/I/U button row carries its own dark rounded
-// backing (which is why there's no separator beneath it) so the icons stay
-// legible over any image; the buttons are dark with light glyphs, lightening on
-// hover and when active (they aren't keyboard-focusable — Ctrl+B/I/U drive them
-// — so there's no focus state). The TextView stays fully transparent; its font
-// and caret color are set per-edit (editorViewProvider / setEditorViewStyle),
-// the caret matching the text color so it stays visible against any image.
+// The editor is a clean floating card built from libadwaita named colors, so it
+// looks native in light and dark and stays legible over any image: a slightly
+// translucent window-bg fill, a hairline border, rounded corners, and a soft
+// drop shadow. The B/I/U row is a flat toolbar separated by a hairline (theme
+// flat toggle buttons — no hardcoded palette). The TextView is transparent over
+// the card; its font + caret color are set per-edit (editorViewProvider /
+// setEditorViewStyle), the caret matching the text color.
 const EDITOR_CSS = `
   .annoscr-editor-frame {
-    background-color: transparent;
-    border-radius: 6px;
-    box-shadow: 0 0 10px 5px rgba(0, 0, 0, 0.3);
+    background-color: alpha(@window_bg_color, 0.93);
+    border: 1px solid @borders;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
   }
   .annoscr-format-btn-row {
-    background-color: #333;
-    padding: 2px 4px;
-    border-radius: 6px;
+    padding: 4px;
+    border-bottom: 1px solid @borders;
   }
   .annoscr-format-btn {
-    background-color: #444;
-    color: #ddd;
+    min-width: 24px;
+    min-height: 24px;
   }
-  .annoscr-format-btn:checked {
-    background-color: #777;
-  }
-  .annoscr-format-btn:hover {
-    background-color: #555;
-  }
-  .annoscr-format-btn:checked:hover {
-    background-color: #888;
+  .annoscr-editor-view, .annoscr-editor-view text {
+    background-color: transparent;
   }
   .annoscr-editor-view {
-    background-color: transparent;
-    padding: 4px 8px;
+    padding: 6px 9px;
   }
 `;
 
@@ -87,18 +90,38 @@ function cssRgb(color: ColorRGBA): string {
   return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
 }
 
-// Point the view's CSS font at the active edit's font + size (px) so the empty
-// caret matches the text that will be typed, and set the caret color to the text
-// color so it reads against any background. Family is quoted for names with
-// spaces; the baseTag still drives typed-text font + color, so they stay in sync.
-function setEditorViewStyle(style: TextEditorStyle): void {
+// Map text alignment onto the TextView's justification for the box-mode preview.
+function pangoJustification(align: TextAlign): Gtk.Justification {
+  if (align === 'center') return Gtk.Justification.CENTER;
+  if (align === 'right') return Gtk.Justification.RIGHT;
+  return Gtk.Justification.LEFT;
+}
+
+// Relative luminance of a color (0 = black, 1 = white).
+function luminance(color: ColorRGBA): number {
+  return 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2];
+}
+
+// Drive the per-edit, text-color-dependent styling so the editor is legible for
+// ANY text color over ANY image (the subtitle pattern): a translucent backdrop
+// that contrasts the text — dark behind light text, light behind dark text — and
+// matching toolbar-icon ink. Also sets the view font/size (so the empty caret is
+// the right height) and the caret color. `displaySizePx` is the on-screen size
+// (image size × zoom in box mode, else the image size). Family is quoted for
+// names with spaces; the baseTag still drives the typed text's font + color.
+function setEditorViewStyle(fontDesc: string, displaySizePx: number, color: ColorRGBA): void {
   if (!editorViewProvider) return;
-  const family = Pango.FontDescription.from_string(style.fontDesc).get_family() ?? 'Sans';
+  const family = Pango.FontDescription.from_string(fontDesc).get_family() ?? 'Sans';
+  const lightText = luminance(color) > 0.5;
+  const scrim = lightText ? 'rgba(28, 28, 30, 0.62)' : 'rgba(250, 250, 252, 0.74)';
+  const ink = lightText ? '#f2f2f2' : '#1e1e1e';
   editorViewProvider.load_from_string(
-    `.annoscr-editor-view {` +
+    `.annoscr-editor-frame { background-color: ${scrim}; }` +
+      `.annoscr-format-btn { color: ${ink}; }` +
+      `.annoscr-editor-view {` +
       ` font-family: "${family}";` +
-      ` font-size: ${Math.round(style.size)}px;` +
-      ` caret-color: ${cssRgb(style.color)};` +
+      ` font-size: ${Math.round(displaySizePx)}px;` +
+      ` caret-color: ${cssRgb(color)};` +
       ` }`
   );
 }
@@ -111,6 +134,25 @@ export interface TextEditorStyle {
   // Carried through the edit so the Fill picker round-trips; v1 doesn't render
   // it inside the editor frame.
   bg: ColorRGBA;
+  // Horizontal alignment. Only meaningful for shape (box-mode) text — previewed
+  // via the TextView's justification and committed onto the shape; standalone
+  // text passes 'left' and the align control stays hidden.
+  align: TextAlign;
+}
+
+// What an in-progress edit will be committed to. Absent = a standalone
+// TextAction (the default path). A shape target routes the commit to the box
+// shape at `index` (its text), not a new TextAction.
+export type EditTarget = {kind: 'shape'; index: number};
+
+// Box-mode display geometry (widget px): the editor card covers the shape's box
+// (boxW × boxH) — the toolbar floats above it and the text view area covers the
+// box, vertically centered. The font shows at `scale` (the zoom) so the wrap +
+// alignment preview the committed render.
+export interface BoxMode {
+  boxW: number;
+  boxH: number;
+  scale: number;
 }
 
 const TAG_NAMES = ['bold', 'italic', 'underline'] as const;
@@ -134,6 +176,20 @@ const EDITOR_DEFAULT_WIDTH = 160;
 const EDITOR_MIN_WIDTH = 80;
 const EDITOR_MIN_HEIGHT = 40;
 
+// In box mode the editor card covers the shape's box plus this overlap on each
+// side, so the shape's outline tucks just under the card edge.
+const BOX_OVERLAP = 2;
+
+// The view's total horizontal CSS padding (`padding: 6px 9px` → 9·2), subtracted
+// from the box width to estimate the text wrap width when measuring its height.
+const VIEW_PAD_X = 18;
+
+// Vertical chrome between the frame's top and the text view area (frame border +
+// toolbar border-bottom), used to place the toolbar ABOVE the box so the view
+// area covers it. The extra +1 (FRAME_CHROME_V) is the bottom frame border.
+const FRAME_CHROME_TOP = 2;
+const FRAME_CHROME_V = FRAME_CHROME_TOP + 1;
+
 // Starting (minimum) view height for a fresh edit: one line at the given font
 // size plus the view's vertical padding, so the frame opens proportional to the
 // font instead of at the theme's default line height. set_size_request sets a
@@ -155,7 +211,11 @@ interface TextEditorCallbacks {
     // True when an explicit Enter commit should leave the result selected (so a
     // re-edit stays in hand for move/resize/re-edit). False for incidental
     // commits — click-away, tool switch, save/copy — which leave it unselected.
-    selectAfter?: boolean
+    selectAfter?: boolean,
+    // Present when committing text into a shape: the window routes to the shape
+    // (its text) instead of creating/replacing a TextAction. Empty markup here
+    // clears the shape's text rather than deleting the shape.
+    editTarget?: EditTarget
   ) => void;
   onCancel: (replaceIndex?: number) => void;
   // Empty/whitespace-only text committed over an existing action (re-edit) →
@@ -175,6 +235,12 @@ export interface TextEditorBeginOptions {
   // commit (font + color from the same source the canvas will render with),
   // so the live TextView visually previews placement and sizing.
   style?: TextEditorStyle;
+  // Commit target. Absent → standalone TextAction. Set (with boxMode) → edit a
+  // shape's text.
+  editTarget?: EditTarget;
+  // Box-overlay geometry for shape text. When set, the editor sizes to the box,
+  // word-wraps, justifies by align, scales the font by zoom, and hides the grip.
+  boxMode?: BoxMode;
 }
 
 export class TextEditor {
@@ -200,6 +266,25 @@ export class TextEditor {
   // relative deltas.
   private dragStartW: number = 0;
   private dragStartH: number = 0;
+
+  // Resize grip (visible only in standalone mode — box mode is sized by the
+  // shape, so manual resize is disabled there).
+  private grip!: Gtk.DrawingArea;
+  // Holds the TextView (+ grip). Fills the card in box mode (so the text wraps)
+  // and fills normally in standalone.
+  private viewOverlay!: Gtk.Overlay;
+  // Box-mode vertical centering: the text view area height and wrap width (widget
+  // px). The text is centered by setting the view's top margin to half the slack;
+  // 0 height = not box mode (no centering).
+  private boxViewAreaH: number = 0;
+  private boxWrapWidth: number = 0;
+  // On-screen font multiplier for the active edit: the zoom in box mode (so the
+  // preview matches the canvas), 1 otherwise. The committed style.size stays
+  // image-space.
+  private displayScale: number = 1;
+  // Set while editing a shape's text; routed to onCommit so the window targets
+  // the shape. Undefined for standalone TextAction edits.
+  private editTarget: EditTarget | undefined = undefined;
 
   private active: boolean = false;
   private imageX: number = 0;
@@ -262,15 +347,15 @@ export class TextEditor {
     // Corner resize grip — visual indicator only (the drag gesture lives on
     // the frame so its coordinate origin doesn't move during a resize).
     const GRIP_SIZE = 14;
-    const grip = new Gtk.DrawingArea({
+    this.grip = new Gtk.DrawingArea({
       width_request: GRIP_SIZE,
       height_request: GRIP_SIZE,
       halign: Gtk.Align.END,
       valign: Gtk.Align.END,
       can_focus: false,
     });
-    grip.set_cursor_from_name('se-resize');
-    grip.set_draw_func((_w, cr, w, h) => {
+    this.grip.set_cursor_from_name('se-resize');
+    this.grip.set_draw_func((_w, cr, w, h) => {
       cr.setSourceRGBA(0.3, 0.3, 0.3, 0.5);
       cr.setLineWidth(1);
       for (const off of [3, 7, 11]) {
@@ -280,13 +365,13 @@ export class TextEditor {
       }
     });
 
-    const viewOverlay = new Gtk.Overlay();
-    viewOverlay.set_child(this.view);
-    viewOverlay.add_overlay(grip);
+    this.viewOverlay = new Gtk.Overlay();
+    this.viewOverlay.set_child(this.view);
+    this.viewOverlay.add_overlay(this.grip);
 
     const container = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL});
     container.append(this.toolbar);
-    container.append(viewOverlay);
+    container.append(this.viewOverlay);
 
     // Drag gesture on the frame (not the grip) because the grip moves as
     // the view resizes — which shifts the gesture's coordinate origin and
@@ -299,7 +384,9 @@ export class TextEditor {
     dragGesture.connect('drag-begin', (_g: Gtk.GestureDrag, startX: number, startY: number) => {
       const fw = this.frame.get_width();
       const fh = this.frame.get_height();
-      if (startX < fw - GRIP_SIZE || startY < fh - GRIP_SIZE) {
+      // Box mode is sized by the shape — no manual resize. Otherwise only the
+      // bottom-right grip zone resizes; elsewhere let text selection propagate.
+      if (this.editTarget || startX < fw - GRIP_SIZE || startY < fh - GRIP_SIZE) {
         dragGesture.set_state(Gtk.EventSequenceState.DENIED);
         return;
       }
@@ -323,6 +410,8 @@ export class TextEditor {
 
     this.installKeyHandler();
     this.installSelectionWatcher();
+    // Keep box-mode text vertically centered as it grows/shrinks while typing.
+    this.buffer.connect('changed', () => this.recenterBoxText());
   }
 
   private makeFormatButton(iconName: string, tooltip: string, tag: TagName): Gtk.ToggleButton {
@@ -363,10 +452,16 @@ export class TextEditor {
   refreshStyle(style: TextEditorStyle): void {
     if (!this.active) return;
     this.currentStyle = style;
-    this.updateBaseTag(style);
+    this.applyViewStyle(style);
     this.applyBaseTagToBuffer();
-    setEditorViewStyle(style);
+    this.recenterBoxText();
     this.view.grab_focus();
+  }
+
+  // True while editing a shape's text (box mode), so the style bar can show the
+  // alignment control only where it applies.
+  isBoxEdit(): boolean {
+    return this.active && this.editTarget !== undefined;
   }
 
   beginAt(
@@ -380,22 +475,53 @@ export class TextEditor {
     this.imageY = imageY;
     this.rotation = options?.rotation ?? 0;
     this.replaceIndex = options?.replaceIndex;
+    this.editTarget = options?.editTarget;
+    const box = options?.boxMode;
+    this.displayScale = box ? box.scale : 1;
     this.pendingTags.clear();
+    // Box mode word-wraps to the box width; standalone keeps each line natural.
+    this.view.set_wrap_mode(box ? Gtk.WrapMode.WORD : Gtk.WrapMode.NONE);
+    this.grip.set_visible(!box);
     if (options?.style) {
-      this.updateBaseTag(options.style);
       this.currentStyle = options.style;
-      setEditorViewStyle(options.style);
+      this.applyViewStyle(options.style);
     } else {
       this.currentStyle = null;
     }
-    // Restore editor dimensions from the action (re-edit) or, for a fresh
-    // placement, start one line tall at the active font size so the frame isn't
-    // cramped under a large font (it still grows with content — see
-    // oneLineHeight).
-    if (options?.editorSize) {
-      this.view.set_size_request(options.editorSize.width, options.editorSize.height);
+    const [, toolbarH] = this.toolbar.measure(Gtk.Orientation.VERTICAL, -1);
+    if (box) {
+      // Box mode: the card covers the rectangle. The VIEW AREA (below the
+      // toolbar) is sized to the box and the toolbar floats ABOVE the box (so the
+      // card's bottom aligns with the box bottom, not its top with the top). The
+      // view FILLS that area so the text word-wraps to the box width and isn't
+      // clipped; vertical centering is done via the view's top margin
+      // (recenterBoxText) — `valign:CENTER` would collapse the view to one line.
+      const viewAreaH = Math.round(box.boxH) + 2 * BOX_OVERLAP;
+      this.frame.set_size_request(
+        Math.round(box.boxW) + 2 * BOX_OVERLAP,
+        toolbarH + viewAreaH + FRAME_CHROME_V
+      );
+      this.view.set_size_request(-1, -1);
+      this.viewOverlay.set_vexpand(true);
+      this.viewOverlay.set_valign(Gtk.Align.FILL);
+      this.viewOverlay.set_halign(Gtk.Align.FILL);
+      this.boxViewAreaH = viewAreaH;
+      this.boxWrapWidth = Math.round(box.boxW) - VIEW_PAD_X;
     } else {
-      this.view.set_size_request(EDITOR_DEFAULT_WIDTH, oneLineHeight(options?.style?.size));
+      this.frame.set_size_request(-1, -1);
+      this.viewOverlay.set_vexpand(false);
+      this.viewOverlay.set_valign(Gtk.Align.FILL);
+      this.viewOverlay.set_halign(Gtk.Align.FILL);
+      this.boxViewAreaH = 0;
+      this.view.set_top_margin(0);
+      if (options?.editorSize) {
+        // Re-edit: restore the dimensions the action was committed at.
+        this.view.set_size_request(options.editorSize.width, options.editorSize.height);
+      } else {
+        // Fresh placement: one line tall at the active font size (grows with
+        // content — see oneLineHeight).
+        this.view.set_size_request(EDITOR_DEFAULT_WIDTH, oneLineHeight(options?.style?.size));
+      }
     }
     if (options?.markup) {
       this.setBufferFromMarkup(options.markup);
@@ -403,17 +529,25 @@ export class TextEditor {
       this.buffer.set_text('', -1);
     }
     this.applyBaseTagToBuffer();
+    this.recenterBoxText();
     this.active = true;
-    // Align the editor so the TextView's first line lands on the click point.
-    // The toolbar's natural height + separator + textview top_margin already
-    // matches the frame's intrinsic top inset on Debian 13 GNOME; left_margin
-    // alone matches the left inset. If a different theme drifts these, add a
-    // FRAME_INSET fudge factor here.
-    const [, toolbarH] = this.toolbar.measure(Gtk.Orientation.VERTICAL, -1);
-    const offsetTop = toolbarH + 1 + 4; // separator + view top_margin
-    const offsetLeft = 8; // view left_margin
-    this.frame.set_margin_start(Math.max(0, Math.floor(widgetX) - offsetLeft));
-    this.frame.set_margin_top(Math.max(0, Math.floor(widgetY) - offsetTop));
+    if (box) {
+      // widgetX/Y is the box top-left. Shift the frame up by the toolbar (+ chrome)
+      // so the toolbar sits above the box and the view area covers it; minus the
+      // overlap so the card's edges tuck just outside the shape outline.
+      this.frame.set_margin_start(Math.max(0, Math.floor(widgetX) - BOX_OVERLAP));
+      this.frame.set_margin_top(
+        Math.max(0, Math.floor(widgetY) - BOX_OVERLAP - toolbarH - FRAME_CHROME_TOP)
+      );
+    } else {
+      // Standalone: align the editor so the TextView's first line lands on the
+      // click point. The toolbar's natural height + the view's top inset matches
+      // the frame's intrinsic top inset; left_margin alone matches the left.
+      const offsetTop = toolbarH + 1 + 4;
+      const offsetLeft = 8;
+      this.frame.set_margin_start(Math.max(0, Math.floor(widgetX) - offsetLeft));
+      this.frame.set_margin_top(Math.max(0, Math.floor(widgetY) - offsetTop));
+    }
     this.frame.set_visible(true);
     this.view.grab_focus();
     this.syncButtonStates();
@@ -427,6 +561,7 @@ export class TextEditor {
     const replaceIndex = this.replaceIndex;
     const rotation = this.rotation;
     const style = this.currentStyle;
+    const editTarget = this.editTarget;
     // Snapshot the actual allocated size (not the size_request) so re-edits
     // restore the visual frame rather than a -1 "natural" placeholder. Guard
     // against a never-allocated view reporting 0: fall back to the default
@@ -437,19 +572,35 @@ export class TextEditor {
       width: allocW > 0 ? allocW : EDITOR_DEFAULT_WIDTH,
       height: allocH > 0 ? allocH : -1,
     };
-    this.active = false;
-    this.frame.set_visible(false);
-    this.replaceIndex = undefined;
-    this.rotation = 0;
-    this.currentStyle = null;
-    if (plainText.trim().length === 0 || !style) {
-      // Cleared an existing action and confirmed → delete it; cleared a fresh
-      // placement → nothing was ever added, so just cancel.
+    this.reset();
+    if (!style) {
+      this.callbacks.onCancel(replaceIndex);
+      return;
+    }
+    const markup = this.bufferToMarkup();
+    // Shape text: always commit (empty markup clears the shape's text); never
+    // delete the shape.
+    if (editTarget) {
+      this.callbacks.onCommit(
+        markup,
+        this.imageX,
+        this.imageY,
+        rotation,
+        style,
+        editorSize,
+        replaceIndex,
+        selectAfter,
+        editTarget
+      );
+      return;
+    }
+    if (plainText.trim().length === 0) {
+      // Standalone: cleared an existing action and confirmed → delete it; cleared
+      // a fresh placement → nothing was added, so just cancel.
       if (replaceIndex !== undefined) this.callbacks.onDelete(replaceIndex);
       else this.callbacks.onCancel(replaceIndex);
       return;
     }
-    const markup = this.bufferToMarkup();
     this.callbacks.onCommit(
       markup,
       this.imageX,
@@ -465,12 +616,21 @@ export class TextEditor {
   cancel(): void {
     if (!this.active) return;
     const replaceIndex = this.replaceIndex;
+    this.reset();
+    this.callbacks.onCancel(replaceIndex);
+  }
+
+  // Tear down the active edit's transient state (shared by commit + cancel).
+  private reset(): void {
     this.active = false;
     this.frame.set_visible(false);
     this.replaceIndex = undefined;
     this.rotation = 0;
     this.currentStyle = null;
-    this.callbacks.onCancel(replaceIndex);
+    this.editTarget = undefined;
+    this.displayScale = 1;
+    this.boxViewAreaH = 0;
+    this.view.set_top_margin(0);
   }
 
   private installTags(): void {
@@ -486,7 +646,9 @@ export class TextEditor {
 
   private updateBaseTag(style: TextEditorStyle): void {
     const desc = Pango.FontDescription.from_string(style.fontDesc);
-    desc.set_absolute_size(style.size * Pango.SCALE);
+    // Display size = image size × zoom (box mode) so the preview matches the
+    // canvas; displayScale is 1 for standalone.
+    desc.set_absolute_size(style.size * this.displayScale * Pango.SCALE);
     this.baseTag.set_property('font-desc', desc);
 
     const rgba = new Gdk.RGBA();
@@ -497,10 +659,43 @@ export class TextEditor {
     this.baseTag.set_property('foreground-rgba', rgba);
   }
 
+  // Push the full style into the live view: base tag (font+color), the view CSS
+  // font/caret (scaled for box mode), and the justification (box mode only).
+  private applyViewStyle(style: TextEditorStyle): void {
+    this.updateBaseTag(style);
+    setEditorViewStyle(style.fontDesc, style.size * this.displayScale, style.color);
+    if (this.editTarget) {
+      this.view.set_justification(pangoJustification(style.align));
+    }
+  }
+
   private applyBaseTagToBuffer(): void {
     const start = this.buffer.get_start_iter();
     const end = this.buffer.get_end_iter();
     this.buffer.apply_tag(this.baseTag, start, end);
+  }
+
+  // Box mode only: vertically center the wrapped text in the box by setting the
+  // view's top margin to half the leftover height. The view fills the area (so
+  // text wraps + doesn't clip); the margin floats it to the middle, and tall
+  // text (margin clamped to 0) fills from the top and spills, matching commit.
+  private recenterBoxText(): void {
+    if (this.boxViewAreaH <= 0 || !this.currentStyle) return;
+    const textH = this.measureBoxTextHeight();
+    this.view.set_top_margin(Math.max(0, Math.round((this.boxViewAreaH - textH) / 2)));
+  }
+
+  // Wrapped pixel height of the current text at the box wrap width + display font.
+  private measureBoxTextHeight(): number {
+    if (!this.currentStyle) return 0;
+    const layout = PangoCairo.create_layout(getMeasureCtx());
+    const desc = Pango.FontDescription.from_string(this.currentStyle.fontDesc);
+    desc.set_absolute_size(this.currentStyle.size * this.displayScale * Pango.SCALE);
+    layout.set_font_description(desc);
+    layout.set_width(Math.max(1, this.boxWrapWidth) * Pango.SCALE);
+    layout.set_markup(this.bufferToMarkup(), -1);
+    const [, h] = layout.get_pixel_size();
+    return h;
   }
 
   private installPendingTagsApplier(): void {

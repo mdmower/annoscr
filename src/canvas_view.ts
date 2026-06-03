@@ -29,7 +29,9 @@ import {
   defaultFontSizeForTool,
   defaultWidthForTool,
   isNumberStampAction,
+  isShapeAction,
   isTextAction,
+  getShapeTextEditState,
   getTextEditState,
   makeNumberStampAction,
   numberStampGroup,
@@ -39,10 +41,11 @@ import {
   reassignStamp,
   renumberStamps,
   setStampVariantInGroup,
+  shapeWithoutText,
 } from './actions.js';
 import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
-import type {EditorSize, RotateDirection} from './actions.js';
+import type {EditorSize, RotateDirection, TextAlign, TextStyle} from './actions.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
 
 export interface ResizeRect {
@@ -68,6 +71,12 @@ export interface TextEditRequestOptions {
   replaceIndex?: number;
   rotation?: number;
   editorSize?: EditorSize;
+  // Shape-text edit: the box shape's index, its current text style, and the
+  // box's inner text rect in widget px (+ zoom). The window turns these into the
+  // editor's box mode + commit target. Absent → a standalone TextAction edit.
+  shapeIndex?: number;
+  textStyle?: TextStyle;
+  boxMode?: {boxW: number; boxH: number; scale: number};
 }
 
 export type TextEditRequest = (
@@ -1112,6 +1121,18 @@ export const CanvasView = GObject.registerClass(
       );
     }
 
+    // Alignment only lives on a shape's embedded text (a document property), so
+    // there's no tool default to write — the setToolDefault callback is a no-op.
+    replaceSelectedAlign(align: TextAlign): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getAlign(),
+        (a, v) => a.withAlign(v),
+        align,
+        'align',
+        () => {}
+      );
+    }
+
     private notifyStateChange(): void {
       this.updateSizeRequest();
       if (this.onStateChange) this.onStateChange();
@@ -1837,34 +1858,75 @@ export const CanvasView = GObject.registerClass(
     // canvas while the live editor stands in. No-op (returns false) unless the
     // index is a valid text action. Shared by double-click and the Enter
     // shortcut.
+    // Open the floating editor on the action at `idx` — a standalone TextAction
+    // or a box shape's embedded text. Hides the action from the canvas while the
+    // live editor stands in. No-op (false) for any other action type.
     private openTextEditor(idx: number): boolean {
       if (idx < 0 || idx >= this.state.actions.length) return false;
       const action = this.state.actions[idx];
-      if (!isTextAction(action)) return false;
-      const state = getTextEditState(action);
-      if (!state) return false;
+      if (isTextAction(action)) {
+        const state = getTextEditState(action);
+        if (!state || !this.onTextEditRequest) return false;
+        this.beginEditingAt(idx);
+        // Re-place the editor at the action's anchor in widget coordinates so the
+        // editor visually replaces the hidden action.
+        const t = this.currentTransform();
+        this.onTextEditRequest(
+          state.x,
+          state.y,
+          t.offsetX + state.x * t.scale,
+          t.offsetY + state.y * t.scale,
+          {
+            markup: state.markup,
+            replaceIndex: idx,
+            rotation: state.rotation,
+            editorSize: state.editorSize,
+          }
+        );
+        return true;
+      }
+      if (isShapeAction(action)) {
+        const st = getShapeTextEditState(action);
+        if (!st || !this.onTextEditRequest) return false;
+        this.beginEditingAt(idx);
+        // Overlay the editor on the box's inner text rect (in widget coords). For
+        // a rotated shape the editor stays upright over the box center; the text
+        // commits rotated with the box.
+        const t = this.currentTransform();
+        const {cx, cy, halfW, halfH} = st.bounds;
+        // The editor card covers the whole box (positioned at its top-left); the
+        // text wraps to the card width and centers within it.
+        const boxLeft = cx - halfW;
+        const boxTop = cy - halfH;
+        this.onTextEditRequest(
+          boxLeft,
+          boxTop,
+          t.offsetX + boxLeft * t.scale,
+          t.offsetY + boxTop * t.scale,
+          {
+            markup: st.markup,
+            shapeIndex: idx,
+            textStyle: st.style,
+            boxMode: {boxW: 2 * halfW * t.scale, boxH: 2 * halfH * t.scale, scale: t.scale},
+          }
+        );
+        return true;
+      }
+      return false;
+    }
+
+    // Hide the action being edited and drop the selection while the live editor
+    // stands in (shared by the text + shape edit paths).
+    private beginEditingAt(idx: number): void {
       this.editingActionIndex = idx;
       this.selectedIndices.clear();
       this.queue_draw();
-      if (this.onTextEditRequest) {
-        // Re-place the editor at the action's anchor in widget coordinates so
-        // the editor visually replaces the hidden action.
-        const t = this.currentTransform();
-        const wxAnchor = t.offsetX + state.x * t.scale;
-        const wyAnchor = t.offsetY + state.y * t.scale;
-        this.onTextEditRequest(state.x, state.y, wxAnchor, wyAnchor, {
-          markup: state.markup,
-          replaceIndex: idx,
-          rotation: state.rotation,
-          editorSize: state.editorSize,
-        });
-      }
-      return true;
     }
 
-    // Open the editor on the sole selected action when it's a text annotation
-    // (the Enter shortcut). Returns true only when it opened, so the key falls
-    // through otherwise (multi-selection, a non-text selection, or nothing).
+    // Open the editor on the sole selected action when it's a text annotation or
+    // a box shape (the Enter shortcut and the style-bar Add/Edit-text button).
+    // Returns true only when it opened, so the key falls through otherwise
+    // (multi-selection, a non-editable selection, or nothing).
     editSelectedText(): boolean {
       if (this.currentToolId !== 'select' || this.editingActionIndex >= 0) return false;
       return this.openTextEditor(this.soleSelectedIndex());
@@ -2324,7 +2386,14 @@ export const CanvasView = GObject.registerClass(
       const acts = this.state.actions;
       const sole = this.soleSelectedIndex();
       for (let i = 0; i < acts.length; i++) {
-        if (i === this.editingActionIndex) continue;
+        if (i === this.editingActionIndex) {
+          // The edited action is hidden so the live editor stands in. A box
+          // shape, though, keeps its outline/fill drawn (only its text is
+          // suppressed) so the box being labelled doesn't vanish.
+          const box = shapeWithoutText(acts[i]);
+          if (box) box.draw(cr, t.scale);
+          continue;
+        }
         if ((this.actionGrab || this.rotateGrab) && this.actionPreview && i === sole) {
           // Mid-reshape (resize or rotate): render the preview in the stored
           // action's place.

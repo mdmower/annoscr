@@ -12,8 +12,9 @@ import {CanvasView} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
-import {ColorRGBA, TEXT_STYLE, makeTextAction} from './actions.js';
-import {TextEditor, TextEditorBeginOptions} from './text_editor.js';
+import {ColorRGBA, TEXT_STYLE, makeTextAction, withShapeText} from './actions.js';
+import {TextEditor, TextEditorBeginOptions, TextEditorStyle} from './text_editor.js';
+import type {TextEditRequestOptions} from './canvas_view.js';
 import {
   FORMATS,
   ImageFormat,
@@ -156,8 +157,23 @@ export const AnnoscrWindow = GObject.registerClass(
           style,
           editorSize,
           replaceIndex?: number,
-          selectAfter?: boolean
+          selectAfter?: boolean,
+          editTarget?
         ) => {
+          // Shape text: write the (possibly empty) markup + style onto the box
+          // shape at the target index, keeping the shape selected so it stays in
+          // hand. Empty markup clears the text but keeps the shape.
+          if (editTarget) {
+            const shape = this.canvas.getActionAt(editTarget.index);
+            if (shape) {
+              // TextEditorStyle and the shape's TextStyle carry identical fields.
+              this.canvas.replaceAction(editTarget.index, withShapeText(shape, markup, style));
+              this.canvas.selectIndex(editTarget.index);
+            } else {
+              this.canvas.clearEditing();
+            }
+            return;
+          }
           // The editor is the source of truth for style + size during an
           // edit; pickers update style via refreshStyle and the corner grip
           // updates editorSize — both land here at commit.
@@ -182,8 +198,10 @@ export const AnnoscrWindow = GObject.registerClass(
             this.canvas.addAction(action);
           }
         },
-        onCancel: (replaceIndex?: number) => {
-          if (replaceIndex !== undefined) this.canvas.clearEditing();
+        onCancel: () => {
+          // Always restore the hidden action (un-hides a re-edited text or a
+          // shape whose text was being edited; harmless for a fresh placement).
+          this.canvas.clearEditing();
           // Editor is no longer the style source — refresh so the picker
           // reverts to the tool default / selected action.
           this.styleBar.refresh();
@@ -195,12 +213,26 @@ export const AnnoscrWindow = GObject.registerClass(
         },
       });
       this.canvas.setTextEditRequestHandler(
-        (ix: number, iy: number, wx: number, wy: number, options?: TextEditorBeginOptions) => {
+        (ix: number, iy: number, wx: number, wy: number, options?: TextEditRequestOptions) => {
           // Click on canvas with text tool active (or double-click with select tool):
           // commit any prior edit, then begin a new one. Pass-through options
-          // carry markup + replaceIndex for re-edit of an existing TextAction.
+          // carry markup + (replaceIndex | shapeIndex) for re-edit.
           const wasActive = this.editor.isActive();
           this.editor.commitIfActive();
+          // Shape text: the canvas supplies the box geometry + the shape's text
+          // style. Route the editor into box mode targeting that shape.
+          if (options?.shapeIndex !== undefined && options.textStyle && options.boxMode) {
+            const begin: TextEditorBeginOptions = {
+              markup: options.markup,
+              // The shape's TextStyle has the same fields as TextEditorStyle.
+              style: options.textStyle,
+              editTarget: {kind: 'shape', index: options.shapeIndex},
+              boxMode: options.boxMode,
+            };
+            this.editor.beginAt(ix, iy, wx, wy, begin);
+            this.styleBar.refresh();
+            return;
+          }
           // With select-after-placement on, committing a fresh text just
           // switched us to the select tool with that text selected (one
           // placement = one selection), so this click already "finished" the
@@ -217,13 +249,20 @@ export const AnnoscrWindow = GObject.registerClass(
             return;
           }
           // Editor preview uses the same color/font the commit will use, so
-          // placement and sizing reflect the final TextAction.
+          // placement and sizing reflect the final TextAction. Standalone text
+          // is always left-aligned (its align control is hidden).
           const color = this.textColorFor(options?.replaceIndex);
           const fontDesc = this.textFontDescFor(options?.replaceIndex);
           const fontSize = this.textFontSizeFor(options?.replaceIndex);
           const bg = this.textBgFor(options?.replaceIndex);
-          const style = {color, fontDesc, size: fontSize, bg};
-          this.editor.beginAt(ix, iy, wx, wy, {...options, style});
+          const style: TextEditorStyle = {color, fontDesc, size: fontSize, bg, align: 'left'};
+          this.editor.beginAt(ix, iy, wx, wy, {
+            markup: options?.markup,
+            replaceIndex: options?.replaceIndex,
+            rotation: options?.rotation,
+            editorSize: options?.editorSize,
+            style,
+          });
           // Picker now reflects the editor's style (color + font of the
           // in-progress edit), so refresh to point dropdown + buttons at it.
           this.styleBar.refresh();
