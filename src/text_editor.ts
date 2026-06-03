@@ -4,35 +4,50 @@ import Pango from 'gi://Pango?version=1.0';
 import type {ColorRGBA, EditorSize} from './actions.js';
 import {_} from './i18n.js';
 
-// Background tint on the live TextView/Frame so the canvas image shows
-// through. Applied once at the display level — collision with other
-// widgets is fine since the CSS class is editor-specific.
+// Styling for the floating text editor, applied once at the display level (the
+// classes are editor-specific, so leaking onto other widgets is a non-issue).
+// The frame is transparent with rounded corners and a soft drop shadow, so it
+// reads as a card floating over the canvas — the image shows through — rather
+// than a boxed-in panel. The B/I/U button row carries its own dark rounded
+// backing (which is why there's no separator beneath it) so the icons stay
+// legible over any image; the buttons are dark with light glyphs, lightening on
+// hover and when active (they aren't keyboard-focusable — Ctrl+B/I/U drive them
+// — so there's no focus state). The TextView stays fully transparent; its font
+// and caret color are set per-edit (editorViewProvider / setEditorViewStyle),
+// the caret matching the text color so it stays visible against any image.
 const EDITOR_CSS = `
   .annoscr-editor-frame {
-    background-color: rgba(255, 255, 255, 0.3);
-  }
-  .annoscr-editor-view, .annoscr-editor-view text {
     background-color: transparent;
+    border-radius: 6px;
+    box-shadow: 0 0 10px 5px rgba(0, 0, 0, 0.3);
   }
-  .annoscr-editor-view {
-    padding: 4px 8px;
-    caret-color: #333;
+  .annoscr-format-btn-row {
+    background-color: #333;
+    padding: 2px 4px;
+    border-radius: 6px;
   }
   .annoscr-format-btn {
-    color: #333;
+    background-color: #444;
+    color: #ddd;
   }
   .annoscr-format-btn:checked {
-    color: #111;
+    background-color: #777;
+  }
+  .annoscr-format-btn:hover {
+    background-color: #555;
+  }
+  .annoscr-format-btn:checked:hover {
+    background-color: #888;
+  }
+  .annoscr-editor-view {
+    background-color: transparent;
+    padding: 4px 8px;
   }
 `;
 
-let editorCssInstalled = false;
-function installEditorCss(): void {
-  if (editorCssInstalled) return;
+function addDisplayProvider(provider: Gtk.CssProvider): void {
   const display = Gdk.Display.get_default();
   if (!display) return;
-  const provider = new Gtk.CssProvider();
-  provider.load_from_string(EDITOR_CSS);
   // Gtk.StyleContext is wholly deprecated in 4.10+ but display-level CSS
   // providers have no replacement; the deprecation note itself says
   // "otherwise, there is no replacement." Same situation as the cairo
@@ -43,7 +58,49 @@ function installEditorCss(): void {
     provider,
     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
   );
+}
+
+let editorCssInstalled = false;
+// Dynamic provider carrying view properties that vary per edit: the font and the
+// caret color. The font matters because GtkTextView sizes the caret to the line
+// height at the cursor, which for an empty buffer is the view's default (theme)
+// font — so without this the caret opens small and only jumps to size once a
+// character (carrying the baseTag font) is typed. The caret color tracks the
+// text color so the cursor stays visible against any image (a fixed gray caret
+// vanished over dark areas of the transparent editor).
+let editorViewProvider: Gtk.CssProvider | null = null;
+
+function installEditorCss(): void {
+  if (editorCssInstalled) return;
+  const staticProvider = new Gtk.CssProvider();
+  staticProvider.load_from_string(EDITOR_CSS);
+  addDisplayProvider(staticProvider);
+  editorViewProvider = new Gtk.CssProvider();
+  addDisplayProvider(editorViewProvider);
   editorCssInstalled = true;
+}
+
+// Solid (opaque) CSS color from a ColorRGBA — alpha is dropped so a translucent
+// text color still yields a visible caret.
+function cssRgb(color: ColorRGBA): string {
+  const [r, g, b] = color;
+  return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+}
+
+// Point the view's CSS font at the active edit's font + size (px) so the empty
+// caret matches the text that will be typed, and set the caret color to the text
+// color so it reads against any background. Family is quoted for names with
+// spaces; the baseTag still drives typed-text font + color, so they stay in sync.
+function setEditorViewStyle(style: TextEditorStyle): void {
+  if (!editorViewProvider) return;
+  const family = Pango.FontDescription.from_string(style.fontDesc).get_family() ?? 'Sans';
+  editorViewProvider.load_from_string(
+    `.annoscr-editor-view {` +
+      ` font-family: "${family}";` +
+      ` font-size: ${Math.round(style.size)}px;` +
+      ` caret-color: ${cssRgb(style.color)};` +
+      ` }`
+  );
 }
 
 export interface TextEditorStyle {
@@ -76,6 +133,15 @@ const MARKUP_TAG_REVERSE: Record<string, TagName> = {
 const EDITOR_DEFAULT_WIDTH = 160;
 const EDITOR_MIN_WIDTH = 80;
 const EDITOR_MIN_HEIGHT = 40;
+
+// Starting (minimum) view height for a fresh edit: one line at the given font
+// size plus the view's vertical padding, so the frame opens proportional to the
+// font instead of at the theme's default line height. set_size_request sets a
+// MINIMUM, so the view still grows past this as more lines are typed.
+function oneLineHeight(fontSize?: number): number {
+  if (!fontSize) return EDITOR_MIN_HEIGHT;
+  return Math.max(EDITOR_MIN_HEIGHT, Math.round(fontSize * 1.4) + 8);
+}
 
 interface TextEditorCallbacks {
   onCommit: (
@@ -178,6 +244,7 @@ export class TextEditor {
       margin_bottom: 2,
       margin_start: 2,
       margin_end: 2,
+      css_classes: ['annoscr-format-btn-row'],
     });
     this.buttons = {
       bold: this.makeFormatButton('format-text-bold-symbolic', _('Bold (Ctrl+B)'), 'bold'),
@@ -219,7 +286,6 @@ export class TextEditor {
 
     const container = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL});
     container.append(this.toolbar);
-    container.append(new Gtk.Separator({orientation: Gtk.Orientation.HORIZONTAL}));
     container.append(viewOverlay);
 
     // Drag gesture on the frame (not the grip) because the grip moves as
@@ -299,6 +365,7 @@ export class TextEditor {
     this.currentStyle = style;
     this.updateBaseTag(style);
     this.applyBaseTagToBuffer();
+    setEditorViewStyle(style);
     this.view.grab_focus();
   }
 
@@ -317,16 +384,18 @@ export class TextEditor {
     if (options?.style) {
       this.updateBaseTag(options.style);
       this.currentStyle = options.style;
+      setEditorViewStyle(options.style);
     } else {
       this.currentStyle = null;
     }
-    // Restore editor dimensions from the action (re-edit) or use the
-    // default width for new placements. -1 height lets the view grow to
-    // fit content naturally.
+    // Restore editor dimensions from the action (re-edit) or, for a fresh
+    // placement, start one line tall at the active font size so the frame isn't
+    // cramped under a large font (it still grows with content — see
+    // oneLineHeight).
     if (options?.editorSize) {
       this.view.set_size_request(options.editorSize.width, options.editorSize.height);
     } else {
-      this.view.set_size_request(EDITOR_DEFAULT_WIDTH, -1);
+      this.view.set_size_request(EDITOR_DEFAULT_WIDTH, oneLineHeight(options?.style?.size));
     }
     if (options?.markup) {
       this.setBufferFromMarkup(options.markup);
