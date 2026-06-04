@@ -169,6 +169,9 @@ export const AnnoscrWindow = GObject.registerClass(
               // TextEditorStyle and the shape's TextStyle carry identical fields.
               this.canvas.replaceAction(editTarget.index, withShapeText(shape, markup, style));
               this.canvas.selectIndex(editTarget.index);
+              // Remember this style as the shape tool's seed for the next shape
+              // (empty markup = text cleared, so there's nothing to remember).
+              if (markup) this.canvas.rememberShapeTextStyle(editTarget.index, style);
             } else {
               this.canvas.clearEditing();
             }

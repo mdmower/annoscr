@@ -1,4 +1,5 @@
 import Gtk from 'gi://Gtk?version=4.0';
+import GLib from 'gi://GLib?version=2.0';
 import Cairo from 'cairo';
 
 import {CanvasView} from './canvas_view.js';
@@ -427,8 +428,16 @@ export class StyleBar {
     this.addTextLabel = new Gtk.Label({label: _('Add text'), xalign: 0, hexpand: true});
     this.addTextBtn = new Gtk.Button({child: this.addTextLabel, css_classes: ['flat']});
     this.addTextBtn.connect('clicked', () => {
-      this.canvas.editSelectedText();
+      // Close the menu first, then open the editor on an idle: an autohide
+      // popover restores the parent's focus widget when it pops down, which
+      // would clobber the editor's grab_focus if we opened synchronously.
+      // Deferring past the popdown lets the text view keep focus so the user
+      // can start typing right away.
       popover.popdown();
+      GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+        this.canvas.editSelectedText();
+        return GLib.SOURCE_REMOVE;
+      });
     });
     box.append(this.addTextBtn);
     this.addTextSep = new Gtk.Separator({margin_top: 4, margin_bottom: 4});

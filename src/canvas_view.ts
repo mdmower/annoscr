@@ -15,6 +15,7 @@ import {
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_VARIANT,
   LiveStroke,
+  SHAPE_TEXT_STYLE,
   StampVariant,
   ToolId,
   TRANSPARENT_FILL,
@@ -762,6 +763,34 @@ export const CanvasView = GObject.registerClass(
 
     setToolFontSize(toolId: ToolId, size: number): void {
       this.toolFontSizes.set(toolId, size);
+    }
+
+    // The text style a fresh (textless) shape edit seeds from: the last style
+    // committed for this shape tool, or one set via a select-mode text edit,
+    // falling back to the static shape-text default. Color/font/size only —
+    // alignment and the (unused) background plate stay the shape-text defaults.
+    // Mirrors how a drawing tool seeds a new placement from its remembered style.
+    private rememberedShapeTextStyle(toolId: ToolId): TextStyle {
+      return {
+        ...SHAPE_TEXT_STYLE,
+        color: this.toolTextColors.get(toolId) ?? SHAPE_TEXT_STYLE.color,
+        fontDesc: this.toolFontDescs.get(toolId) ?? SHAPE_TEXT_STYLE.fontDesc,
+        size: this.toolFontSizes.get(toolId) ?? SHAPE_TEXT_STYLE.size,
+      };
+    }
+
+    // Remember a committed shape's text style so the next text added to a shape
+    // of the same tool (rect / oval, kept independently) starts from it. No-op
+    // for non-shape actions. Tool state, not document state — not pushed to
+    // history. The same per-tool maps a select-mode text edit already writes.
+    rememberShapeTextStyle(index: number, style: TextStyle): void {
+      const action = this.state.actions[index];
+      if (!action) return;
+      const tool = actionToolId(action);
+      if (tool !== 'rect' && tool !== 'oval') return;
+      this.setToolTextColor(tool, style.color);
+      this.setToolFontDesc(tool, style.fontDesc);
+      this.setToolFontSize(tool, style.size);
     }
 
     // ---------- Stamp groups ----------
@@ -1929,6 +1958,12 @@ export const CanvasView = GObject.registerClass(
         // text wraps to the card width and centers within it.
         const boxLeft = cx - halfW;
         const boxTop = cy - halfH;
+        // A textless shape seeds its first edit from the style last used on a
+        // shape of this tool (like a drawing tool seeds a fresh placement); a
+        // re-edit keeps the shape's own style so its current look is preserved.
+        const tool = actionToolId(action);
+        const seedStyle =
+          st.markup || tool === null ? st.style : this.rememberedShapeTextStyle(tool);
         this.onTextEditRequest(
           boxLeft,
           boxTop,
@@ -1937,7 +1972,7 @@ export const CanvasView = GObject.registerClass(
           {
             markup: st.markup,
             shapeIndex: idx,
-            textStyle: st.style,
+            textStyle: seedStyle,
             boxMode: {boxW: 2 * halfW * t.scale, boxH: 2 * halfH * t.scale, scale: t.scale},
           }
         );
