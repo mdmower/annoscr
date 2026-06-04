@@ -33,6 +33,7 @@ import {setChosenFonts} from './font_catalogue.js';
 import {ZoomController} from './zoom_controller.js';
 import {ToolBar} from './tool_bar.js';
 import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
+import {labelFromTooltip} from './a11y.js';
 import {_} from './i18n.js';
 
 export const AnnoscrWindow = GObject.registerClass(
@@ -71,6 +72,7 @@ export const AnnoscrWindow = GObject.registerClass(
         tooltip_text: _('New blank canvas… (Ctrl+N)'),
       });
       newButton.connect('clicked', () => this.newBlankCanvas());
+      labelFromTooltip(newButton);
       header.pack_start(newButton);
 
       const openButton = new Gtk.Button({
@@ -78,6 +80,7 @@ export const AnnoscrWindow = GObject.registerClass(
         tooltip_text: _('Open image… (Ctrl+O)'),
       });
       openButton.connect('clicked', () => this.openImageDialog());
+      labelFromTooltip(openButton);
       header.pack_start(openButton);
 
       const captureButton = new Gtk.Button({
@@ -85,6 +88,7 @@ export const AnnoscrWindow = GObject.registerClass(
         tooltip_text: _('Take screenshot… (Ctrl+Shift+S)'),
       });
       captureButton.connect('clicked', () => this.captureScreenshot());
+      labelFromTooltip(captureButton);
       header.pack_start(captureButton);
 
       this.saveButton = new Gtk.Button({
@@ -93,6 +97,7 @@ export const AnnoscrWindow = GObject.registerClass(
         sensitive: false,
       });
       this.saveButton.connect('clicked', () => this.saveImageDialog());
+      labelFromTooltip(this.saveButton);
       header.pack_start(this.saveButton);
 
       this.copyButton = new Gtk.Button({
@@ -101,6 +106,7 @@ export const AnnoscrWindow = GObject.registerClass(
         sensitive: false,
       });
       this.copyButton.connect('clicked', () => this.copyImageToClipboard());
+      labelFromTooltip(this.copyButton);
       header.pack_start(this.copyButton);
 
       // Primary menu — packed first so it lands at the right edge, next to the
@@ -116,35 +122,33 @@ export const AnnoscrWindow = GObject.registerClass(
         menu_model: menu,
         primary: true,
       });
+      labelFromTooltip(menuButton);
       header.pack_end(menuButton);
 
       // pack_end stacks right-to-left in source order, so to land the buttons
       // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize first.
       const resizeButton = new Gtk.Button({
         icon_name: 'view-fullscreen-symbolic',
-        tooltip_text: _('Resize canvas…'),
+        tooltip_text: _('Resize canvas… (Ctrl+E)'),
       });
       resizeButton.connect('clicked', () => this.toolbar.toggleResizeMode());
+      labelFromTooltip(resizeButton);
       header.pack_end(resizeButton);
 
       const rotateRightBtn = new Gtk.Button({
         icon_name: 'object-rotate-right-symbolic',
-        tooltip_text: _('Rotate right (90°)'),
+        tooltip_text: _('Rotate right 90° (Ctrl+R)'),
       });
-      rotateRightBtn.connect('clicked', () => {
-        this.editor.commitIfActive();
-        this.canvas.rotate('cw');
-      });
+      rotateRightBtn.connect('clicked', () => this.rotateImage('cw'));
+      labelFromTooltip(rotateRightBtn);
       header.pack_end(rotateRightBtn);
 
       const rotateLeftBtn = new Gtk.Button({
         icon_name: 'object-rotate-left-symbolic',
-        tooltip_text: _('Rotate left (90°)'),
+        tooltip_text: _('Rotate left 90° (Ctrl+Shift+R)'),
       });
-      rotateLeftBtn.connect('clicked', () => {
-        this.editor.commitIfActive();
-        this.canvas.rotate('ccw');
-      });
+      rotateLeftBtn.connect('clicked', () => this.rotateImage('ccw'));
+      labelFromTooltip(rotateLeftBtn);
       header.pack_end(rotateLeftBtn);
 
       this.canvas = new CanvasView();
@@ -541,6 +545,14 @@ export const AnnoscrWindow = GObject.registerClass(
       this.copyButton.set_sensitive(true);
     }
 
+    // Rotate the whole canvas 90°, committing any in-progress text edit first.
+    // Shared by the header buttons and the Ctrl+R / Ctrl+Shift+R accelerators.
+    private rotateImage(dir: 'cw' | 'ccw'): void {
+      if (!this.canvas.hasImage()) return;
+      this.editor.commitIfActive();
+      this.canvas.rotate(dir);
+    }
+
     private installDropTarget(): void {
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
@@ -611,6 +623,25 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>KP_Add', zoomIn);
       this.bindShortcut(controller, '<Control>minus', zoomOut);
       this.bindShortcut(controller, '<Control>KP_Subtract', zoomOut);
+      // Whole-canvas rotate (Ctrl+R clockwise, Ctrl+Shift+R counter-clockwise)
+      // and resize (Ctrl+E) — the keyboard twins of the header buttons. Gated
+      // while the text editor is open so the chords stay with the focused
+      // TextView mid-edit.
+      this.bindShortcut(controller, '<Control>r', () => {
+        if (this.editor.isActive()) return false;
+        this.rotateImage('cw');
+        return true;
+      });
+      this.bindShortcut(controller, '<Control><Shift>r', () => {
+        if (this.editor.isActive()) return false;
+        this.rotateImage('ccw');
+        return true;
+      });
+      this.bindShortcut(controller, '<Control>e', () => {
+        if (this.editor.isActive() || !this.canvas.hasImage()) return false;
+        this.toolbar.toggleResizeMode();
+        return true;
+      });
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
       // Duplicate the selection. Guarded so the chord falls through when nothing

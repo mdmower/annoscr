@@ -49,6 +49,9 @@ import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
 import type {EditorSize, RotateDirection, TextAlign, TextStyle} from './actions.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
+import {announce, setAccessibleDescription, setAccessibleLabel} from './a11y.js';
+import {TOOLS} from './window_constants.js';
+import {_, formatN} from './i18n.js';
 
 export interface ResizeRect {
   x: number;
@@ -97,6 +100,27 @@ export type CommitRequest = () => void;
 
 function isShift(gesture: Gtk.GestureDrag): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
+}
+
+// Unit [dx, dy] for an arrow keyval (including the keypad arrows), or null for
+// any other key. Drives both the keyboard nudge and candidate browse.
+function arrowDirection(keyval: number): [number, number] | null {
+  switch (keyval) {
+    case Gdk.KEY_Up:
+    case Gdk.KEY_KP_Up:
+      return [0, -1];
+    case Gdk.KEY_Down:
+    case Gdk.KEY_KP_Down:
+      return [0, 1];
+    case Gdk.KEY_Left:
+    case Gdk.KEY_KP_Left:
+      return [-1, 0];
+    case Gdk.KEY_Right:
+    case Gdk.KEY_KP_Right:
+      return [1, 0];
+    default:
+      return null;
+  }
 }
 
 function isDragTool(id: ToolId): boolean {
@@ -158,6 +182,12 @@ const CHECKER_CELL = 8;
 // image space through the current scale so the offset looks the same at any
 // zoom. South-of-east (down-right), enough to read as a distinct copy.
 const CLONE_OFFSET_PX = 16;
+
+// Keyboard nudge distances, in widget pixels (converted to image space through
+// the current scale, like CLONE_OFFSET_PX, so a press moves the same on-screen
+// amount at any zoom). Plain arrow = fine, Shift+arrow = coarse.
+const NUDGE_SMALL_PX = 1;
+const NUDGE_LARGE_PX = 10;
 
 let CHECKER_PATTERN: Cairo.SurfacePattern | null = null;
 function getCheckerPattern(): Cairo.SurfacePattern {
@@ -424,7 +454,16 @@ export const CanvasView = GObject.registerClass(
     private darkHandlerId: number = 0;
 
     constructor() {
-      super({hexpand: true, vexpand: true});
+      // focusable so the canvas joins the Tab chain and can be driven by the
+      // keyboard (select/nudge/place); GROUP role + a name so AT announces it
+      // as a meaningful region rather than a bare drawing surface.
+      super({
+        hexpand: true,
+        vexpand: true,
+        focusable: true,
+        accessible_role: Gtk.AccessibleRole.GROUP,
+      });
+      setAccessibleLabel(this, _('Annotation canvas'));
       this.set_draw_func(this.onDraw.bind(this));
       this.connect('resize', () => this.maybeApplyInitialZoom());
       // Repaint the backdrop when the effective light/dark state flips (system
@@ -446,6 +485,7 @@ export const CanvasView = GObject.registerClass(
         this.darkHandlerId = 0;
       });
       this.installPointer();
+      this.installKeyboard();
     }
 
     private get state(): CanvasState {
@@ -921,7 +961,7 @@ export const CanvasView = GObject.registerClass(
       const variant = this.groupVariantFor(groupId);
       const moveSet = new Set(moveIdx);
       const moved = moveIdx.map((i) => reassignStamp(cur[i], groupId, variant));
-      const rest = cur.filter((_, i) => !moveSet.has(i));
+      const rest = cur.filter((_a, i) => !moveSet.has(i));
 
       // Insert after the target group's last surviving member; if the target has
       // none (a new or emptied group), append at the end of the document.
@@ -1193,6 +1233,7 @@ export const CanvasView = GObject.registerClass(
 
     private notifyStateChange(): void {
       this.updateSizeRequest();
+      this.updateAccessibleState();
       if (this.onStateChange) this.onStateChange();
     }
 
@@ -1236,6 +1277,7 @@ export const CanvasView = GObject.registerClass(
         actions: [...this.state.actions, action],
       });
       this.queue_draw();
+      announce(this, _('%s added').replace('%s', this.describeAction(action)));
       // Report the placement (last index) so the window can apply the
       // select-after-placement preference. Every placement path — shapes,
       // stamps, new text — funnels through here.
@@ -1265,7 +1307,7 @@ export const CanvasView = GObject.registerClass(
     removeAction(index: number): void {
       const cur = this.state.actions;
       if (index < 0 || index >= cur.length) return;
-      const survivors = renumberStamps(cur.filter((_, i) => i !== index));
+      const survivors = renumberStamps(cur.filter((_a, i) => i !== index));
       this.collapseEmptyPlacementGroup(survivors);
       this.pushState({
         surface: this.state.surface,
@@ -1283,14 +1325,16 @@ export const CanvasView = GObject.registerClass(
       // Drop every selected action in one history entry. Renumber stamps so
       // deleting "2" from "1,2,3" leaves "1,2" — not "1,3" with a hole that
       // the next placement would duplicate.
-      const survivors = renumberStamps(cur.filter((_, i) => !sel.has(i)));
+      const survivors = renumberStamps(cur.filter((_a, i) => !sel.has(i)));
       this.collapseEmptyPlacementGroup(survivors);
+      const removed = cur.length - survivors.length;
       this.pushState({
         surface: this.state.surface,
         actions: survivors,
       });
       this.selectedIndices.clear();
       this.queue_draw();
+      announce(this, formatN(_('%d deleted'), removed));
       return true;
     }
 
@@ -1346,7 +1390,7 @@ export const CanvasView = GObject.registerClass(
       if (sel.length === 0) return false;
       const selSet = new Set(sel);
       const block = sel.map((i) => cur[i]);
-      const rest = cur.filter((_, i) => !selSet.has(i));
+      const rest = cur.filter((_a, i) => !selSet.has(i));
       const clamp = (p: number): number => Math.max(0, Math.min(rest.length, p));
       // Insertion point into `rest` (the block lands after `at` unselected
       // items). lo/hi are the block's lowest/highest current indices; because
@@ -1492,6 +1536,9 @@ export const CanvasView = GObject.registerClass(
       const click = new Gtk.GestureClick();
       click.set_button(Gdk.BUTTON_PRIMARY);
       click.connect('pressed', (_g, n_press, x, y) => {
+        // Take focus so the keyboard path (select/nudge/place) works after a
+        // click without a separate Tab to the canvas.
+        if (!this.has_focus) this.grab_focus();
         if (n_press === 2 && this.currentToolId === 'select') {
           this.onSelectDoubleClick(x, y);
           return;
@@ -1513,6 +1560,252 @@ export const CanvasView = GObject.registerClass(
       this.add_controller(click);
 
       this.set_cursor_from_name(cursorForTool(this.currentToolId));
+    }
+
+    // The keyboard path for placed annotations. A focus controller repaints so
+    // the focus ring tracks focus; the key controller drives select/nudge/place
+    // (bubble phase — a true return consumes the event so a nudge doesn't also
+    // scroll the enclosing ScrolledWindow, a false return lets it fall through).
+    private installKeyboard(): void {
+      const focus = new Gtk.EventControllerFocus();
+      focus.connect('enter', () => this.queue_draw());
+      focus.connect('leave', () => this.queue_draw());
+      this.add_controller(focus);
+
+      const keys = new Gtk.EventControllerKey();
+      keys.connect('key-pressed', (_c, keyval, _code, state) => this.onKeyPressed(keyval, state));
+      this.add_controller(keys);
+    }
+
+    // Route a key press to the matching keyboard gesture; returns true when it
+    // acted (consuming the event).
+    private onKeyPressed(keyval: number, state: Gdk.ModifierType): boolean {
+      if (!this.state.surface || this.editingActionIndex >= 0) return false;
+      const ctrl = (state & Gdk.ModifierType.CONTROL_MASK) !== 0;
+      const alt = (state & Gdk.ModifierType.ALT_MASK) !== 0;
+      const shift = (state & Gdk.ModifierType.SHIFT_MASK) !== 0;
+
+      const arrow = arrowDirection(keyval);
+      const isSpace = keyval === Gdk.KEY_space || keyval === Gdk.KEY_KP_Space;
+
+      // Alt + Left/Right rotates a lone rotatable selection 15° (Left = CCW,
+      // Right = CW). Ctrl+arrows stay free for the deferred keyboard resize.
+      if (alt && !ctrl && arrow && arrow[1] === 0) return this.rotateSelectionStep(arrow[0]);
+      // Other Ctrl/Alt chords belong to the window (zoom, z-order, canvas
+      // rotate) and the reserved keyboard-transform space.
+      if (ctrl || alt) return false;
+
+      // Placement tools: Space drops a stamp / opens the editor at the center.
+      if (this.currentToolId === 'number' || this.currentToolId === 'text') {
+        return isSpace && !shift ? this.placeAtViewportCenter() : false;
+      }
+      if (this.currentToolId !== 'select') return false; // let arrows scroll, etc.
+      return this.onSelectKey(keyval, arrow, isSpace, shift);
+    }
+
+    // Select-tool keyboard navigation (split out of onKeyPressed to keep each
+    // method's branching modest):
+    //   [ / ]   walk the candidate through the whole stack (pointer-free); bare
+    //           brackets only — Ctrl+[/] is the window's z-order restack.
+    //   Space   select the aimed candidate (Shift+Space toggles — a window
+    //           binding, so leave it).
+    //   arrows  nudge the selection; fall through to scroll when none picked.
+    private onSelectKey(
+      keyval: number,
+      arrow: [number, number] | null,
+      isSpace: boolean,
+      shift: boolean
+    ): boolean {
+      if (keyval === Gdk.KEY_bracketright) return this.keyboardBrowseCandidate(1);
+      if (keyval === Gdk.KEY_bracketleft) return this.keyboardBrowseCandidate(-1);
+      if (isSpace && !shift) return this.selectCandidate();
+      if (arrow) {
+        if (this.selectedIndices.size === 0) return false;
+        return this.nudgeSelection(arrow[0], arrow[1], shift);
+      }
+      return false;
+    }
+
+    // Walk the candidate one step through the whole action stack (topmost
+    // first), independent of the pointer — the keyboard alternative to the
+    // mouse aim/dig. Establishes it at the topmost action on the first press,
+    // wraps at the ends, and announces what it landed on; the dashed candidate
+    // outline shows where the next Space will select. False when there are no
+    // annotations to walk.
+    private keyboardBrowseCandidate(dir: number): boolean {
+      const acts = this.state.actions;
+      const list: number[] = [];
+      for (let i = acts.length - 1; i >= 0; i--) {
+        if (i !== this.editingActionIndex) list.push(i);
+      }
+      if (list.length === 0) return false;
+      const pos = list.indexOf(this.hoverCandidate);
+      const next = pos < 0 ? 0 : (((pos + dir) % list.length) + list.length) % list.length;
+      this.hoverCandidate = list[next];
+      // Drop the pointer-stack key so a later pointer move re-resolves from
+      // scratch instead of treating this keyboard pick as a dig in an old stack.
+      this.digStackKey = '';
+      this.digDepth = 0;
+      this.queue_draw();
+      // Speak what the candidate is now, since the dashed outline is the only
+      // other cue — this is how a screen-reader user "sees" the walk.
+      announce(this, this.describeAction(acts[this.hoverCandidate]));
+      return true;
+    }
+
+    // Select the current candidate alone — the keyboard twin of a plain click.
+    // False when there's no candidate so Space can fall through.
+    private selectCandidate(): boolean {
+      const i = this.hoverCandidate;
+      if (i < 0 || i >= this.state.actions.length || i === this.editingActionIndex) return false;
+      this.selectedIndices.clear();
+      this.selectedIndices.add(i);
+      this.lastCoalesceKey = null;
+      this.queue_draw();
+      this.notifyStateChange();
+      announce(this, this.describeSelection());
+      return true;
+    }
+
+    // Move the selection one keyboard step in image space (widget-px / scale, so
+    // the on-screen step is zoom-independent). Coalesced so a run of presses is
+    // one undo entry, like a drag. Always consumes the arrow (so it doesn't also
+    // scroll the viewport).
+    private nudgeSelection(dx: number, dy: number, large: boolean): boolean {
+      const cur = this.state.actions;
+      const sel = this.selectedIndices;
+      if (sel.size === 0) return false;
+      const scale = this.currentTransform().scale;
+      const step = (large ? NUDGE_LARGE_PX : NUDGE_SMALL_PX) / scale;
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: cur.map((a, j) => (sel.has(j) ? a.translate(dx * step, dy * step) : a)),
+        },
+        `nudge:${this.selectionKey()}`
+      );
+      this.queue_draw();
+      return true;
+    }
+
+    // Rotate the lone selected action to the next 15° increment (dir > 0 = CW,
+    // < 0 = CCW), reusing the gizmo's per-action rotation. Snaps to the next
+    // grid line in the travel direction so repeated presses land on clean
+    // multiples even from an odd gizmo angle. Coalesced into one undo entry per
+    // run; false (so Alt+arrow falls through) unless a rotatable item is solely
+    // selected.
+    private rotateSelectionStep(dir: number): boolean {
+      const i = this.soleSelectedIndex();
+      if (i < 0) return false;
+      const action = this.state.actions[i];
+      const rot = action.getRotation();
+      if (rot === null) return false;
+      const k = rot / ROTATE_SNAP;
+      const eps = 1e-6;
+      const stepped = (dir > 0 ? Math.floor(k + eps) + 1 : Math.ceil(k - eps) - 1) * ROTATE_SNAP;
+      const twoPi = 2 * Math.PI;
+      const next = ((stepped % twoPi) + twoPi) % twoPi; // keep the stored angle bounded
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: this.state.actions.map((a, j) => (j === i ? a.withRotation(next) : a)),
+        },
+        `rotate:${i}`
+      );
+      this.queue_draw();
+      announce(this, formatN(_('Rotated to %d°'), Math.round((next * 180) / Math.PI)));
+      return true;
+    }
+
+    // Keyboard placement: drop a number stamp, or open the text editor, at the
+    // center of the visible viewport. The placed item lands selected (via the
+    // placement callback) so it's immediately arrow-nudgeable.
+    private placeAtViewportCenter(): boolean {
+      const [cx, cy] = this.viewportCenterWidget();
+      const [ix, iy] = this.widgetToImage(cx, cy);
+      if (this.currentToolId === 'number') {
+        this.placeNumberStampAt(ix, iy);
+        return true;
+      }
+      if (this.currentToolId === 'text' && this.onTextEditRequest) {
+        this.onTextEditRequest(ix, iy, cx, cy);
+        return true;
+      }
+      return false;
+    }
+
+    // Build and add a number stamp at (ix, iy) with the current picker styling.
+    // Shared by the pointer (onCanvasPress) and keyboard placement paths.
+    private placeNumberStampAt(ix: number, iy: number): void {
+      const fg = this.getToolColor('number') ?? defaultColorForTool('number');
+      const interior = this.getToolFill('number') ?? defaultFillForTool('number') ?? fg;
+      const radius = this.toolStampRadii.get('number') ?? DEFAULT_STAMP_RADIUS;
+      const style = numberStampStyle(fg, interior, radius);
+      this.addAction(
+        makeNumberStampAction(
+          ix,
+          iy,
+          this.nextStampNumber(),
+          this.placementGroupId,
+          this.getPlacementGroupVariant(),
+          0,
+          style
+        )
+      );
+    }
+
+    private scrolledAncestor(): Gtk.ScrolledWindow | null {
+      return this.get_ancestor(Gtk.ScrolledWindow.$gtype) as Gtk.ScrolledWindow | null;
+    }
+
+    // The visible portion of the canvas in widget coordinates: the whole widget
+    // in fit mode, or the scrolled viewport's window into a zoomed-in canvas.
+    private visibleRect(): {x: number; y: number; w: number; h: number} {
+      const sw = this.scrolledAncestor();
+      if (sw) {
+        const h = sw.get_hadjustment();
+        const v = sw.get_vadjustment();
+        return {x: h.get_value(), y: v.get_value(), w: h.get_page_size(), h: v.get_page_size()};
+      }
+      return {x: 0, y: 0, w: this.get_width(), h: this.get_height()};
+    }
+
+    private viewportCenterWidget(): [number, number] {
+      const r = this.visibleRect();
+      return [r.x + r.w / 2, r.y + r.h / 2];
+    }
+
+    // Refresh the canvas's accessible description from the live tool/selection
+    // state, so AT users hear what placing or arrowing will affect. Called on
+    // every state change (tool switch, add/delete/move, selection change).
+    private updateAccessibleState(): void {
+      const tool = TOOLS.find((t) => t.id === this.currentToolId);
+      const toolName = tool ? _(tool.label) : this.currentToolId;
+      const parts = [
+        _('%s tool').replace('%s', toolName),
+        formatN(_('%d annotations'), this.state.actions.length),
+      ];
+      if (this.selectedIndices.size > 0) {
+        parts.push(formatN(_('%d selected'), this.selectedIndices.size));
+      }
+      setAccessibleDescription(this, parts.join(', '));
+    }
+
+    // A short spoken summary of the current selection, for announce().
+    private describeSelection(): string {
+      const n = this.selectedIndices.size;
+      if (n === 0) return _('Nothing selected');
+      if (n > 1) return formatN(_('%d items selected'), n);
+      const i = this.selectedIndices.values().next().value ?? -1;
+      const a = i >= 0 && i < this.state.actions.length ? this.state.actions[i] : null;
+      return a ? this.describeAction(a) : _('Nothing selected');
+    }
+
+    // Name an action by its tool (e.g. "Arrow", "Text"), for announce().
+    private describeAction(a: Action): string {
+      const tid = actionToolId(a);
+      const tool = tid ? TOOLS.find((t) => t.id === tid) : undefined;
+      return tool ? _(tool.label) : _('Annotation');
     }
 
     // Update cursor while hovering in resize mode so edge/corner handles
@@ -1650,9 +1943,11 @@ export const CanvasView = GObject.registerClass(
       return stepped;
     }
 
-    // Dig the hover candidate one step via the keyboard ([ shallower toward the
-    // top, ] deeper). Aims at the stack under the pointer. Returns true if it
-    // dug (a 2+ stack was under the cursor), so the key is consumed only then.
+    // Dig the hover candidate one step through the stack under the POINTER (the
+    // keyboard twin of Alt+scroll; , toward the top, . deeper). Pointer-anchored
+    // by design — the pointer-free walk through all annotations is the bracket
+    // keys (keyboardBrowseCandidate). Returns true only when a 2+ pile is under
+    // the cursor, so the key is consumed only then.
     digHoverCandidate(dir: number): boolean {
       const hits = this.hoverStack();
       if (hits.length <= 1) return false;
@@ -1883,24 +2178,10 @@ export const CanvasView = GObject.registerClass(
       if (this.currentToolId === 'text') {
         if (this.onTextEditRequest) this.onTextEditRequest(ix, iy, wx, wy);
       } else if (this.currentToolId === 'number') {
-        // Apply the active Color (foreground) and Fill (interior) from the
-        // style bar so stamps inherit picker state on placement rather than
-        // requiring a post-place select-edit round trip.
-        const fg = this.getToolColor('number') ?? defaultColorForTool('number');
-        const interior = this.getToolFill('number') ?? defaultFillForTool('number') ?? fg;
-        const radius = this.toolStampRadii.get('number') ?? DEFAULT_STAMP_RADIUS;
-        const style = numberStampStyle(fg, interior, radius);
-        this.addAction(
-          makeNumberStampAction(
-            ix,
-            iy,
-            this.nextStampNumber(),
-            this.placementGroupId,
-            this.getPlacementGroupVariant(),
-            0,
-            style
-          )
-        );
+        // Stamps inherit the active Color (foreground) + Fill (interior) from
+        // the style bar; placeNumberStampAt builds and adds the stamp so the
+        // pointer and keyboard placement paths stay identical.
+        this.placeNumberStampAt(ix, iy);
       }
     }
 
@@ -2497,9 +2778,31 @@ export const CanvasView = GObject.registerClass(
       }
 
       cr.restore();
+
+      // Focus ring (widget space, after the image transform is unwound): a
+      // full-widget rectangle so a keyboard user can see the canvas holds
+      // focus. Drawn at the widget bounds rather than the scrolled viewport so
+      // it rides the cached render node correctly when zoomed + scrolled; in
+      // fit mode the widget IS the viewport. Its full-frame scale reads
+      // distinctly from the per-annotation selection boxes.
+      if (this.has_focus) drawFocusRing(cr, widgetW, widgetH);
     }
   }
 );
+
+// A 2px focus outline inset from the widget edges, in the Adwaita accent blue.
+// Inset so the stroke isn't clipped at the very edge of the widget.
+function drawFocusRing(cr: Cairo.Context, w: number, h: number): void {
+  const inset = 3;
+  cr.save();
+  cr.setSourceRGBA(0.21, 0.52, 0.89, 0.9);
+  cr.setLineWidth(2);
+  cr.setDash([], 0);
+  cr.setLineJoin(Cairo.LineJoin.MITER);
+  cr.rectangle(inset, inset, Math.max(0, w - 2 * inset), Math.max(0, h - 2 * inset));
+  cr.stroke();
+  cr.restore();
+}
 
 function drawResizeOverlay(
   cr: Cairo.Context,

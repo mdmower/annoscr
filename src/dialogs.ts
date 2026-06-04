@@ -8,6 +8,7 @@ import {colorToRgba, rgbaToColor} from './gdk_color.js';
 import {DEFAULT_PRESET_INDEX, SIZE_PRESETS} from './window_constants.js';
 import {getSettings} from './settings.js';
 import {APP_VERSION} from './version.js';
+import {setLabelledBy} from './a11y.js';
 import {_} from './i18n.js';
 
 export function showAbout(parent: Gtk.Widget): void {
@@ -74,26 +75,25 @@ export function showNewCanvasDialog(
     column_spacing: 12,
   });
 
-  grid.attach(
-    new Gtk.Label({label: _('Size'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-    0,
-    0,
-    1,
-    1
-  );
+  const sizeLabel = new Gtk.Label({
+    label: _('Size'),
+    halign: Gtk.Align.END,
+    valign: Gtk.Align.CENTER,
+  });
+  grid.attach(sizeLabel, 0, 0, 1, 1);
   // SIZE_PRESETS labels are N_-marked; translate each here at build time.
   const presetDropdown = Gtk.DropDown.new_from_strings(SIZE_PRESETS.map((p) => _(p.label)));
   presetDropdown.set_hexpand(true);
   presetDropdown.set_selected(DEFAULT_PRESET_INDEX);
+  setLabelledBy(presetDropdown, sizeLabel);
   grid.attach(presetDropdown, 1, 0, 1, 1);
 
-  grid.attach(
-    new Gtk.Label({label: _('Width'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-    0,
-    1,
-    1,
-    1
-  );
+  const widthLabel = new Gtk.Label({
+    label: _('Width'),
+    halign: Gtk.Align.END,
+    valign: Gtk.Align.CENTER,
+  });
+  grid.attach(widthLabel, 0, 1, 1, 1);
   const widthSpin = new Gtk.SpinButton({
     adjustment: new Gtk.Adjustment({
       lower: CANVAS_SIZE_MIN,
@@ -105,15 +105,15 @@ export function showNewCanvasDialog(
     width_request: 100,
   });
   widthSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].w);
+  setLabelledBy(widthSpin, widthLabel);
   grid.attach(widthSpin, 1, 1, 1, 1);
 
-  grid.attach(
-    new Gtk.Label({label: _('Height'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-    0,
-    2,
-    1,
-    1
-  );
+  const heightLabel = new Gtk.Label({
+    label: _('Height'),
+    halign: Gtk.Align.END,
+    valign: Gtk.Align.CENTER,
+  });
+  grid.attach(heightLabel, 0, 2, 1, 1);
   const heightSpin = new Gtk.SpinButton({
     adjustment: new Gtk.Adjustment({
       lower: CANVAS_SIZE_MIN,
@@ -125,18 +125,19 @@ export function showNewCanvasDialog(
     width_request: 100,
   });
   heightSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].h);
+  setLabelledBy(heightSpin, heightLabel);
   grid.attach(heightSpin, 1, 2, 1, 1);
 
-  grid.attach(
-    new Gtk.Label({label: _('Fill'), halign: Gtk.Align.END, valign: Gtk.Align.CENTER}),
-    0,
-    3,
-    1,
-    1
-  );
+  const fillLabel = new Gtk.Label({
+    label: _('Fill'),
+    halign: Gtk.Align.END,
+    valign: Gtk.Align.CENTER,
+  });
+  grid.attach(fillLabel, 0, 3, 1, 1);
   const fillDialog = new Gtk.ColorDialog({with_alpha: true});
   const fillBtn = new Gtk.ColorDialogButton({dialog: fillDialog});
   fillBtn.set_rgba(colorToRgba([1, 1, 1, 1]));
+  setLabelledBy(fillBtn, fillLabel);
   grid.attach(fillBtn, 1, 3, 1, 1);
 
   let updating = false;

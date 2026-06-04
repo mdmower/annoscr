@@ -47,9 +47,21 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', 'D'], desc: N_('Duplicate selection')},
       {keys: ['Ctrl', 'G'], desc: N_('Start a new stamp group (number / select tool)')},
       {keys: ['Esc'], desc: N_('Deselect')},
-      {keys: [','], alt: ['.'], desc: N_('Aim through overlapping items (select tool)')},
-      {keys: ['Shift', 'Space'], desc: N_('Add/remove aimed item (select tool)')},
+      {keys: ['['], alt: [']'], desc: N_('Walk through annotations (select tool)')},
+      {keys: ['Space'], desc: N_('Select the aimed item, or place a stamp / text')},
+      {keys: ['Shift', 'Space'], desc: N_('Add/remove the aimed item (select tool)')},
+      {keys: ['Arrow keys'], desc: N_('Nudge the selection (Shift: larger steps)')},
+      {keys: ['Alt', '←'], alt: ['Alt', '→'], desc: N_('Rotate selection 15° (rotatable items)')},
+      {keys: [','], alt: ['.'], desc: N_('Aim through items under the pointer (select tool)')},
       {keys: ['Enter'], desc: N_('Edit selected text (select tool)')},
+    ],
+  },
+  {
+    title: N_('Image'),
+    items: [
+      {keys: ['Ctrl', 'R'], desc: N_('Rotate right (90°)')},
+      {keys: ['Ctrl', 'Shift', 'R'], desc: N_('Rotate left (90°)')},
+      {keys: ['Ctrl', 'E'], desc: N_('Resize canvas')},
     ],
   },
   {

@@ -4,6 +4,7 @@ import {CanvasView} from './canvas_view.js';
 import {TextEditor} from './text_editor.js';
 import {ToolId} from './actions.js';
 import {TOOLS} from './window_constants.js';
+import {setAccessibleLabel} from './a11y.js';
 import {_} from './i18n.js';
 
 // The tool selector (header title widget) plus the resize-mode toolbar overlay
@@ -52,6 +53,9 @@ export class ToolBar {
         tooltip_text: tooltip,
         active: tool.id === this.canvas.getTool(),
       });
+      // The visible tooltip can be multi-line (the select tool's aim hints);
+      // the accessible name stays the concise "<tool> (<key>)".
+      setAccessibleLabel(btn, base);
       if (group) btn.set_group(group);
       else group = btn;
       btn.connect('toggled', () => {

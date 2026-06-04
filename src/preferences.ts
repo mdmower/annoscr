@@ -3,6 +3,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 
 import {ColorScheme, getSettings, updateSettings} from './settings.js';
+import {labelFromTooltip} from './a11y.js';
 import {_, N_} from './i18n.js';
 
 const COLOR_SCHEMES: ColorScheme[] = ['system', 'light', 'dark'];
@@ -89,6 +90,7 @@ export function presentPreferences(parent: Gtk.Window, onFontsChanged?: () => vo
       valign: Gtk.Align.CENTER,
       css_classes: ['flat'],
     });
+    labelFromTooltip(btn);
     btn.connect('clicked', onClick);
     return btn;
   };
@@ -167,6 +169,7 @@ export function presentPreferences(parent: Gtk.Window, onFontsChanged?: () => vo
     valign: Gtk.Align.CENTER,
     css_classes: ['flat'],
   });
+  labelFromTooltip(clearBtn);
   const refreshFolderRow = (): void => {
     const folder = getSettings().defaultSaveFolder;
     folderRow.set_subtitle(folder || _('Pictures folder'));

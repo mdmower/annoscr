@@ -7,6 +7,7 @@ import {TextEditor, TextEditorStyle} from './text_editor.js';
 import {FontEntry, getAvailableFonts} from './font_catalogue.js';
 import {colorToHex, colorToRgba, parseHexColor, rgbaToColor} from './gdk_color.js';
 import {DASH_ORDER} from './window_constants.js';
+import {labelFromTooltip, setAccessibleLabel, setLabelledBy} from './a11y.js';
 import {_, formatN} from './i18n.js';
 import {
   Action,
@@ -222,6 +223,7 @@ export class StyleBar {
       tooltip_text: _('Selection actions'),
       valign: Gtk.Align.CENTER,
     });
+    labelFromTooltip(actionsMenu);
     actionsMenu.set_popover(this.buildActionsPopover());
     this.actionsGroup = makeGroup(actionsSep, actionsMenu);
     styleBar.append(this.actionsGroup);
@@ -231,6 +233,7 @@ export class StyleBar {
     const colorSwatch = this.makeSwatchButton((c) => this.onColorPicked(c));
     this.colorSwatchSet = colorSwatch.setColor;
     this.colorLabel = new Gtk.Label({label: _('Color'), css_classes: ['caption']});
+    setLabelledBy(colorSwatch.button, this.colorLabel);
     this.colorGroup = makeGroup(colorSep, this.colorLabel, colorSwatch.button);
     styleBar.append(this.colorGroup);
 
@@ -239,6 +242,7 @@ export class StyleBar {
     const fillSwatch = this.makeSwatchButton((c) => this.onFillPicked(c));
     this.fillSwatchSet = fillSwatch.setColor;
     this.fillLabel = new Gtk.Label({label: _('Fill'), css_classes: ['caption']});
+    setLabelledBy(fillSwatch.button, this.fillLabel);
     this.fillGroup = makeGroup(fillSep, this.fillLabel, fillSwatch.button);
     styleBar.append(this.fillGroup);
 
@@ -328,6 +332,7 @@ export class StyleBar {
     const textColorSwatch = this.makeSwatchButton((c) => this.onTextColorPicked(c));
     this.textColorSwatchSet = textColorSwatch.setColor;
     this.textColorLabel = new Gtk.Label({label: _('Text color'), css_classes: ['caption']});
+    setLabelledBy(textColorSwatch.button, this.textColorLabel);
     this.textColorGroup = makeGroup(textColorSep, this.textColorLabel, textColorSwatch.button);
     styleBar.append(this.textColorGroup);
 
@@ -405,6 +410,19 @@ export class StyleBar {
       {group: this.alignGroup, sep: alignSep},
     ];
 
+    // Name each control by its caption. The control's accessible name then
+    // tracks the caption text, so the "(mixed)" suffix refresh() appends is
+    // reflected to AT for free. (Swatches and align toggles are wired at their
+    // creation above.)
+    setLabelledBy(this.widthScale, this.widthLabel);
+    setLabelledBy(this.cornerScale, this.cornerLabel);
+    setLabelledBy(this.dashDropdown, this.dashLabel);
+    setLabelledBy(this.filledHeadDropdown, this.filledHeadLabel);
+    setLabelledBy(this.groupDropdown, this.groupLabel);
+    setLabelledBy(this.variantDropdown, this.variantLabel);
+    setLabelledBy(this.fontDropdown, this.fontLabel);
+    setLabelledBy(this.fontSizeSpinner, this.fontSizeLabel);
+
     return styleBar;
   }
 
@@ -481,6 +499,7 @@ export class StyleBar {
     group?: Gtk.ToggleButton
   ): Gtk.ToggleButton {
     const btn = new Gtk.ToggleButton({icon_name: icon, tooltip_text: tooltip});
+    setAccessibleLabel(btn, tooltip);
     if (group) btn.set_group(group);
     btn.connect('toggled', () => {
       if (this.updatingPicker || !btn.get_active()) return;
@@ -533,18 +552,21 @@ export class StyleBar {
     });
 
     const hexRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
-    hexRow.append(new Gtk.Label({label: _('Hex'), css_classes: ['caption']}));
+    const hexLabel = new Gtk.Label({label: _('Hex'), css_classes: ['caption']});
+    hexRow.append(hexLabel);
     const hexEntry = new Gtk.Entry({
       max_length: 9,
       width_chars: 9,
       hexpand: true,
       tooltip_text: _('#RGB, #RGBA, #RRGGBB, or #RRGGBBAA'),
     });
+    setLabelledBy(hexEntry, hexLabel);
     hexRow.append(hexEntry);
     box.append(hexRow);
 
     const opacityRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
-    opacityRow.append(new Gtk.Label({label: _('Opacity'), css_classes: ['caption']}));
+    const opacityLabel = new Gtk.Label({label: _('Opacity'), css_classes: ['caption']});
+    opacityRow.append(opacityLabel);
     const opacityScale = new Gtk.Scale({
       orientation: Gtk.Orientation.HORIZONTAL,
       adjustment: new Gtk.Adjustment({lower: 0, upper: 100, step_increment: 1, page_increment: 10}),
@@ -557,6 +579,7 @@ export class StyleBar {
       // the thumb at 100 (see WINDOW_CSS in window_constants.ts).
       css_classes: ['annoscr-opacity-scale'],
     });
+    setLabelledBy(opacityScale, opacityLabel);
     opacityRow.append(opacityScale);
     box.append(opacityRow);
 

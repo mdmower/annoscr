@@ -4,6 +4,7 @@ import Pango from 'gi://Pango?version=1.0';
 import PangoCairo from 'gi://PangoCairo?version=1.0';
 import Cairo from 'cairo';
 import type {ColorRGBA, EditorSize, TextAlign} from './actions.js';
+import {setAccessibleLabel} from './a11y.js';
 import {_} from './i18n.js';
 
 // Shared 1×1 context for measuring the box-mode text height (to center it
@@ -424,6 +425,7 @@ export class TextEditor {
       can_focus: false,
     });
     btn.add_css_class('annoscr-format-btn');
+    setAccessibleLabel(btn, tooltip);
     btn.connect('toggled', () => {
       if (this.updatingButtons) return;
       this.toggleTag(tag);

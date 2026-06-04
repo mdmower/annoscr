@@ -1,6 +1,7 @@
 data/com.cmphys.Annoscr.desktop.in
 data/com.cmphys.Annoscr.metainfo.xml.in
 src/application.ts
+src/canvas_view.ts
 src/dialogs.ts
 src/preferences.ts
 src/shortcuts_dialog.ts
