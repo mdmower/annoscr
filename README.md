@@ -6,14 +6,32 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 ## Features
 
-- **Annotation tools:** Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, Number stamp (icon toolbar with tooltips)
-- **Transforms:** Rotation, Resize (crop / canvas expansion)
-- **I/O:** Open file, capture a screenshot via the desktop portal, blank canvas creation, paste from clipboard, drag-and-drop, export PNG/JPEG, copy to clipboard
-- **Editing:** Per-tool color and fill (enter a hex value, drag an opacity slider, or open the full palette/eyedropper) — for text, Fill is a rounded background plate (defaults to transparent white, so the opacity slider reveals a translucent backdrop) that keeps the text legible over busy images; stroke width, line style (solid/dashed/dotted), arrowhead style (open or filled), rounded rectangle corners, text color, font family, font size, and alignment (a select-mode style edit also updates the matching tool's default for new annotations; the style bar scrolls horizontally when a dense selection's controls overflow); **add centered text to a rectangle or oval** (double-click it, press Enter while it's the only selection, or the Add/Edit-text button) to make a labelled callout — the text wraps to the box, left/center/right aligns, and rotates with the shape, and a new shape's text starts from the last color, font, and size used for that shape type; select one or several annotations (Shift+Click) to move, delete, duplicate (Ctrl+D), restack (z-order: Ctrl+[ / Ctrl+] to step, Ctrl+Shift+[ / Ctrl+Shift+] to send to back / bring to front, or the selection-actions menu), or restyle them together; dig through overlapping items with `,` / `.` (or Alt+scroll); resize a single selected line, arrow, rectangle, oval, or number stamp by dragging its handles (Shift squares a rect/oval corner or side; a resized stamp's size becomes the next stamp's default); rotate a single selected text, number stamp, rectangle, or oval to any angle with its rotate gizmo (Shift snaps to 15°); re-edit a text annotation by double-clicking it or pressing Enter while it's the only selection, and finish by clicking elsewhere on the canvas or pressing Enter (which leaves it selected); undo/redo; discard confirmation
-- **Number stamps:** per-group numbering with a Number/Letter variant per group; pick or reassign groups from the style bar, start a new group with Ctrl+G, and selecting a stamp badges the rest of its group on-canvas
-- **View:** Fit-to-window and 1:1, plus a continuous 25%-400% zoom slider with scrollbars (Shift-drag to fine-tune); Ctrl+scroll to zoom at the cursor; Ctrl+/Ctrl- step the 25/50/100/200/400% detents; Ctrl+0 / Ctrl+1 shortcuts
-- **App:** Primary menu with Preferences, a Keyboard shortcuts reference, and About
-- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme (system/light/dark), remember tool styles between sessions, default save folder + format, confirm-before-discard toggle, select-after-placement toggle (switch to the select tool with the new annotation selected), and the font families shown in the text font menu (add via the system font chooser, reorder, or remove; the first is the default, and an empty list uses an automatic sans/serif/monospace selection)
+- **Annotation tools** — Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, and a Number stamp, on an icon toolbar with tooltips.
+
+- **Styling**
+  - Color and fill: type a hex value, drag the opacity slider, or open the full palette.
+  - Stroke width, line style (solid / dashed / dotted), arrowheads (open or filled), and rounded rectangle corners.
+  - Text color, font, size, and alignment; a text fill is a rounded backing plate (transparent by default) that keeps lettering legible over busy images.
+  - Restyling an existing annotation updates that tool's default, so the next one you draw matches.
+
+- **Selecting and editing**
+  - Click to select an annotation, or Shift+Click for several; then move, delete, duplicate (Ctrl+D), restack, or restyle them together.
+  - Resize a line, arrow, rectangle, oval, or stamp by its handles; rotate a text, stamp, rectangle, or oval with its gizmo (hold Shift to square a shape or snap rotation to 15°).
+  - Re-edit a text annotation by double-clicking it.
+  - Dig through stacked annotations with `,` / `.` (or Alt+scroll).
+  - Undo / redo throughout, with a confirmation before you discard your work.
+
+- **Text labels** — give a rectangle or oval a centered caption (double-click it, press Enter while it's selected, or use the Add-text button); the text wraps to the box, aligns left / center / right, and rotates with the shape.
+
+- **Number stamps** — numbered or lettered per group. Pick or reassign a stamp's group from the style bar, start a new group with Ctrl+G, and select a stamp to badge the rest of its group on the canvas.
+
+- **Transforms** — rotate the whole image, or resize to crop or expand the canvas.
+
+- **Image I/O** — open a file, paste, drag-and-drop, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard.
+
+- **View** — Fit-to-window, 1:1, or a continuous 25–400% zoom slider; Ctrl+scroll to zoom at the cursor, plus Ctrl+0 / Ctrl+1 shortcuts.
+
+- **Preferences** (saved to `~/.config/annoscr/settings.json`) — color scheme, remember tool styles between sessions, default save folder and format, confirm before discarding, and select-after-placement; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
 
 ## Status
 
