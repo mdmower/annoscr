@@ -57,6 +57,11 @@ export interface AnnoscrSettings {
   // selected (so it's immediately editable/resizable/rotatable). Off keeps the
   // current tool for rapid repeated placement.
   selectAfterPlacement: boolean;
+  // Family names shown in the text font dropdown, in order; the first is the
+  // text tool's default. Empty/absent = the automatic selection built from
+  // font_catalogue's candidate lists. Families that aren't installed are dropped
+  // when the catalogue is built.
+  fontFamilies?: string[];
   // Only populated when rememberToolStyles is on.
   toolStyles?: ToolStylesSnapshot;
 }
@@ -94,6 +99,21 @@ function asBool(v: unknown, fallback: boolean): boolean {
 
 function asString(v: unknown, fallback: string): string {
   return typeof v === 'string' ? v : fallback;
+}
+
+// An ordered list of non-empty, de-duplicated strings, or undefined when none
+// survive (so an empty list reads the same as an absent one). Family existence
+// isn't checked here — that happens against the installed fonts when the
+// catalogue is built.
+function asStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item === 'string' && item.length > 0 && !out.includes(item)) {
+      out.push(item);
+    }
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function asColorScheme(v: unknown): ColorScheme {
@@ -173,6 +193,8 @@ function sanitize(raw: unknown): AnnoscrSettings {
     confirmDiscard: asBool(raw.confirmDiscard, DEFAULTS.confirmDiscard),
     selectAfterPlacement: asBool(raw.selectAfterPlacement, DEFAULTS.selectAfterPlacement),
   };
+  const fontFamilies = asStringArray(raw.fontFamilies);
+  if (fontFamilies) out.fontFamilies = fontFamilies;
   const toolStyles = asToolStyles(raw.toolStyles);
   if (toolStyles) out.toolStyles = toolStyles;
   return out;

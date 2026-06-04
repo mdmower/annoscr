@@ -56,6 +56,11 @@ export interface FontEntry {
 
 let cached: FontEntry[] | null = null;
 
+// The user's chosen families (Preferences), pushed in via setChosenFonts so this
+// module needs no settings import — that would close an import cycle
+// settings → actions → font_catalogue. Empty = automatic selection.
+let chosenFonts: ReadonlyArray<string> = [];
+
 function pickAvailable(
   candidates: ReadonlyArray<string>,
   max: number,
@@ -79,20 +84,42 @@ function pickAvailable(
   return picked;
 }
 
-// Build the catalogue from PangoCairo's default font map. Cached for the
-// life of the process — installed fonts don't change while the app runs.
-// Called lazily on first read so it runs after Gtk is initialized.
+// Build the catalogue from PangoCairo's default font map. Cached until the user
+// edits the font set (setChosenFonts) — installed fonts don't change while the
+// app runs, but the chosen subset can. Called lazily on first read so it runs
+// after Gtk is initialized.
 function resolve(): FontEntry[] {
   if (cached) return cached;
-  const fontMap = PangoCairo.font_map_get_default();
-  const installed = new Set<string>();
-  for (const family of fontMap.list_families()) {
-    installed.add(family.get_name());
+  // name → family, so we can both test installation and read is_monospace.
+  const installed = new Map(
+    PangoCairo.font_map_get_default()
+      .list_families()
+      .map((f) => [f.get_name(), f] as const)
+  );
+
+  // A user-chosen list (Preferences) wins, in its given order. Families no
+  // longer installed are silently dropped; if none survive, fall through to the
+  // automatic selection so the dropdown is never empty.
+  if (chosenFonts.length > 0) {
+    const entries: FontEntry[] = [];
+    for (const name of chosenFonts) {
+      const family = installed.get(name);
+      // The label is the bare family name: the user curated and ordered this
+      // list, so the sans/serif/mono suffix the automatic set carries is noise.
+      if (family)
+        entries.push({family: name, group: family.is_monospace ? 'mono' : 'sans', label: name});
+    }
+    if (entries.length > 0) {
+      cached = entries;
+      return cached;
+    }
   }
+
+  const installedNames = new Set(installed.keys());
   cached = [
-    ...pickAvailable(SANS_CANDIDATES, MAX_SANS, 'sans', installed),
-    ...pickAvailable(SERIF_CANDIDATES, MAX_SERIF, 'serif', installed),
-    ...pickAvailable(MONO_CANDIDATES, MAX_MONO, 'mono', installed),
+    ...pickAvailable(SANS_CANDIDATES, MAX_SANS, 'sans', installedNames),
+    ...pickAvailable(SERIF_CANDIDATES, MAX_SERIF, 'serif', installedNames),
+    ...pickAvailable(MONO_CANDIDATES, MAX_MONO, 'mono', installedNames),
   ];
   return cached;
 }
@@ -101,9 +128,17 @@ export function getAvailableFonts(): ReadonlyArray<FontEntry> {
   return resolve();
 }
 
-// First sans entry — used as the text-tool default. Always non-null because
-// pickAvailable guarantees at least one entry per group (generic alias
-// fallback) and the sans group comes first in the catalogue.
+// Set the user's chosen font families (from settings) and drop the cached
+// catalogue so the next read rebuilds it. Called once at startup and again
+// whenever the set changes in Preferences.
+export function setChosenFonts(families: ReadonlyArray<string>): void {
+  chosenFonts = families;
+  cached = null;
+}
+
+// First catalogue entry — the text-tool default. Always non-null: a user list
+// only takes effect when at least one chosen family is installed, and the
+// automatic fallback guarantees at least one entry per group.
 export function getDefaultTextFont(): string {
-  return resolve().find((f) => f.group === 'sans')!.family;
+  return resolve()[0].family;
 }

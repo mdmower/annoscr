@@ -29,6 +29,7 @@ import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
 import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
 import {StyleBar} from './style_bar.js';
+import {setChosenFonts} from './font_catalogue.js';
 import {ZoomController} from './zoom_controller.js';
 import {ToolBar} from './tool_bar.js';
 import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
@@ -360,7 +361,14 @@ export const AnnoscrWindow = GObject.registerClass(
         action.connect('activate', () => cb());
         this.add_action(action);
       };
-      add('preferences', () => presentPreferences(this));
+      add('preferences', () =>
+        presentPreferences(this, () => {
+          // The chosen font set changed — push it into the catalogue and rebuild
+          // the dropdown.
+          setChosenFonts(getSettings().fontFamilies ?? []);
+          this.styleBar.rebuildFontDropdown();
+        })
+      );
       add('shortcuts', () => presentShortcuts(this));
       add('about', () => showAbout(this));
       add('quit', () => this.close());

@@ -26,7 +26,7 @@ export function applyColorScheme(scheme: ColorScheme): void {
   }
 }
 
-export function presentPreferences(parent: Gtk.Window): void {
+export function presentPreferences(parent: Gtk.Window, onFontsChanged?: () => void): void {
   const s = getSettings();
   const dialog = new Adw.PreferencesDialog();
   const page = new Adw.PreferencesPage();
@@ -64,6 +64,98 @@ export function presentPreferences(parent: Gtk.Window): void {
   });
   tools.add(rememberRow);
   page.add(tools);
+
+  // Text fonts — curate which families appear in the text font dropdown.
+  const fontsGroup = new Adw.PreferencesGroup({
+    title: _('Text fonts'),
+    description: _(
+      'Choose which font families appear in the text font menu, in order — the first is the default. Leave empty to use an automatic selection.'
+    ),
+  });
+  // Working copy; settings (and the persisted JSON) only ever see fresh copies.
+  const families: string[] = [...(s.fontFamilies ?? [])];
+  let fontRows: Gtk.Widget[] = [];
+
+  const commitFonts = (): void => {
+    updateSettings({fontFamilies: families.length > 0 ? [...families] : undefined});
+    rebuildFontRows();
+    onFontsChanged?.();
+  };
+
+  const makeIconButton = (icon: string, tip: string, onClick: () => void): Gtk.Button => {
+    const btn = new Gtk.Button({
+      icon_name: icon,
+      tooltip_text: tip,
+      valign: Gtk.Align.CENTER,
+      css_classes: ['flat'],
+    });
+    btn.connect('clicked', onClick);
+    return btn;
+  };
+
+  function rebuildFontRows(): void {
+    for (const row of fontRows) fontsGroup.remove(row);
+    fontRows = [];
+    if (families.length === 0) {
+      const empty = new Adw.ActionRow({
+        title: _('Automatic selection'),
+        subtitle: _('Common sans, serif, and monospace families'),
+        sensitive: false,
+      });
+      fontsGroup.add(empty);
+      fontRows.push(empty);
+      return;
+    }
+    families.forEach((family, i) => {
+      const row = new Adw.ActionRow({title: family});
+      const up = makeIconButton('go-up-symbolic', _('Move up'), () => {
+        [families[i - 1], families[i]] = [families[i], families[i - 1]];
+        commitFonts();
+      });
+      up.set_sensitive(i > 0);
+      const down = makeIconButton('go-down-symbolic', _('Move down'), () => {
+        [families[i + 1], families[i]] = [families[i], families[i + 1]];
+        commitFonts();
+      });
+      down.set_sensitive(i < families.length - 1);
+      const remove = makeIconButton('list-remove-symbolic', _('Remove'), () => {
+        families.splice(i, 1);
+        commitFonts();
+      });
+      row.add_suffix(up);
+      row.add_suffix(down);
+      row.add_suffix(remove);
+      fontsGroup.add(row);
+      fontRows.push(row);
+    });
+  }
+
+  const addFontBtn = new Gtk.Button({
+    label: _('Add…'),
+    valign: Gtk.Align.CENTER,
+    css_classes: ['flat'],
+  });
+  addFontBtn.connect('clicked', () => {
+    const fd = new Gtk.FontDialog({title: _('Add a font'), modal: true});
+    // Callback form: GJS doesn't expose the promise overload for this call.
+    fd.choose_family(parent, null, null, (_src, res) => {
+      try {
+        const family = fd.choose_family_finish(res);
+        const name = family.get_name();
+        if (!families.includes(name)) {
+          families.push(name);
+          commitFonts();
+        }
+      } catch (e) {
+        if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+          console.error('choose_family failed', e);
+        }
+      }
+    });
+  });
+  fontsGroup.set_header_suffix(addFontBtn);
+  rebuildFontRows();
+  page.add(fontsGroup);
 
   // Saving
   const saving = new Adw.PreferencesGroup({title: _('Saving')});

@@ -13,7 +13,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 - **Number stamps:** per-group numbering with a Number/Letter variant per group; pick or reassign groups from the style bar, start a new group with Ctrl+G, and selecting a stamp badges the rest of its group on-canvas
 - **View:** Fit-to-window and 1:1, plus a continuous 25%-400% zoom slider with scrollbars (Shift-drag to fine-tune); Ctrl+scroll to zoom at the cursor; Ctrl+/Ctrl- step the 25/50/100/200/400% detents; Ctrl+0 / Ctrl+1 shortcuts
 - **App:** Primary menu with Preferences, a Keyboard shortcuts reference, and About
-- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme (system/light/dark), remember tool styles between sessions, default save folder + format, confirm-before-discard toggle, select-after-placement toggle (switch to the select tool with the new annotation selected)
+- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme (system/light/dark), remember tool styles between sessions, default save folder + format, confirm-before-discard toggle, select-after-placement toggle (switch to the select tool with the new annotation selected), and the font families shown in the text font menu (add via the system font chooser, reorder, or remove; the first is the default, and an empty list uses an automatic sans/serif/monospace selection)
 
 ## Status
 

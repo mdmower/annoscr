@@ -4,7 +4,7 @@ import Cairo from 'cairo';
 
 import {CanvasView} from './canvas_view.js';
 import {TextEditor, TextEditorStyle} from './text_editor.js';
-import {getAvailableFonts} from './font_catalogue.js';
+import {FontEntry, getAvailableFonts} from './font_catalogue.js';
 import {colorToHex, colorToRgba, parseHexColor, rgbaToColor} from './gdk_color.js';
 import {DASH_ORDER} from './window_constants.js';
 import {_, formatN} from './i18n.js';
@@ -146,6 +146,15 @@ export class StyleBar {
   private fontGroup!: Gtk.Box;
   private fontLabel!: Gtk.Label;
   private fontDropdown!: Gtk.DropDown;
+  // Current dropdown items: the catalogue plus, when the applied font isn't in
+  // it, a transient bare entry for that font (recomputed each refresh, never
+  // persisted) so the menu always reflects what's applied.
+  private fontModel: FontEntry[] = [];
+  // True while handling a font pick. Applying the font re-enters refresh() →
+  // applyFontModel synchronously; swapping the dropdown's model there (mid
+  // notify::selected) crashes GtkDropDown, so the swap is suppressed until the
+  // next, non-reentrant refresh.
+  private inFontPick = false;
   private fontSizeLabel!: Gtk.Label;
   private fontSizeSpinner!: Gtk.SpinButton;
   private alignGroup!: Gtk.Box;
@@ -324,7 +333,8 @@ export class StyleBar {
 
     // Font group (family + size).
     const fontSep = makeSep();
-    this.fontDropdown = Gtk.DropDown.new_from_strings(getAvailableFonts().map((f) => f.label));
+    this.fontModel = [...getAvailableFonts()];
+    this.fontDropdown = Gtk.DropDown.new_from_strings(this.fontModel.map((f) => f.label));
     this.fontDropdown.connect('notify::selected', () => this.onFontDescPicked());
     this.fontSizeSpinner = new Gtk.SpinButton({
       adjustment: new Gtk.Adjustment({
@@ -654,6 +664,41 @@ export class StyleBar {
     cr.stroke();
   }
 
+  // Rebuild the font dropdown after the chosen set changes in Preferences.
+  // refresh() recomputes the model (catalogue + any transient applied font) and
+  // re-syncs the selection under the updatingPicker guard.
+  rebuildFontDropdown(): void {
+    this.refresh();
+  }
+
+  // Point the font dropdown at `target`, rebuilding its item list only when it
+  // changes. The list is the catalogue plus, when `target` isn't in it, a
+  // transient bare entry so the menu matches the applied font (e.g. one removed
+  // from Preferences but still in use). The transient entry is never persisted,
+  // so it drops as soon as the target font is back in the list or no longer the
+  // current one. Must be called under the updatingPicker guard (set_model /
+  // set_selected would otherwise fire a spurious pick).
+  private applyFontModel(target: string | null): void {
+    // Re-entered from a font pick (see inFontPick) — the dropdown already shows
+    // the user's choice; a model swap here would crash. Reconciled next refresh.
+    if (this.inFontPick) return;
+    const catalogue = getAvailableFonts();
+    const model: FontEntry[] = [...catalogue];
+    if (target !== null && !catalogue.some((f) => f.family === target)) {
+      // group is unused for display here — the label is the bare family name.
+      model.push({family: target, group: 'sans', label: target});
+    }
+    const changed =
+      model.length !== this.fontModel.length ||
+      model.some((f, i) => f.family !== this.fontModel[i].family);
+    if (changed) {
+      this.fontModel = model;
+      this.fontDropdown.set_model(Gtk.StringList.new(model.map((f) => f.label)));
+    }
+    const idx = model.findIndex((f) => f.family === target);
+    this.fontDropdown.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
+  }
+
   refresh(): void {
     if (!this.colorGroup) return;
     this.updatingPicker = true;
@@ -766,10 +811,7 @@ export class StyleBar {
     // Font + size share one group (they co-occur for any text).
     const fontDesc = this.styleTargetFontDesc();
     this.fontGroup.set_visible(fontDesc !== null);
-    if (fontDesc !== null) {
-      const idx = getAvailableFonts().findIndex((f) => f.family === fontDesc);
-      this.fontDropdown.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
-    }
+    if (fontDesc !== null) this.applyFontModel(fontDesc);
     setCaption(
       this.fontLabel,
       _('Font'),
@@ -901,22 +943,28 @@ export class StyleBar {
     if (this.updatingPicker || !this.fontDropdown) return;
     const idx = this.fontDropdown.get_selected();
     if (idx === Gtk.INVALID_LIST_POSITION) return;
-    const fonts = getAvailableFonts();
-    if (idx >= fonts.length) return;
-    const fontDesc = fonts[idx].family;
+    if (idx >= this.fontModel.length) return;
+    const fontDesc = this.fontModel[idx].family;
     const tool = this.canvas.getTool();
     const editorActive = this.editor.isActive();
-    // Active edit → flow into the editor (which propagates to commit and
-    // updates the live preview + caret focus). Outside an edit, fall back
-    // to the standard select-vs-tool routing. Sticky tool default also
-    // updates for text-tool placements so the next click inherits.
-    if (editorActive) {
-      this.patchEditorStyle({fontDesc});
-    } else if (tool === 'select') {
-      this.canvas.replaceSelectedFontDesc(fontDesc);
-    }
-    if (defaultFontDescForTool(tool) !== null) {
-      this.canvas.setToolFontDesc(tool, fontDesc);
+    // Applying the font re-enters refresh() → applyFontModel; the guard keeps
+    // that from swapping the dropdown's model mid-emission (would crash).
+    this.inFontPick = true;
+    try {
+      // Active edit → flow into the editor (which propagates to commit and
+      // updates the live preview + caret focus). Outside an edit, fall back
+      // to the standard select-vs-tool routing. Sticky tool default also
+      // updates for text-tool placements so the next click inherits.
+      if (editorActive) {
+        this.patchEditorStyle({fontDesc});
+      } else if (tool === 'select') {
+        this.canvas.replaceSelectedFontDesc(fontDesc);
+      }
+      if (defaultFontDescForTool(tool) !== null) {
+        this.canvas.setToolFontDesc(tool, fontDesc);
+      }
+    } finally {
+      this.inFontPick = false;
     }
   }
 
