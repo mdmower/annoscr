@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-03 16:53-0700\n"
+"POT-Creation-Date: 2026-06-03 17:15-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -114,11 +114,11 @@ msgstr ""
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:78 src/style_bar.ts:315 src/style_bar.ts:736
+#: src/dialogs.ts:78 src/style_bar.ts:343 src/style_bar.ts:782
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:91 src/style_bar.ts:250 src/style_bar.ts:657
+#: src/dialogs.ts:91 src/style_bar.ts:258 src/style_bar.ts:694
 msgid "Width"
 msgstr ""
 
@@ -126,7 +126,7 @@ msgstr ""
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:131 src/style_bar.ts:224 src/style_bar.ts:648
+#: src/dialogs.ts:131 src/style_bar.ts:232 src/style_bar.ts:685
 msgid "Fill"
 msgstr ""
 
@@ -332,7 +332,7 @@ msgstr ""
 msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:73 src/style_bar.ts:258 src/style_bar.ts:666
+#: src/shortcuts_dialog.ts:73 src/style_bar.ts:266 src/style_bar.ts:703
 #: src/window_constants.ts:98
 msgid "Line"
 msgstr ""
@@ -389,109 +389,113 @@ msgstr ""
 msgid "or"
 msgstr ""
 
-#: src/style_bar.ts:47
+#: src/style_bar.ts:51
 msgid "(mixed)"
 msgstr ""
 
-#: src/style_bar.ts:205
+#: src/style_bar.ts:213
 msgid "Selection actions"
 msgstr ""
 
-#: src/style_bar.ts:216 src/style_bar.ts:639
+#: src/style_bar.ts:224 src/style_bar.ts:676
 msgid "Color"
 msgstr ""
 
-#: src/style_bar.ts:256
+#: src/style_bar.ts:264
 msgid "Solid"
 msgstr ""
 
-#: src/style_bar.ts:256
+#: src/style_bar.ts:264
 msgid "Dashed"
 msgstr ""
 
-#: src/style_bar.ts:256
+#: src/style_bar.ts:264
 msgid "Dotted"
 msgstr ""
 
-#: src/style_bar.ts:264
+#: src/style_bar.ts:286 src/style_bar.ts:712
+msgid "Corners"
+msgstr ""
+
+#: src/style_bar.ts:292
 msgid "Open"
 msgstr ""
 
-#: src/style_bar.ts:264
+#: src/style_bar.ts:292
 msgid "Filled"
 msgstr ""
 
-#: src/style_bar.ts:266 src/style_bar.ts:675
+#: src/style_bar.ts:294 src/style_bar.ts:721
 msgid "Arrowhead"
 msgstr ""
 
-#: src/style_bar.ts:276 src/style_bar.ts:795
+#: src/style_bar.ts:304 src/style_bar.ts:841
 msgid "Group"
 msgstr ""
 
-#: src/style_bar.ts:282 src/window_constants.ts:97
+#: src/style_bar.ts:310 src/window_constants.ts:97
 msgid "Number"
 msgstr ""
 
-#: src/style_bar.ts:282
+#: src/style_bar.ts:310
 msgid "Letter"
 msgstr ""
 
-#: src/style_bar.ts:284 src/style_bar.ts:810
+#: src/style_bar.ts:312 src/style_bar.ts:856
 msgid "Variant"
 msgstr ""
 
-#: src/style_bar.ts:293 src/style_bar.ts:716
+#: src/style_bar.ts:321 src/style_bar.ts:762
 msgid "Text color"
 msgstr ""
 
-#: src/style_bar.ts:313 src/style_bar.ts:729
+#: src/style_bar.ts:341 src/style_bar.ts:775
 msgid "Font"
 msgstr ""
 
-#: src/style_bar.ts:330
+#: src/style_bar.ts:358
 msgid "Align left"
 msgstr ""
 
-#: src/style_bar.ts:333
+#: src/style_bar.ts:361
 msgid "Align center"
 msgstr ""
 
-#: src/style_bar.ts:339
+#: src/style_bar.ts:367
 msgid "Align right"
 msgstr ""
 
-#: src/style_bar.ts:351 src/style_bar.ts:745
+#: src/style_bar.ts:379 src/style_bar.ts:791
 msgid "Align"
 msgstr ""
 
 #. Add/Edit text leads (the primary action for a shape); shown + relabeled in
 #. refreshAddTextButton, hidden for non-shape selections.
-#: src/style_bar.ts:399 src/style_bar.ts:758
+#: src/style_bar.ts:428 src/style_bar.ts:804
 msgid "Add text"
 msgstr ""
 
-#: src/style_bar.ts:408
+#: src/style_bar.ts:445
 msgid "Duplicate (Ctrl+D)"
 msgstr ""
 
-#: src/style_bar.ts:410
+#: src/style_bar.ts:447
 msgid "Bring to front (Ctrl+Shift+])"
 msgstr ""
 
-#: src/style_bar.ts:411
+#: src/style_bar.ts:448
 msgid "Bring forward (Ctrl+])"
 msgstr ""
 
-#: src/style_bar.ts:412
+#: src/style_bar.ts:449
 msgid "Send backward (Ctrl+[)"
 msgstr ""
 
-#: src/style_bar.ts:413
+#: src/style_bar.ts:450
 msgid "Send to back (Ctrl+Shift+[)"
 msgstr ""
 
-#: src/style_bar.ts:416
+#: src/style_bar.ts:453
 msgid "Stamps renumber within their group."
 msgstr ""
 
@@ -499,36 +503,36 @@ msgstr ""
 #. popover and unparents it on dispose, avoiding the "Finalizing GtkButton …
 #. still has children left" warning at quit. No dropdown arrow because the
 #. swatch is a custom child and always-show-arrow defaults off.
-#: src/style_bar.ts:477
+#: src/style_bar.ts:514
 msgid "Pick a color"
 msgstr ""
 
-#: src/style_bar.ts:489
+#: src/style_bar.ts:526
 msgid "Hex"
 msgstr ""
 
-#: src/style_bar.ts:494
+#: src/style_bar.ts:531
 msgid "#RGB, #RGBA, #RRGGBB, or #RRGGBBAA"
 msgstr ""
 
-#: src/style_bar.ts:500
+#: src/style_bar.ts:537
 msgid "Opacity"
 msgstr ""
 
-#: src/style_bar.ts:516
+#: src/style_bar.ts:553
 msgid "Palette…"
 msgstr ""
 
-#: src/style_bar.ts:758
+#: src/style_bar.ts:804
 msgid "Edit text"
 msgstr ""
 
-#: src/style_bar.ts:820
+#: src/style_bar.ts:866
 #, javascript-format
 msgid "Group %d"
 msgstr ""
 
-#: src/style_bar.ts:821
+#: src/style_bar.ts:867
 msgid "+ New group"
 msgstr ""
 

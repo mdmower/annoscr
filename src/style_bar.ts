@@ -9,6 +9,8 @@ import {DASH_ORDER} from './window_constants.js';
 import {_, formatN} from './i18n.js';
 import {
   Action,
+  CORNER_RADIUS_MAX,
+  CORNER_RADIUS_MIN,
   ColorRGBA,
   DEFAULT_DASH,
   DashStyle,
@@ -18,6 +20,7 @@ import {
   TextAlign,
   WIDTH_MAX,
   WIDTH_MIN,
+  defaultCornerRadiusForTool,
   defaultDashForTool,
   defaultFillForTool,
   defaultFilledHeadForTool,
@@ -107,6 +110,10 @@ export class StyleBar {
   private filledHeadGroup!: Gtk.Box;
   private filledHeadLabel!: Gtk.Label;
   private filledHeadDropdown!: Gtk.DropDown;
+  // Rectangle corner-radius slider (rect only): 0 = sharp, image-space px.
+  private cornerGroup!: Gtk.Box;
+  private cornerLabel!: Gtk.Label;
+  private cornerScale!: Gtk.Scale;
   // Group selector for the number stamp: choose the placement group (number
   // tool) or reassign the selected stamps (select tool). The model is rebuilt
   // each refresh from the canvas's live group list, with a trailing "+ New
@@ -259,6 +266,26 @@ export class StyleBar {
     this.dashGroup = makeGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
+    // Corners group (rectangle only) — slider over the corner radius (px).
+    const cornerSep = makeSep();
+    this.cornerScale = new Gtk.Scale({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      adjustment: new Gtk.Adjustment({
+        lower: CORNER_RADIUS_MIN,
+        upper: CORNER_RADIUS_MAX,
+        step_increment: 1,
+        page_increment: 5,
+      }),
+      digits: 0,
+      draw_value: true,
+      value_pos: Gtk.PositionType.RIGHT,
+      width_request: 120,
+    });
+    this.cornerScale.connect('value-changed', () => this.onCornerRadiusPicked());
+    this.cornerLabel = new Gtk.Label({label: _('Corners'), css_classes: ['caption']});
+    this.cornerGroup = makeGroup(cornerSep, this.cornerLabel, this.cornerScale);
+    styleBar.append(this.cornerGroup);
+
     // Arrowhead group (arrow only) — row 0 = open, row 1 = filled.
     const filledHeadSep = makeSep();
     this.filledHeadDropdown = Gtk.DropDown.new_from_strings([_('Open'), _('Filled')]);
@@ -358,6 +385,7 @@ export class StyleBar {
       {group: this.fillGroup, sep: fillSep},
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
+      {group: this.cornerGroup, sep: cornerSep},
       {group: this.filledHeadGroup, sep: filledHeadSep},
       {group: this.groupGroup, sep: groupSep},
       {group: this.variantGroup, sep: variantSep},
@@ -665,6 +693,15 @@ export class StyleBar {
       this.dashLabel,
       _('Line'),
       this.selectionMixed((a) => a.getDash())
+    );
+
+    const corner = this.styleTargetCornerRadius();
+    this.cornerGroup.set_visible(corner !== null);
+    if (corner !== null) this.cornerScale.set_value(corner);
+    setCaption(
+      this.cornerLabel,
+      _('Corners'),
+      this.selectionMixed((a) => a.getCornerRadius())
     );
 
     const filledHead = this.styleTargetFilledHead();
@@ -1002,6 +1039,14 @@ export class StyleBar {
     return this.canvas.getToolWidth(tool);
   }
 
+  private styleTargetCornerRadius(): number | null {
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      return this.selectionSummary((a) => a.getCornerRadius()).value;
+    }
+    return this.canvas.getToolCornerRadius(tool);
+  }
+
   private styleTargetFill(): ColorRGBA | null {
     // Hidden during any text edit: the editor doesn't preview a fill change, so
     // showing the control is misleading. A standalone text's background plate is
@@ -1129,5 +1174,16 @@ export class StyleBar {
       this.canvas.setToolWidth(tool, width);
     }
     this.widthPreview.queue_draw();
+  }
+
+  private onCornerRadiusPicked(): void {
+    if (this.updatingPicker || !this.cornerScale) return;
+    const radius = Math.round(this.cornerScale.get_value());
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      this.canvas.replaceSelectedCornerRadius(radius);
+    } else if (defaultCornerRadiusForTool(tool) !== null) {
+      this.canvas.setToolCornerRadius(tool, radius);
+    }
   }
 }

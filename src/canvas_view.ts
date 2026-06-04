@@ -22,6 +22,7 @@ import {
   createLiveStroke,
   defaultColorForTool,
   defaultTextColorForTool,
+  defaultCornerRadiusForTool,
   defaultDashForTool,
   defaultFillForTool,
   defaultFilledHeadForTool,
@@ -366,6 +367,10 @@ export const CanvasView = GObject.registerClass(
     // Per-tool filled-arrowhead state. Only 'arrow' ever has an entry; every
     // other tool has no arrowhead (returns null).
     private toolFilledHeads: Map<ToolId, boolean> = new Map();
+
+    // Per-tool rectangle corner radius (image-space px). Only 'rect' ever has an
+    // entry; every other tool has no corner radius (returns null).
+    private toolCornerRadii: Map<ToolId, number> = new Map();
 
     // Stamp groups. Stamps carry a stable groupId; numbering runs per group.
     // `placementGroupId` is the group new stamps land in (number tool); it is
@@ -725,6 +730,18 @@ export const CanvasView = GObject.registerClass(
       this.toolFilledHeads.set(toolId, filled);
     }
 
+    // Current corner radius for the given tool. Returns null for every tool but
+    // 'rect' (the Corners slider hides accordingly).
+    getToolCornerRadius(toolId: ToolId): number | null {
+      const def = defaultCornerRadiusForTool(toolId);
+      if (def === null) return null;
+      return this.toolCornerRadii.get(toolId) ?? def;
+    }
+
+    setToolCornerRadius(toolId: ToolId, radius: number): void {
+      this.toolCornerRadii.set(toolId, radius);
+    }
+
     // Current font description for the given tool. Returns null for tools
     // that don't have an editable font (everything but 'text').
     getToolFontDesc(toolId: ToolId): string | null {
@@ -909,6 +926,7 @@ export const CanvasView = GObject.registerClass(
       for (const [id, f] of this.toolFills) ensure(id).fill = f;
       for (const [id, d] of this.toolDashes) ensure(id).dash = d;
       for (const [id, h] of this.toolFilledHeads) ensure(id).filledHead = h;
+      for (const [id, r] of this.toolCornerRadii) ensure(id).cornerRadius = r;
       for (const [id, f] of this.toolFontDescs) ensure(id).fontDesc = f;
       for (const [id, s] of this.toolFontSizes) ensure(id).fontSize = s;
       for (const [id, r] of this.toolStampRadii) ensure(id).stampRadius = r;
@@ -930,6 +948,7 @@ export const CanvasView = GObject.registerClass(
         if (e.fill) this.toolFills.set(toolId, e.fill);
         if (e.dash) this.toolDashes.set(toolId, e.dash);
         if (e.filledHead !== undefined) this.toolFilledHeads.set(toolId, e.filledHead);
+        if (e.cornerRadius !== undefined) this.toolCornerRadii.set(toolId, e.cornerRadius);
         if (e.fontDesc) this.toolFontDescs.set(toolId, e.fontDesc);
         if (e.fontSize !== undefined) this.toolFontSizes.set(toolId, e.fontSize);
         if (e.stampRadius !== undefined) this.toolStampRadii.set(toolId, e.stampRadius);
@@ -1098,6 +1117,16 @@ export const CanvasView = GObject.registerClass(
         filled,
         'filledHead',
         (tid, v) => this.setToolFilledHead(tid, v)
+      );
+    }
+
+    replaceSelectedCornerRadius(radius: number): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getCornerRadius(),
+        (a, v) => a.withCornerRadius(v),
+        radius,
+        'cornerRadius',
+        (tid, v) => this.setToolCornerRadius(tid, v)
       );
     }
 
@@ -1666,6 +1695,7 @@ export const CanvasView = GObject.registerClass(
       const fill = this.getToolFill(this.currentToolId) ?? TRANSPARENT_FILL;
       const dash = this.getToolDash(this.currentToolId) ?? DEFAULT_DASH;
       const filledHead = this.getToolFilledHead(this.currentToolId) ?? false;
+      const cornerRadius = this.getToolCornerRadius(this.currentToolId) ?? 0;
       this.liveStroke = createLiveStroke(
         this.currentToolId,
         ix,
@@ -1674,7 +1704,8 @@ export const CanvasView = GObject.registerClass(
         width,
         fill,
         dash,
-        filledHead
+        filledHead,
+        cornerRadius
       );
       this.queue_draw();
     }

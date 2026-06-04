@@ -2,6 +2,8 @@ import GLib from 'gi://GLib?version=2.0';
 
 import {
   ColorRGBA,
+  CORNER_RADIUS_MAX,
+  CORNER_RADIUS_MIN,
   DashStyle,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -31,6 +33,8 @@ export interface ToolStyleEntry {
   dash?: DashStyle;
   // Filled (solid-triangle) arrowhead. Only the arrow tool writes it.
   filledHead?: boolean;
+  // Rectangle corner radius (image-space px). Only the rect tool writes it.
+  cornerRadius?: number;
   fontDesc?: string;
   fontSize?: number;
   // Number-stamp radius (image-space px). Only the number tool writes it.
@@ -113,6 +117,33 @@ function asClampedNumber(v: unknown, lo: number, hi: number): number | undefined
   return clamp(v, lo, hi);
 }
 
+// Parse one tool's persisted style, dropping malformed / out-of-range fields.
+// Returns null when nothing valid survives so the caller can skip the entry.
+function asToolStyleEntry(raw: unknown): ToolStyleEntry | null {
+  if (!isRecord(raw)) return null;
+  const entry: ToolStyleEntry = {};
+  const color = asColor(raw.color);
+  if (color) entry.color = color;
+  const textColor = asColor(raw.textColor);
+  if (textColor) entry.textColor = textColor;
+  const width = asClampedNumber(raw.width, WIDTH_MIN, WIDTH_MAX);
+  if (width !== undefined) entry.width = width;
+  const fill = asColor(raw.fill);
+  if (fill) entry.fill = fill;
+  if (raw.dash === 'solid' || raw.dash === 'dashed' || raw.dash === 'dotted') {
+    entry.dash = raw.dash;
+  }
+  if (typeof raw.filledHead === 'boolean') entry.filledHead = raw.filledHead;
+  const cornerRadius = asClampedNumber(raw.cornerRadius, CORNER_RADIUS_MIN, CORNER_RADIUS_MAX);
+  if (cornerRadius !== undefined) entry.cornerRadius = cornerRadius;
+  if (typeof raw.fontDesc === 'string') entry.fontDesc = raw.fontDesc;
+  const fontSize = asClampedNumber(raw.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
+  if (fontSize !== undefined) entry.fontSize = fontSize;
+  const stampRadius = asClampedNumber(raw.stampRadius, STAMP_RADIUS_MIN, STAMP_RADIUS_MAX);
+  if (stampRadius !== undefined) entry.stampRadius = stampRadius;
+  return Object.keys(entry).length > 0 ? entry : null;
+}
+
 function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
   if (!isRecord(v)) return undefined;
   const tools: Record<string, ToolStyleEntry> = {};
@@ -121,26 +152,8 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
       // Drop unknown tool ids (typos, junk, or a stale id from an old build)
       // rather than round-tripping them back into settings.json.
       if (!TOOL_ID_SET.has(id)) continue;
-      if (!isRecord(raw)) continue;
-      const entry: ToolStyleEntry = {};
-      const color = asColor(raw.color);
-      if (color) entry.color = color;
-      const textColor = asColor(raw.textColor);
-      if (textColor) entry.textColor = textColor;
-      const width = asClampedNumber(raw.width, WIDTH_MIN, WIDTH_MAX);
-      if (width !== undefined) entry.width = width;
-      const fill = asColor(raw.fill);
-      if (fill) entry.fill = fill;
-      if (raw.dash === 'solid' || raw.dash === 'dashed' || raw.dash === 'dotted') {
-        entry.dash = raw.dash;
-      }
-      if (typeof raw.filledHead === 'boolean') entry.filledHead = raw.filledHead;
-      if (typeof raw.fontDesc === 'string') entry.fontDesc = raw.fontDesc;
-      const fontSize = asClampedNumber(raw.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
-      if (fontSize !== undefined) entry.fontSize = fontSize;
-      const stampRadius = asClampedNumber(raw.stampRadius, STAMP_RADIUS_MIN, STAMP_RADIUS_MAX);
-      if (stampRadius !== undefined) entry.stampRadius = stampRadius;
-      if (Object.keys(entry).length > 0) tools[id] = entry;
+      const entry = asToolStyleEntry(raw);
+      if (entry) tools[id] = entry;
     }
   }
   const snap: ToolStylesSnapshot = {tools};

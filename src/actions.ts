@@ -93,6 +93,12 @@ export interface Action {
   // Only ArrowAction carries it.
   getFilledHead(): boolean | null;
   withFilledHead(filled: boolean): Action;
+  // The rectangle's corner radius in image-space pixels (0 = sharp corners), or
+  // null for actions that aren't rounded rectangles. Only RectAction carries it;
+  // the radius is clamped to half the smaller side at draw time, so an oversized
+  // value just maxes the rounding rather than overshooting.
+  getCornerRadius(): number | null;
+  withCornerRadius(radius: number): Action;
   // The action's editable font family (Pango font description string), or
   // null for actions that don't carry one. Only TextAction does today.
   getFontDesc(): string | null;
@@ -393,6 +399,13 @@ export function defaultWidthForTool(toolId: ToolId): number | null {
   }
 }
 
+// Default per-tool corner radius. Only the rectangle tool carries one (0 =
+// sharp corners, the default); every other tool returns null and the Corners
+// control hides. The oval is always an ellipse, so it has no corner radius.
+export function defaultCornerRadiusForTool(toolId: ToolId): number | null {
+  return toolId === 'rect' ? 0 : null;
+}
+
 // Default per-tool font description. Only the text tool has one; everything
 // else returns null and the font picker hides accordingly. The text default
 // resolves to the first available sans family in the font catalogue (lazy,
@@ -418,6 +431,12 @@ export const WIDTH_MAX = 40;
 // SpinButton range for the font size control (image-space pixels).
 export const FONT_SIZE_MIN = 6;
 export const FONT_SIZE_MAX = 200;
+
+// Slider range for the rectangle corner-radius control (image-space px). 0 is
+// sharp corners; the upper bound is generous and the radius is clamped to half
+// the smaller side at draw time, so a large value just maxes the rounding.
+export const CORNER_RADIUS_MIN = 0;
+export const CORNER_RADIUS_MAX = 100;
 
 // Canvas dimension limits for the blank-canvas dialog and CLI flags.
 export const CANVAS_SIZE_MIN = 1;
@@ -473,6 +492,12 @@ abstract class BaseAction implements Action {
     return null;
   }
   withFilledHead(_filled: boolean): Action {
+    return this;
+  }
+  getCornerRadius(): number | null {
+    return null;
+  }
+  withCornerRadius(_radius: number): Action {
     return this;
   }
   getFontDesc(): string | null {
@@ -1779,15 +1804,19 @@ class RectAction extends RotatableBoxAction {
     style: Style,
     fill: ColorRGBA,
     rotation: number = 0,
-    text: ShapeText = EMPTY_SHAPE_TEXT
+    text: ShapeText = EMPTY_SHAPE_TEXT,
+    private readonly cornerRadius: number = 0
   ) {
     super(x1, y1, x2, y2, style, fill, rotation, text);
   }
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
-    cr.rectangle(-halfW, -halfH, 2 * halfW, 2 * halfH);
+    roundedRectPath(cr, -halfW, -halfH, 2 * halfW, 2 * halfH, this.cornerRadius);
   }
 
+  // Thread cornerRadius through make so every base edit that rebuilds the box
+  // (fill / rotation / resize / text, plus color / width / dash via rebuild)
+  // carries the radius forward.
   protected make(
     x1: number,
     y1: number,
@@ -1798,7 +1827,25 @@ class RectAction extends RotatableBoxAction {
     rotation: number,
     text: ShapeText
   ): Action {
-    return new RectAction(x1, y1, x2, y2, style, fill, rotation, text);
+    return new RectAction(x1, y1, x2, y2, style, fill, rotation, text, this.cornerRadius);
+  }
+
+  getCornerRadius(): number {
+    return this.cornerRadius;
+  }
+
+  withCornerRadius(radius: number): Action {
+    return new RectAction(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.style,
+      this.fill,
+      this.rotation,
+      this.text,
+      radius
+    );
   }
 }
 
@@ -1807,7 +1854,8 @@ class RectLiveStroke extends EndpointLiveStroke {
     x1: number,
     y1: number,
     style: Style,
-    private readonly fill: ColorRGBA
+    private readonly fill: ColorRGBA,
+    private readonly cornerRadius: number = 0
   ) {
     super(x1, y1, style);
   }
@@ -1817,7 +1865,17 @@ class RectLiveStroke extends EndpointLiveStroke {
   }
 
   protected build(): Action {
-    return new RectAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill);
+    return new RectAction(
+      this.x1,
+      this.y1,
+      this.endX,
+      this.endY,
+      this.style,
+      this.fill,
+      0,
+      EMPTY_SHAPE_TEXT,
+      this.cornerRadius
+    );
   }
 }
 
@@ -1931,7 +1989,8 @@ export function createLiveStroke(
   width: number,
   fill: ColorRGBA,
   dash: DashStyle,
-  filledHead: boolean
+  filledHead: boolean,
+  cornerRadius: number
 ): LiveStroke {
   switch (toolId) {
     case 'pen':
@@ -1943,7 +2002,7 @@ export function createLiveStroke(
     case 'arrow':
       return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width, dash}, filledHead);
     case 'rect':
-      return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width, dash}, fill);
+      return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width, dash}, fill, cornerRadius);
     case 'oval':
       return new OvalLiveStroke(x, y, {...SHAPE_STYLE, color, width, dash}, fill);
     case 'select':
