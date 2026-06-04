@@ -1588,11 +1588,16 @@ export const CanvasView = GObject.registerClass(
       const arrow = arrowDirection(keyval);
       const isSpace = keyval === Gdk.KEY_space || keyval === Gdk.KEY_KP_Space;
 
-      // Alt + Left/Right rotates a lone rotatable selection 15° (Left = CCW,
-      // Right = CW). Ctrl+arrows stay free for the deferred keyboard resize.
-      if (alt && !ctrl && arrow && arrow[1] === 0) return this.rotateSelectionStep(arrow[0]);
+      // Modifier + arrow transforms the lone selection: Alt+Left/Right rotates
+      // 15° (Left = CCW, Right = CW), Ctrl+arrows resize. Other modifier+arrow
+      // combos aren't ours.
+      if (arrow && (ctrl || alt)) {
+        if (alt && !ctrl && arrow[1] === 0) return this.rotateSelectionStep(arrow[0]);
+        if (ctrl && !alt) return this.resizeSelectionStep(arrow[0], arrow[1], shift);
+        return false;
+      }
       // Other Ctrl/Alt chords belong to the window (zoom, z-order, canvas
-      // rotate) and the reserved keyboard-transform space.
+      // rotate).
       if (ctrl || alt) return false;
 
       // Placement tools: Space drops a stamp / opens the editor at the center.
@@ -1714,6 +1719,51 @@ export const CanvasView = GObject.registerClass(
       );
       this.queue_draw();
       announce(this, formatN(_('Rotated to %d°'), Math.round((next * 180) / Math.PI)));
+      return true;
+    }
+
+    // Resize the lone selected action one keyboard step by driving its primary
+    // handle — the bottom-right corner of a box/stamp, or the second endpoint of
+    // a line/arrow (the handle a mouse user grabs to grow it). Reuses
+    // resizeByHandle, so a rotated box resizes in its own frame and the stamp
+    // stays square. Step is widget-px / scale (Shift = larger), coalesced into
+    // one undo entry per run; a no-op (clamped at the minimum) is consumed but
+    // not pushed. False (so Ctrl+arrow falls through) unless a resizable item is
+    // solely selected.
+    private resizeSelectionStep(dx: number, dy: number, large: boolean): boolean {
+      const i = this.soleSelectedIndex();
+      if (i < 0) return false;
+      const action = this.state.actions[i];
+      const handles = action.getResizeHandles();
+      if (!handles) return false;
+      const handle = handles.find((h) => h.id === 'br') ?? handles.find((h) => h.id === 'p2');
+      if (!handle) return false;
+      const step = (large ? NUDGE_LARGE_PX : NUDGE_SMALL_PX) / this.currentTransform().scale;
+      const resized = action.resizeByHandle(
+        handle.id,
+        handle.x + dx * step,
+        handle.y + dy * step,
+        false
+      );
+      if (this.actionHandlesEqual(action, resized)) return true; // at the min clamp
+      this.pushState(
+        {
+          surface: this.state.surface,
+          actions: this.state.actions.map((a, j) => (j === i ? resized : a)),
+        },
+        `resize:${i}`
+      );
+      this.queue_draw();
+      const b = resized.getBounds();
+      if (b) {
+        // Same msgid as the zoom status readout.
+        announce(
+          this,
+          _('%w × %h px')
+            .replace('%w', String(Math.round(b.x2 - b.x1)))
+            .replace('%h', String(Math.round(b.y2 - b.y1)))
+        );
+      }
       return true;
     }
 

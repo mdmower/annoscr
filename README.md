@@ -31,7 +31,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **View** — Fit-to-window, 1:1, or a continuous 25–400% zoom slider; Ctrl+scroll to zoom at the cursor, plus Ctrl+0 / Ctrl+1 shortcuts.
 
-- **Keyboard & accessibility** — controls carry accessible labels for screen readers, and the canvas is keyboard-drivable: walk annotations with `[` / `]` and select with Space (Shift+Space for several), nudge the selection with the arrow keys (Shift for larger steps), rotate a rotatable item with Alt+← / Alt+→ in 15° steps, and place a stamp or text at the viewport center with Space. Rotate the image with Ctrl+R / Ctrl+Shift+R and resize the canvas with Ctrl+E. The full list is in the keyboard-shortcuts reference.
+- **Keyboard & accessibility** — controls carry accessible labels for screen readers, and the canvas is keyboard-drivable: walk annotations with `[` / `]` and select with Space (Shift+Space for several), nudge the selection with the arrow keys (Shift for larger steps), resize it with Ctrl+arrows, rotate a rotatable item with Alt+← / Alt+→ in 15° steps, and place a stamp or text at the viewport center with Space. Rotate the image with Ctrl+R / Ctrl+Shift+R and resize the canvas with Ctrl+E. The full list is in the keyboard-shortcuts reference.
 
 - **Preferences** (saved to `~/.config/annoscr/settings.json`) — color scheme, remember tool styles between sessions, default save folder and format, confirm before discarding, and select-after-placement; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
 

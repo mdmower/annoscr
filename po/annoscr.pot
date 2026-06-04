@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 08:52-0700\n"
+"POT-Creation-Date: 2026-06-04 12:54-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -93,36 +93,40 @@ msgstr ""
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:1716
+#: src/canvas_view.ts:1721
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:1785
+#: src/canvas_view.ts:1762 src/zoom_controller.ts:149
+msgid "%w × %h px"
+msgstr ""
+
+#: src/canvas_view.ts:1835
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:1786
+#: src/canvas_view.ts:1836
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:1789
+#: src/canvas_view.ts:1839
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:1797 src/canvas_view.ts:1801
+#: src/canvas_view.ts:1847 src/canvas_view.ts:1851
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:1798
+#: src/canvas_view.ts:1848
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:1808
+#: src/canvas_view.ts:1858
 msgid "Annotation"
 msgstr ""
 
@@ -200,7 +204,7 @@ msgid "Color scheme"
 msgstr ""
 
 #. Tools
-#: src/preferences.ts:52 src/shortcuts_dialog.ts:78
+#: src/preferences.ts:52 src/shortcuts_dialog.ts:79
 msgid "Tools"
 msgstr ""
 
@@ -325,7 +329,7 @@ msgstr ""
 msgid "Preferences"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:139 src/window.ts:116
+#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:140 src/window.ts:116
 msgid "Keyboard shortcuts"
 msgstr ""
 
@@ -378,131 +382,135 @@ msgid "Nudge the selection (Shift: larger steps)"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:54
-msgid "Rotate selection 15° (rotatable items)"
+msgid "Resize selection (resizable items)"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:55
-msgid "Aim through items under the pointer (select tool)"
+msgid "Rotate selection 15° (rotatable items)"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:56
+msgid "Aim through items under the pointer (select tool)"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:57
 msgid "Edit selected text (select tool)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:60
+#: src/shortcuts_dialog.ts:61
 msgid "Image"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:62
+#: src/shortcuts_dialog.ts:63
 msgid "Rotate right (90°)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:63
+#: src/shortcuts_dialog.ts:64
 msgid "Rotate left (90°)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:64
+#: src/shortcuts_dialog.ts:65
 msgid "Resize canvas"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:68
+#: src/shortcuts_dialog.ts:69
 msgid "Z-order (select tool)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:69
+#: src/shortcuts_dialog.ts:70
 msgid "Reordering renumbers stamps within their group."
 msgstr ""
 
-#: src/shortcuts_dialog.ts:71
+#: src/shortcuts_dialog.ts:72
 msgid "Send backward"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:72
+#: src/shortcuts_dialog.ts:73
 msgid "Bring forward"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:73
+#: src/shortcuts_dialog.ts:74
 msgid "Send to back"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:74
+#: src/shortcuts_dialog.ts:75
 msgid "Bring to front"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:80 src/window_constants.ts:88
+#: src/shortcuts_dialog.ts:81 src/window_constants.ts:88
 msgid "Select"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:81 src/window_constants.ts:89
+#: src/shortcuts_dialog.ts:82 src/window_constants.ts:89
 msgid "Pen"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:82
+#: src/shortcuts_dialog.ts:83
 msgid "Highlighter"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:83 src/window_constants.ts:96
+#: src/shortcuts_dialog.ts:84 src/window_constants.ts:96
 msgid "Text"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:84
+#: src/shortcuts_dialog.ts:85
 msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:85 src/style_bar.ts:279 src/style_bar.ts:771
+#: src/shortcuts_dialog.ts:86 src/style_bar.ts:279 src/style_bar.ts:771
 #: src/window_constants.ts:98
 msgid "Line"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:86 src/window_constants.ts:99
+#: src/shortcuts_dialog.ts:87 src/window_constants.ts:99
 msgid "Arrow"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:87 src/window_constants.ts:100
+#: src/shortcuts_dialog.ts:88 src/window_constants.ts:100
 msgid "Rectangle"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:88 src/window_constants.ts:101
+#: src/shortcuts_dialog.ts:89 src/window_constants.ts:101
 msgid "Oval"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:92
+#: src/shortcuts_dialog.ts:93
 msgid "View"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:94
+#: src/shortcuts_dialog.ts:95
 msgid "Fit to window"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:95
+#: src/shortcuts_dialog.ts:96
 msgid "1∶1 zoom"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:96
+#: src/shortcuts_dialog.ts:97
 msgid "Zoom in"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:97
+#: src/shortcuts_dialog.ts:98
 msgid "Zoom out"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:98
+#: src/shortcuts_dialog.ts:99
 msgid "Zoom at the pointer"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:102
+#: src/shortcuts_dialog.ts:103
 msgid "Resize mode"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:104
+#: src/shortcuts_dialog.ts:105
 msgid "Apply resize"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:105
+#: src/shortcuts_dialog.ts:106
 msgid "Cancel resize"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:131
+#: src/shortcuts_dialog.ts:132
 msgid "or"
 msgstr ""
 
@@ -836,8 +844,4 @@ msgstr ""
 
 #: src/zoom_controller.ts:105
 msgid "Hold Shift to fine-tune"
-msgstr ""
-
-#: src/zoom_controller.ts:149
-msgid "%w × %h px"
 msgstr ""

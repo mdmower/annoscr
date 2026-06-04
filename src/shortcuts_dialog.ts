@@ -51,6 +51,7 @@ const SECTIONS: Section[] = [
       {keys: ['Space'], desc: N_('Select the aimed item, or place a stamp / text')},
       {keys: ['Shift', 'Space'], desc: N_('Add/remove the aimed item (select tool)')},
       {keys: ['Arrow keys'], desc: N_('Nudge the selection (Shift: larger steps)')},
+      {keys: ['Ctrl', 'Arrow keys'], desc: N_('Resize selection (resizable items)')},
       {keys: ['Alt', '←'], alt: ['Alt', '→'], desc: N_('Rotate selection 15° (rotatable items)')},
       {keys: [','], alt: ['.'], desc: N_('Aim through items under the pointer (select tool)')},
       {keys: ['Enter'], desc: N_('Edit selected text (select tool)')},
