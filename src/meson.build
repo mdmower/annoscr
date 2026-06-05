@@ -1,6 +1,7 @@
 ts_sources = files(
   'main.ts',
   'i18n.ts',
+  'a11y.ts',
   'application.ts',
   'window.ts',
   'window_constants.ts',
@@ -25,6 +26,7 @@ ts_sources = files(
 ts_outputs = [
   'main.js',
   'i18n.js',
+  'a11y.js',
   'application.js',
   'window.js',
   'window_constants.js',
