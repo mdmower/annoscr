@@ -35,6 +35,8 @@ if appstreamcli.found()
     args: ['validate', '--no-net', '--explain', metainfo_file])
 endif
 
+install_man('annoscr.1')
+
 install_data(
   'icons' / 'hicolor' / 'scalable' / 'apps' / '@0@.svg'.format(app_id),
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',

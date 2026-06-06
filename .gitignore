@@ -2,6 +2,9 @@ build/
 node_modules/
 *.tsbuildinfo
 
+# Release artifacts collected by `npm run dist`
+dist/
+
 # Claude Code context
 CLAUDE.md
 CLAUDE.local.md
@@ -14,11 +17,12 @@ debian/*.substvars
 debian/*.log
 debian/annoscr/
 debian/debhelper-build-stamp
-../annoscr_*.deb
-../annoscr_*.buildinfo
-../annoscr_*.changes
-../annoscr_*.dsc
-../annoscr_*.tar.*
+
+# Arch makepkg build artifacts (makepkg runs in packaging/arch/)
+packaging/arch/pkg/
+packaging/arch/src/
+packaging/arch/*.pkg.tar.*
+packaging/arch/*.tar.gz
 
 # Editor scratch
 .vscode/

@@ -1,0 +1,7 @@
+# Annoscr is a noarch GJS application: the payload is interpreted JavaScript with
+# no ELF objects, so RPM's automatic dependency generator finds no library
+# sonames. The libadwaita and libportal runtime libraries — loaded at runtime via
+# GObject-Introspection — must therefore be declared as explicit package
+# dependencies. Filter rpmlint's explicit-lib-dependency advisory, which assumes
+# such dependencies would be generated automatically.
+addFilter(r"explicit-lib-dependency (libadwaita|libportal)")

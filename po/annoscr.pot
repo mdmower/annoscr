@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 12:54-0700\n"
+"POT-Creation-Date: 2026-06-05 18:38-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -51,10 +51,6 @@ msgstr ""
 
 #: data/com.cmphys.Annoscr.metainfo.xml.in:27
 msgid "Matt Mower"
-msgstr ""
-
-#: data/com.cmphys.Annoscr.metainfo.xml.in:35
-msgid "Initial scaffold. Hello-world milestone."
 msgstr ""
 
 #: src/application.ts:34

@@ -1,0 +1,46 @@
+.TH ANNOSCR 1 "2026" "Annoscr" "User Commands"
+.SH NAME
+annoscr \- annotate screenshots
+.SH SYNOPSIS
+.B annoscr
+[\fIOPTION\fR...] [\fIFILE\fR]
+.SH DESCRIPTION
+.B Annoscr
+is a lightweight screenshot annotation tool for GNOME. Add arrows, text,
+shapes, highlighter strokes, and numbered stamps to an image, rotate or crop
+it, then export to PNG or JPEG or copy it to the clipboard.
+.PP
+With no arguments it opens an empty window. If \fIFILE\fR is given it is opened
+as the starting image; this is also how the desktop "Open With" entry launches
+the program.
+.SH OPTIONS
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.TP
+.B \-\-new
+Start with a blank canvas (640x480 by default) instead of an empty window.
+.TP
+.BI \-\-width " PIXELS"
+Blank-canvas width in pixels (default 640, range 1\-8192). Requires \fB\-\-new\fR.
+.TP
+.BI \-\-height " PIXELS"
+Blank-canvas height in pixels (default 480, range 1\-8192). Requires \fB\-\-new\fR.
+.TP
+.B \-\-screenshot
+Capture a screenshot through the desktop portal on startup, replacing the
+canvas. \fB\-\-new\fR has no effect when combined with this.
+.TP
+.BR \-h ", " \-\-help
+Show the built-in help and exit. Standard GTK options (such as
+.BR \-\-display )
+are also accepted.
+.SH FILES
+.TP
+.I ~/.config/annoscr/settings.json
+User preferences (color scheme, default save folder and format, remembered
+tool styles, and the curated text-font list).
+.SH SEE ALSO
+Project homepage: <https://github.com/mdmower/annoscr>
+.SH AUTHOR
+Matt Mower <mdmower@cmphys.com>

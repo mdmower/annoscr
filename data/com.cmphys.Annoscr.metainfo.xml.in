@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop-application">
+<component type="desktop-application" xmlns:its="http://www.w3.org/2005/11/its" its:version="2.0">
   <id>com.cmphys.Annoscr</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
@@ -30,8 +30,20 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.9.0" date="2026-06-04">
+      <description its:translate="no">
+        <p>First public release.</p>
+        <ul>
+          <li>Annotation tools: pen, text, line, arrow, rectangle, oval, highlighter, and numbered stamps.</li>
+          <li>Select, move, duplicate, restack, resize, and freely rotate annotations.</li>
+          <li>Rotate the image and resize to crop or expand the canvas.</li>
+          <li>Open, paste, drag-and-drop, or capture a screenshot, then export to PNG or JPEG or copy to the clipboard.</li>
+          <li>Full keyboard control and screen-reader labelling.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-05-21">
-      <description>
+      <description its:translate="no">
         <p>Initial scaffold. Hello-world milestone.</p>
       </description>
     </release>

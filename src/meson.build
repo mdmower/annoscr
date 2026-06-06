@@ -84,22 +84,44 @@ compile_ts = custom_target('compile-ts',
   install_dir: pkgdatadir / 'js',
 )
 
-launcher_conf = configuration_data()
-launcher_conf.set('gjs', gjs.full_path())
-launcher_conf.set('pkgdatadir', pkgdatadir)
-launcher_conf.set('localedir', localedir)
-launcher_conf.set('srcicons', meson.project_source_root() / 'data' / 'icons')
+# The launcher has two builds from one template. The dev launcher runs from the
+# build tree and points the icon search path at the in-tree source icons (not on
+# the hicolor search path until installed); it is not installed. The installed
+# launcher leaves that path empty — its build-tree branch never runs once
+# installed — so the packaged /usr/bin/annoscr embeds no build-machine path and
+# is reproducible across build hosts.
+dev_launcher_conf = configuration_data()
+dev_launcher_conf.set('gjs', gjs.full_path())
+dev_launcher_conf.set('pkgdatadir', pkgdatadir)
+dev_launcher_conf.set('localedir', localedir)
+dev_launcher_conf.set('srcicons', meson.project_source_root() / 'data' / 'icons')
 
-launcher = configure_file(
+dev_launcher = configure_file(
   input: 'annoscr.in',
   output: 'annoscr',
-  configuration: launcher_conf,
-  install: true,
-  install_dir: get_option('bindir'),
-  install_mode: 'rwxr-xr-x',
+  configuration: dev_launcher_conf,
 )
 
 # configure_file's install_mode doesn't affect the build-tree copy, so the
 # launcher comes out 0644 there. Mark it executable so `./build/src/annoscr`
 # runs without a manual chmod.
-meson.add_postconf_script(find_program('chmod'), '+x', launcher.full_path())
+meson.add_postconf_script(find_program('chmod'), '+x', dev_launcher.full_path())
+
+inst_launcher_conf = configuration_data()
+inst_launcher_conf.set('gjs', gjs.full_path())
+inst_launcher_conf.set('pkgdatadir', pkgdatadir)
+inst_launcher_conf.set('localedir', localedir)
+inst_launcher_conf.set('srcicons', '')
+
+inst_launcher = configure_file(
+  input: 'annoscr.in',
+  output: 'annoscr.installed',
+  configuration: inst_launcher_conf,
+)
+
+install_data(
+  inst_launcher,
+  install_dir: get_option('bindir'),
+  rename: 'annoscr',
+  install_mode: 'rwxr-xr-x',
+)

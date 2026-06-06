@@ -1,3 +1,19 @@
+annoscr (0.9.0) unstable; urgency=medium
+
+  * First public release.
+  * Annotation tools: select, pen, text, line, arrow, rectangle, oval,
+    highlighter, and grouped number/letter stamps, with per-tool color,
+    fill, stroke width, line style, and text styling.
+  * Editing: multi-select, move, duplicate, restack, resize by handles,
+    and free rotation; captions inside rectangles and ovals.
+  * Transforms: rotate the image and resize to crop or expand the canvas.
+  * Image I/O: open, paste, drag-and-drop, blank canvas, and screenshot
+    capture via the desktop portal; export to PNG/JPEG or copy to clipboard.
+  * View: fit-to-window, 1:1, and a 25-400% zoom slider.
+  * Full keyboard control and screen-reader labelling.
+
+ -- Matt Mower <mdmower@cmphys.com>  Thu, 04 Jun 2026 17:48:42 -0700
+
 annoscr (0.1.0) unstable; urgency=medium
 
   * Initial scaffolding. Milestone 1: hello-world AdwApplicationWindow,

@@ -1,6 +1,6 @@
 {
   "name": "annoscr",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Annotation tool for GNOME (GJS + GTK4 + Libadwaita).",
   "license": "GPL-3.0-or-later",
@@ -9,7 +9,12 @@
     "build": "tsc -p .",
     "watch": "tsc -p . --watch",
     "lint": "eslint .",
-    "format": "prettier -w ."
+    "lint:deb": "sh build-aux/lint-deb.sh",
+    "format": "prettier -w .",
+    "set-version": "sh build-aux/set-version.sh",
+    "dist": "sh build-aux/dist.sh",
+    "sign": "sh build-aux/sign.sh",
+    "clean": "sh build-aux/clean.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

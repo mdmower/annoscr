@@ -16,14 +16,22 @@ Homepage: https://github.com/mdmower/annoscr
 
 Package: annoscr
 Architecture: all
+# Floors set by the newest APIs used: GTK 4.14 accessibility (announce,
+# AccessibleList) and libadwaita 1.5 dialogs (the GNOME 46 baseline); GJS must
+# support gi:// ESM imports. The remaining typelibs have far older floors.
 Depends:
  ${misc:Depends},
- gjs,
- gir1.2-gtk-4.0,
- gir1.2-adw-1,
+ gjs (>= 1.72),
+ gir1.2-gtk-4.0 (>= 4.14),
+ gir1.2-adw-1 (>= 1.5),
  gir1.2-gdkpixbuf-2.0,
  gir1.2-pango-1.0,
  gir1.2-xdp-1.0,
+# Screenshot capture uses the XDG desktop portal: the client library is required
+# (gir1.2-xdp-1.0 above), but the portal service and a Screenshot backend are
+# needed only for that feature and ship with the GNOME desktop, so Recommend.
+Recommends:
+ xdg-desktop-portal-gnome | xdg-desktop-portal-gtk,
 Description: Lightweight screenshot annotation tool for GNOME
  Annoscr lets you annotate screenshots with arrows, text, shapes,
  highlighter strokes, and numbered stamps. It also supports basic

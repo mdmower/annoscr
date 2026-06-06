@@ -1,0 +1,37 @@
+# Maintainer: Matt Mower <mdmower@cmphys.com>
+pkgname=annoscr
+pkgver=0.9.0
+pkgrel=1
+pkgdesc="Lightweight screenshot annotation tool for GNOME"
+arch=('any')
+url="https://github.com/mdmower/annoscr"
+license=('GPL-3.0-or-later')
+# Needs the GNOME 46 baseline (GTK 4.14 accessibility, libadwaita 1.5 dialogs,
+# GJS gi:// ESM imports); left unversioned as Arch is rolling and always current.
+depends=('gjs' 'gtk4' 'libadwaita' 'gdk-pixbuf2' 'pango' 'libportal' 'hicolor-icon-theme')
+# Screenshot capture needs a desktop portal with a Screenshot backend running.
+optdepends=('xdg-desktop-portal-gnome: screenshot capture (or another portal backend)')
+makedepends=('meson' 'ninja' 'nodejs' 'npm' 'gettext')
+checkdepends=('desktop-file-utils' 'appstream')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/mdmower/annoscr/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  # The project-local tsc (node_modules/.bin/tsc) compiles the TypeScript and is
+  # required by meson at configure time, so populate node_modules first. This
+  # fetches from the network during build().
+  npm install --no-audit --no-fund
+  arch-meson . build
+  meson compile -C build
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  meson install -C build --destdir "$pkgdir"
+}

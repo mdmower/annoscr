@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: annoscr
 Upstream-Contact: Matt Mower <mdmower@cmphys.com>
-Source: https://github.com/
+Source: https://github.com/mdmower/annoscr
 
 Files: *
 Copyright: 2026 Matt Mower <mdmower@cmphys.com>
