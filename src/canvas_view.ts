@@ -462,6 +462,7 @@ export const CanvasView = GObject.registerClass(
         vexpand: true,
         focusable: true,
         accessible_role: Gtk.AccessibleRole.GROUP,
+        css_classes: ['annoscr-canvas'],
       });
       setAccessibleLabel(this, _('Annotation canvas'));
       this.set_draw_func(this.onDraw.bind(this));
@@ -1562,16 +1563,12 @@ export const CanvasView = GObject.registerClass(
       this.set_cursor_from_name(cursorForTool(this.currentToolId));
     }
 
-    // The keyboard path for placed annotations. A focus controller repaints so
-    // the focus ring tracks focus; the key controller drives select/nudge/place
-    // (bubble phase — a true return consumes the event so a nudge doesn't also
-    // scroll the enclosing ScrolledWindow, a false return lets it fall through).
+    // The keyboard path for placed annotations. The key controller drives
+    // select/nudge/place (bubble phase — a true return consumes the event so a
+    // nudge doesn't also scroll the enclosing ScrolledWindow, a false return
+    // lets it fall through). The focus ring is CSS (:focus-visible), so GTK
+    // repaints it on focus changes — no manual redraw needed here.
     private installKeyboard(): void {
-      const focus = new Gtk.EventControllerFocus();
-      focus.connect('enter', () => this.queue_draw());
-      focus.connect('leave', () => this.queue_draw());
-      this.add_controller(focus);
-
       const keys = new Gtk.EventControllerKey();
       keys.connect('key-pressed', (_c, keyval, _code, state) => this.onKeyPressed(keyval, state));
       this.add_controller(keys);
@@ -2828,31 +2825,9 @@ export const CanvasView = GObject.registerClass(
       }
 
       cr.restore();
-
-      // Focus ring (widget space, after the image transform is unwound): a
-      // full-widget rectangle so a keyboard user can see the canvas holds
-      // focus. Drawn at the widget bounds rather than the scrolled viewport so
-      // it rides the cached render node correctly when zoomed + scrolled; in
-      // fit mode the widget IS the viewport. Its full-frame scale reads
-      // distinctly from the per-annotation selection boxes.
-      if (this.has_focus) drawFocusRing(cr, widgetW, widgetH);
     }
   }
 );
-
-// A 2px focus outline inset from the widget edges, in the Adwaita accent blue.
-// Inset so the stroke isn't clipped at the very edge of the widget.
-function drawFocusRing(cr: Cairo.Context, w: number, h: number): void {
-  const inset = 3;
-  cr.save();
-  cr.setSourceRGBA(0.21, 0.52, 0.89, 0.9);
-  cr.setLineWidth(2);
-  cr.setDash([], 0);
-  cr.setLineJoin(Cairo.LineJoin.MITER);
-  cr.rectangle(inset, inset, Math.max(0, w - 2 * inset), Math.max(0, h - 2 * inset));
-  cr.stroke();
-  cr.restore();
-}
 
 function drawResizeOverlay(
   cr: Cairo.Context,

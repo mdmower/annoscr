@@ -23,6 +23,10 @@ const WINDOW_CSS = `
     background-color: alpha(@window_fg_color, 0.08);
     font-size: 0.85em;
   }
+  .annoscr-canvas:focus-visible {
+    outline: 2px solid @accent_color;
+    outline-offset: -2px;
+  }
 `;
 
 let windowCssInstalled = false;
