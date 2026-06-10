@@ -548,7 +548,11 @@ export const AnnoscrWindow = GObject.registerClass(
               );
             }
           })
-          .catch(() => {
+          .catch((e: unknown) => {
+            // A user cancel and a portal failure both land here (the portal
+            // reports them the same way); log the cause so a genuine failure
+            // is diagnosable even though the toast reads as a cancel.
+            console.error('takeScreenshot failed', e);
             this.set_visible(true);
             this.present();
             this.showToast(_('Screenshot cancelled'));

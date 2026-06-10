@@ -173,6 +173,11 @@ export const AnnoscrApplication = GObject.registerClass(
         typeof AnnoscrWindow
       >;
       win.present();
+      // Single-document app: one canvas per process, so only the first file
+      // can be honored.
+      if (files.length > 1) {
+        console.warn(`annoscr: opening only the first file; ignoring ${files.length - 1} more.`);
+      }
       if (files.length > 0) win.openFileChecked(files[0]);
     }
   }
