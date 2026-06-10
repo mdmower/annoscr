@@ -150,8 +150,9 @@ export class ZoomController {
     const base = dims(img.w, img.h);
     const r = this.canvas.getResizeDimensions();
     // U+2003 EM SPACE on either side of the arrow gives breathing room
-    // without depending on Pango markup or label padding tricks.
-    this.statusLabel.set_label(r ? `${base} → ${dims(r.w, r.h)}` : base);
+    // without depending on Pango markup or label padding tricks. Escaped
+    // because eslint's no-irregular-whitespace rejects the literal character.
+    this.statusLabel.set_label(r ? `${base}\u2003→\u2003${dims(r.w, r.h)}` : base);
     const scale = this.canvas.getZoomScale();
     if (scale !== null) {
       this.zoomLabel.set_label(`${Math.round(scale * 100)}%`);

@@ -1058,10 +1058,10 @@ export const AnnoscrWindow = GObject.registerClass(
           // openFile reports its own failures; only the empty-list case needs
           // a toast here.
           if (uri) this.openFile(Gio.File.new_for_uri(uri));
-          else this.showToast('Clipboard has no image to paste');
+          else this.showToast(_('Clipboard has no image to paste'));
         } catch (e) {
           console.error('paste (uri-list) failed', e);
-          this.showToast('Could not paste image');
+          this.showToast(_('Could not paste image'));
         } finally {
           stream?.close(null);
         }
