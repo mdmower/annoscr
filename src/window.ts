@@ -12,7 +12,7 @@ import {CanvasView} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
 import {loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
-import {ColorRGBA, TEXT_STYLE, makeTextAction, withShapeText} from './actions.js';
+import {Action, ColorRGBA, TEXT_STYLE, makeTextAction, withShapeText} from './actions.js';
 import {TextEditor, TextEditorBeginOptions, TextEditorStyle} from './text_editor.js';
 import type {TextEditRequestOptions} from './canvas_view.js';
 import {
@@ -24,6 +24,13 @@ import {
   formatFromPath,
   saveSurface,
 } from './exporter.js';
+import {
+  DOC_EXTENSION,
+  DOC_PATTERN,
+  defaultDocFilename,
+  parseDocument,
+  serializeDocument,
+} from './document.js';
 import {getSettings, updateSettings} from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
@@ -47,6 +54,12 @@ export const AnnoscrWindow = GObject.registerClass(
     private skipCloseConfirm: boolean = false;
     private saveButton: Gtk.Button;
     private copyButton: Gtk.Button;
+
+    // Path of the annotation file currently being edited (set on open or save of
+    // a .annoscr), so a re-save offers the same name/folder. Cleared whenever a
+    // plain image replaces the canvas (open/blank/paste/drop/screenshot), since
+    // that's no longer "this document".
+    private currentDocPath: string | null = null;
     // Constructed in the constructor; owns the top style-picker bar.
     private styleBar!: StyleBar;
     // Constructed in the constructor; owns the scrolled view + bottom zoom bar.
@@ -112,6 +125,12 @@ export const AnnoscrWindow = GObject.registerClass(
       // Primary menu — packed first so it lands at the right edge, next to the
       // window controls (the standard GNOME spot).
       const menu = new Gio.Menu();
+      // Annotation-file open/save: a reopenable document (image + editable
+      // actions), distinct from the prominent PNG/JPEG export on the header bar.
+      const fileSection = new Gio.Menu();
+      fileSection.append(_('Open annotation file…'), 'win.opendoc');
+      fileSection.append(_('Save annotation file…'), 'win.savedoc');
+      menu.append_section(null, fileSection);
       menu.append(_('Preferences'), 'win.preferences');
       menu.append(_('Keyboard shortcuts'), 'win.shortcuts');
       menu.append(_('About Annoscr'), 'win.about');
@@ -376,6 +395,8 @@ export const AnnoscrWindow = GObject.registerClass(
       add('shortcuts', () => presentShortcuts(this));
       add('about', () => showAbout(this));
       add('quit', () => this.close());
+      add('opendoc', () => this.openDocumentDialog());
+      add('savedoc', () => this.saveDocumentDialog());
       app.set_accels_for_action('win.preferences', ['<Control>comma']);
       app.set_accels_for_action('win.shortcuts', ['<Control>question']);
       app.set_accels_for_action('win.quit', ['<Control>q']);
@@ -490,11 +511,25 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     // Entry point for files handed in from outside (file manager "Open With",
-    // command-line argument). Guards an unsaved canvas before replacing it.
+    // command-line argument). Routes a .annoscr to the document opener and any
+    // other file to the image loader, guarding an unsaved canvas first.
     openFileChecked(file: Gio.File): void {
-      confirmDiscard(this, _('Opening this image'), this.canvas.isDirty(), () =>
-        this.openFile(file)
-      );
+      if (this.isDocumentFile(file)) {
+        confirmDiscard(this, _('Opening this annotation file'), this.canvas.isDirty(), () =>
+          this.openDocumentFile(file)
+        );
+      } else {
+        confirmDiscard(this, _('Opening this image'), this.canvas.isDirty(), () =>
+          this.openFile(file)
+        );
+      }
+    }
+
+    // Whether an incoming file is an annotation document, by extension — the same
+    // classification the file manager and CLI rely on.
+    private isDocumentFile(file: Gio.File): boolean {
+      const name = file.get_basename();
+      return name !== null && name.toLowerCase().endsWith(DOC_EXTENSION);
     }
 
     captureScreenshot(): void {
@@ -539,7 +574,20 @@ export const AnnoscrWindow = GObject.registerClass(
       // Discard any in-progress text edit or resize — they belonged to the old image.
       this.editor.cancel();
       if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
+      // A plain image isn't tied to any annotation file.
+      this.currentDocPath = null;
       this.canvas.setImage(surface);
+      this.stack.set_visible_child_name('canvas');
+      this.saveButton.set_sensitive(true);
+      this.copyButton.set_sensitive(true);
+    }
+
+    // Same UI setup as setImage, but loads a saved document (surface + actions)
+    // instead of a bare image.
+    private setDocument(surface: Cairo.ImageSurface, actions: ReadonlyArray<Action>): void {
+      this.editor.cancel();
+      if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
+      this.canvas.loadDocument(surface, actions);
       this.stack.set_visible_child_name('canvas');
       this.saveButton.set_sensitive(true);
       this.copyButton.set_sensitive(true);
@@ -557,9 +605,18 @@ export const AnnoscrWindow = GObject.registerClass(
       const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
       dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
         if (!file) return false;
-        confirmDiscard(this, _('Opening the dropped image'), this.canvas.isDirty(), () =>
-          this.openFile(file)
-        );
+        if (this.isDocumentFile(file)) {
+          confirmDiscard(
+            this,
+            _('Opening the dropped annotation file'),
+            this.canvas.isDirty(),
+            () => this.openDocumentFile(file)
+          );
+        } else {
+          confirmDiscard(this, _('Opening the dropped image'), this.canvas.isDirty(), () =>
+            this.openFile(file)
+          );
+        }
         return true;
       });
       this.add_controller(dropTarget);
@@ -817,6 +874,118 @@ export const AnnoscrWindow = GObject.registerClass(
           this.showToast(_('Could not save image'));
         }
       });
+    }
+
+    // Save the canvas as a reopenable annotation file (image + editable actions).
+    // Counts as "saved" for the unsaved-changes guard, same as an image export.
+    private saveDocumentDialog(): void {
+      if (!this.canvas.hasImage()) return;
+      this.editor.commitIfActive();
+
+      const settings = getSettings();
+      const dialog = new Gtk.FileDialog({title: _('Save annotation file'), modal: true});
+      // Re-saving an opened/saved document offers its own name + folder; renaming
+      // is how the user makes a copy. Otherwise fall back to a fresh timestamped
+      // name in the configured default folder.
+      const docFolder = this.currentDocPath
+        ? Gio.File.new_for_path(this.currentDocPath).get_parent()
+        : null;
+      dialog.set_initial_name(
+        this.currentDocPath ? GLib.path_get_basename(this.currentDocPath) : defaultDocFilename()
+      );
+      dialog.set_initial_folder(
+        docFolder ?? Gio.File.new_for_path(settings.defaultSaveFolder || defaultSaveFolderPath())
+      );
+
+      const filter = new Gtk.FileFilter({name: _('Annotation file')});
+      filter.add_pattern(DOC_PATTERN);
+      const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
+      filters.append(filter);
+      dialog.set_filters(filters);
+      dialog.set_default_filter(filter);
+
+      dialog.save(this, null, (_src, result) => {
+        let file: Gio.File;
+        try {
+          file = dialog.save_finish(result);
+        } catch (e) {
+          if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+            console.error('save_finish failed', e);
+          }
+          return;
+        }
+        if (!file) return;
+
+        const snapshot = this.canvas.documentSnapshot();
+        if (!snapshot) return;
+
+        let path = file.get_path();
+        if (!path) return;
+        if (!path.toLowerCase().endsWith(DOC_EXTENSION)) path += DOC_EXTENSION;
+
+        try {
+          const text = serializeDocument(snapshot.surface, snapshot.actions);
+          Gio.File.new_for_path(path).replace_contents(
+            new TextEncoder().encode(text),
+            null,
+            false,
+            Gio.FileCreateFlags.NONE,
+            null
+          );
+          this.canvas.markClean();
+          // Track the saved path so a later re-save offers it (Save-As behavior:
+          // saving to a new name switches the working document to that name).
+          this.currentDocPath = path;
+        } catch (e) {
+          console.error('save annotation file failed', e);
+          this.showToast(_('Could not save annotation file'));
+        }
+      });
+    }
+
+    private openDocumentDialog(): void {
+      confirmDiscard(this, _('Opening an annotation file'), this.canvas.isDirty(), () =>
+        this.openDocumentDialogUnchecked()
+      );
+    }
+
+    private openDocumentDialogUnchecked(): void {
+      const dialog = new Gtk.FileDialog({title: _('Open annotation file'), modal: true});
+      const filter = new Gtk.FileFilter({name: _('Annotation file')});
+      filter.add_pattern(DOC_PATTERN);
+      const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
+      filters.append(filter);
+      dialog.set_filters(filters);
+      dialog.set_default_filter(filter);
+
+      dialog.open(this, null, (_src, result) => {
+        let file: Gio.File;
+        try {
+          file = dialog.open_finish(result);
+        } catch (e) {
+          if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+            console.error('open_finish failed', e);
+          }
+          return;
+        }
+        if (file) this.openDocumentFile(file);
+      });
+    }
+
+    private openDocumentFile(file: Gio.File): void {
+      try {
+        const [ok, contents] = file.load_contents(null);
+        if (!ok) throw new Error('load_contents returned false');
+        const {surface, actions} = parseDocument(new TextDecoder().decode(contents));
+        this.setDocument(surface, actions);
+        // Remember the opened file so a re-save offers the same name/folder.
+        this.currentDocPath = file.get_path();
+      } catch (e) {
+        // parseDocument's DocumentError and any I/O error both land here; the
+        // specific cause is logged, the user sees one general message.
+        console.error('openDocumentFile failed', e);
+        this.showToast(_('Could not open annotation file'));
+      }
     }
 
     private copyImageToClipboard(): void {

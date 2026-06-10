@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-05 18:38-0700\n"
+"POT-Creation-Date: 2026-06-09 19:15-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,7 +49,7 @@ msgid ""
 "crop as needed, then export or copy to clipboard."
 msgstr ""
 
-#: data/com.cmphys.Annoscr.metainfo.xml.in:27
+#: data/com.cmphys.Annoscr.metainfo.xml.in:28
 msgid "Matt Mower"
 msgstr ""
 
@@ -75,54 +75,54 @@ msgstr ""
 msgid "Capture a screenshot via the desktop portal on startup"
 msgstr ""
 
-#: src/canvas_view.ts:466
+#: src/canvas_view.ts:467
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1280
+#: src/canvas_view.ts:1321
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1337
+#: src/canvas_view.ts:1378
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:1721
+#: src/canvas_view.ts:1758
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:1762 src/zoom_controller.ts:149
+#: src/canvas_view.ts:1799 src/zoom_controller.ts:149
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:1835
+#: src/canvas_view.ts:1872
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:1836
+#: src/canvas_view.ts:1873
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:1839
+#: src/canvas_view.ts:1876
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:1847 src/canvas_view.ts:1851
+#: src/canvas_view.ts:1884 src/canvas_view.ts:1888
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:1848
+#: src/canvas_view.ts:1885
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:1858
+#: src/canvas_view.ts:1895
 msgid "Annotation"
 msgstr ""
 
@@ -301,7 +301,7 @@ msgstr ""
 msgid "General"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:31 src/window.ts:455
+#: src/shortcuts_dialog.ts:31 src/window.ts:476
 msgid "Open image"
 msgstr ""
 
@@ -309,7 +309,7 @@ msgstr ""
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:33 src/window.ts:764
+#: src/shortcuts_dialog.ts:33 src/window.ts:821
 msgid "Save image"
 msgstr ""
 
@@ -321,15 +321,15 @@ msgstr ""
 msgid "Paste image"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:36 src/window.ts:115
+#: src/shortcuts_dialog.ts:36 src/window.ts:134
 msgid "Preferences"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:140 src/window.ts:116
+#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:140 src/window.ts:135
 msgid "Keyboard shortcuts"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:38 src/window.ts:118
+#: src/shortcuts_dialog.ts:38 src/window.ts:137
 msgid "Quit"
 msgstr ""
 
@@ -433,11 +433,11 @@ msgstr ""
 msgid "Bring to front"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:81 src/window_constants.ts:88
+#: src/shortcuts_dialog.ts:81 src/window_constants.ts:92
 msgid "Select"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:82 src/window_constants.ts:89
+#: src/shortcuts_dialog.ts:82 src/window_constants.ts:93
 msgid "Pen"
 msgstr ""
 
@@ -445,7 +445,7 @@ msgstr ""
 msgid "Highlighter"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:84 src/window_constants.ts:96
+#: src/shortcuts_dialog.ts:84 src/window_constants.ts:100
 msgid "Text"
 msgstr ""
 
@@ -454,19 +454,19 @@ msgid "Number stamp"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:86 src/style_bar.ts:279 src/style_bar.ts:771
-#: src/window_constants.ts:98
+#: src/window_constants.ts:102
 msgid "Line"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:87 src/window_constants.ts:99
+#: src/shortcuts_dialog.ts:87 src/window_constants.ts:103
 msgid "Arrow"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:88 src/window_constants.ts:100
+#: src/shortcuts_dialog.ts:88 src/window_constants.ts:104
 msgid "Rectangle"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:89 src/window_constants.ts:101
+#: src/shortcuts_dialog.ts:89 src/window_constants.ts:105
 msgid "Oval"
 msgstr ""
 
@@ -554,7 +554,7 @@ msgstr ""
 msgid "Group"
 msgstr ""
 
-#: src/style_bar.ts:323 src/window_constants.ts:97
+#: src/style_bar.ts:323 src/window_constants.ts:101
 msgid "Number"
 msgstr ""
 
@@ -681,144 +681,184 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
-#: src/window.ts:72
+#: src/window.ts:85
 msgid "New blank canvas… (Ctrl+N)"
 msgstr ""
 
-#: src/window.ts:80
+#: src/window.ts:93
 msgid "Open image… (Ctrl+O)"
 msgstr ""
 
-#: src/window.ts:88
+#: src/window.ts:101
 msgid "Take screenshot… (Ctrl+Shift+S)"
 msgstr ""
 
-#: src/window.ts:96
+#: src/window.ts:109
 msgid "Save image… (Ctrl+S)"
 msgstr ""
 
-#: src/window.ts:105
+#: src/window.ts:118
 msgid "Copy image to clipboard (Ctrl+C)"
 msgstr ""
 
-#: src/window.ts:117
-msgid "About Annoscr"
-msgstr ""
-
-#: src/window.ts:121
-msgid "Main menu"
+#: src/window.ts:131
+msgid "Open annotation file…"
 msgstr ""
 
 #: src/window.ts:132
-msgid "Resize canvas… (Ctrl+E)"
+msgid "Save annotation file…"
+msgstr ""
+
+#: src/window.ts:136
+msgid "About Annoscr"
 msgstr ""
 
 #: src/window.ts:140
+msgid "Main menu"
+msgstr ""
+
+#: src/window.ts:151
+msgid "Resize canvas… (Ctrl+E)"
+msgstr ""
+
+#: src/window.ts:159
 msgid "Rotate right 90° (Ctrl+R)"
 msgstr ""
 
-#: src/window.ts:148
+#: src/window.ts:167
 msgid "Rotate left 90° (Ctrl+Shift+R)"
 msgstr ""
 
-#: src/window.ts:301
+#: src/window.ts:320
 msgid ""
 "Create a blank canvas, open an image, paste from the clipboard, or drop a "
 "file here."
 msgstr ""
 
-#: src/window.ts:391
+#: src/window.ts:412
 msgid "Closing the window"
 msgstr ""
 
-#: src/window.ts:449
+#: src/window.ts:470
 msgid "Opening a new image"
 msgstr ""
 
-#: src/window.ts:457
+#: src/window.ts:478
 msgid "Images"
 msgstr ""
 
 #. Guards an unsaved canvas before replacing it. Harmless at cold startup
 #. (confirmDiscard proceeds immediately when nothing is dirty); the guard
 #. matters now that `--new` can reach an already-running instance.
-#: src/window.ts:481 src/window.ts:487
+#: src/window.ts:502 src/window.ts:508
 msgid "Creating a blank canvas"
 msgstr ""
 
-#: src/window.ts:495
+#: src/window.ts:518
+msgid "Opening this annotation file"
+msgstr ""
+
+#: src/window.ts:522
 msgid "Opening this image"
 msgstr ""
 
-#: src/window.ts:511
+#: src/window.ts:546
 msgid "Opening the screenshot"
 msgstr ""
 
-#: src/window.ts:519
+#: src/window.ts:554
 msgid "Screenshot cancelled"
 msgstr ""
 
-#: src/window.ts:534
+#: src/window.ts:569
 #, javascript-format
 msgid "Could not open \"%s\""
 msgstr ""
 
-#: src/window.ts:560
+#: src/window.ts:611
+msgid "Opening the dropped annotation file"
+msgstr ""
+
+#: src/window.ts:616
 msgid "Opening the dropped image"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:773
+#: src/window.ts:830
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:817
+#: src/window.ts:874
 msgid "Could not save image"
 msgstr ""
 
-#: src/window.ts:829
+#: src/window.ts:886
+msgid "Save annotation file"
+msgstr ""
+
+#: src/window.ts:900 src/window.ts:954
+msgid "Annotation file"
+msgstr ""
+
+#: src/window.ts:941
+msgid "Could not save annotation file"
+msgstr ""
+
+#: src/window.ts:947
+msgid "Opening an annotation file"
+msgstr ""
+
+#: src/window.ts:953
+msgid "Open annotation file"
+msgstr ""
+
+#: src/window.ts:987
+msgid "Could not open annotation file"
+msgstr ""
+
+#: src/window.ts:998
 msgid "Image copied to clipboard"
 msgstr ""
 
-#: src/window.ts:832
+#: src/window.ts:1001
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:837
+#: src/window.ts:1006
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:863
+#: src/window.ts:1032
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:875
+#: src/window.ts:1044
 msgid "Clipboard has no image to paste"
 msgstr ""
 
-#: src/window_constants.ts:64
+#: src/window_constants.ts:68
 msgid "Custom"
 msgstr ""
 
-#: src/window_constants.ts:65
+#: src/window_constants.ts:69
 msgid "640 × 480"
 msgstr ""
 
-#: src/window_constants.ts:66
+#: src/window_constants.ts:70
 msgid "800 × 600"
 msgstr ""
 
-#: src/window_constants.ts:67
+#: src/window_constants.ts:71
 msgid "1280 × 720 (HD)"
 msgstr ""
 
-#: src/window_constants.ts:68
+#: src/window_constants.ts:72
 msgid "1920 × 1080 (Full HD)"
 msgstr ""
 
-#: src/window_constants.ts:92
+#: src/window_constants.ts:96
 msgid "Highlight"
 msgstr ""
 

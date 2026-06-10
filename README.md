@@ -32,6 +32,8 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Image I/O**: open a file, paste, drag-and-drop, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard.
 
+- **Annotation files**: save an editable `.annoscr` file (the canvas image plus your annotations) from the primary menu, then reopen it later — from the primary menu, the file manager, drag-and-drop, or the command line (`annoscr drawing.annoscr`) — to add, change, or remove annotations. PNG / JPEG export stays the primary way to share a finished image.
+
 - **View**: Fit-to-window, 1:1, or a continuous zoom slider from 25% to 400%.
 
 - **Keyboard & accessibility**: the canvas is keyboard-drivable (walk, select, nudge, resize, rotate, and edit most annotations without the mouse), and every control carries an accessible label for screen readers. The complete shortcut list lives in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
@@ -167,12 +169,15 @@ Application Options:
   ```sh
   annoscr path/to/image.png
   ```
+- Reopen a saved annotation file to keep editing
+  ```sh
+  annoscr path/to/drawing.annoscr
+  ```
 
 ## Roadmap
 
 Annoscr is in active development. Planned work:
 
-- **Save annotation files**: exporting currently produces only PNG / JPEG, flattening annotations into the image. A native saved format would keep them editable.
 - **Improved style toolbar**: the horizontally scrollable style bar shown when many options are available is a stopgap.
 
 ## Contributing

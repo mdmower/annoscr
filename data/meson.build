@@ -35,6 +35,15 @@ if appstreamcli.found()
     args: ['validate', '--no-net', '--explain', metainfo_file])
 endif
 
+# Register the .annoscr document type (application/x-annoscr) so the file
+# manager can open annotation files with Annoscr. The MIME database refresh is
+# handled by the distro's install machinery (Debian dh triggers, Fedora's
+# shared-mime-info file trigger, Arch's pacman hooks) — no maintainer scripts.
+install_data(
+  '@0@.mime.xml'.format(app_id),
+  install_dir: get_option('datadir') / 'mime' / 'packages',
+)
+
 install_man('annoscr.1')
 
 install_data(

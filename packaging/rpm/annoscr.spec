@@ -74,6 +74,7 @@ npm install --no-audit --no-fund
 %{_bindir}/%{name}
 %{_datadir}/applications/com.cmphys.Annoscr.desktop
 %{_metainfodir}/com.cmphys.Annoscr.metainfo.xml
+%{_datadir}/mime/packages/com.cmphys.Annoscr.mime.xml
 %{_datadir}/icons/hicolor/scalable/apps/com.cmphys.Annoscr.svg
 %{_datadir}/icons/hicolor/scalable/actions/annoscr-*-symbolic.svg
 %{_datadir}/%{name}/

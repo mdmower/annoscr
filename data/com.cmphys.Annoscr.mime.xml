@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-annoscr">
+    <comment>Annoscr annotation document</comment>
+    <!-- The file is a JSON envelope (image + editable annotations). -->
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.annoscr"/>
+    <!-- Fallback when the extension is wrong: the envelope's format marker
+         appears near the start of the JSON. -->
+    <magic priority="60">
+      <match type="string" value="annoscr-document" offset="0:256"/>
+    </magic>
+    <!-- A .annoscr is fundamentally an image plus editable annotations. -->
+    <generic-icon name="image-x-generic"/>
+  </mime-type>
+</mime-info>

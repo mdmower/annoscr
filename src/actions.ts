@@ -135,6 +135,10 @@ export interface Action {
   // (`getBounds()`); rotated text overrides it with a precise rotated-rect test
   // so its loose bounding box doesn't grab clicks far from the tilted text.
   containsPoint(ix: number, iy: number): boolean;
+  // The action's on-disk form for the .annoscr document format (the inverse is
+  // deserializeAction). Each type emits its own `type` discriminant; see the
+  // SerializedAction union for the shapes.
+  serialize(): SerializedAction;
 }
 
 // 90° image rotation in image-space coords. Derived by composing Cairo's
@@ -442,6 +446,109 @@ export const CORNER_RADIUS_MAX = 100;
 export const CANVAS_SIZE_MIN = 1;
 export const CANVAS_SIZE_MAX = 8192;
 
+// ---------- Serialized forms (.annoscr document format) ----------
+
+// On-disk shapes for the annotation file. These are the format's stable
+// contract: the JSON keys are chosen independently of the (private) class field
+// names, so internal refactors don't change the file format. Colors are
+// [r,g,b,a] floats 0..1; coordinates are source-image-space pixels. A new
+// optional field is backward-compatible; renaming/removing one is a version bump.
+
+export interface SerializedTextStyle {
+  color: ColorRGBA;
+  size: number;
+  fontDesc: string;
+  bg: ColorRGBA;
+  align: TextAlign;
+}
+
+export interface SerializedShapeText {
+  markup: string;
+  style: SerializedTextStyle;
+}
+
+// Shared endpoint + stroke fields for the line/arrow/rect/oval shapes.
+interface SerializedEndpoints {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: ColorRGBA;
+  width: number;
+  dash: DashStyle;
+}
+
+export interface SerializedStroke {
+  type: 'pen' | 'highlighter';
+  points: Array<[number, number]>;
+  color: ColorRGBA;
+  width: number;
+}
+
+export interface SerializedLine extends SerializedEndpoints {
+  type: 'line';
+}
+
+export interface SerializedArrow extends SerializedEndpoints {
+  type: 'arrow';
+  filledHead: boolean;
+}
+
+export interface SerializedRect extends SerializedEndpoints {
+  type: 'rect';
+  fill: ColorRGBA;
+  rotation: number;
+  cornerRadius: number;
+  text?: SerializedShapeText; // omitted when the box has no text
+}
+
+export interface SerializedOval extends SerializedEndpoints {
+  type: 'oval';
+  fill: ColorRGBA;
+  rotation: number;
+  text?: SerializedShapeText;
+}
+
+export interface SerializedText {
+  type: 'text';
+  x: number;
+  y: number;
+  markup: string;
+  rotation: number;
+  color: ColorRGBA;
+  size: number;
+  fontDesc: string;
+  bg: ColorRGBA;
+  align: TextAlign;
+  editorSize?: EditorSize; // pure UX (the re-edit frame size); ignorable
+}
+
+export interface SerializedNumber {
+  type: 'number';
+  x: number;
+  y: number;
+  groupId: number;
+  variant: StampVariant;
+  rotation: number;
+  // The ordinal (n) is intentionally NOT stored — it's derived per group by
+  // renumberStamps on load, so it can't drift from document order.
+  radius: number;
+  fillColor: ColorRGBA;
+  foregroundColor: ColorRGBA;
+  borderWidth: number;
+  fontDesc: string;
+  fontSize: number;
+}
+
+export type SerializedAction =
+  | SerializedStroke
+  | SerializedLine
+  | SerializedArrow
+  | SerializedRect
+  | SerializedOval
+  | SerializedText
+  | SerializedNumber;
+
 const SHAPE_MIN_EXTENT = 2;
 
 // Number-stamp radius bounds (image-space px). MIN is the resize floor (a corner
@@ -457,6 +564,7 @@ abstract class BaseAction implements Action {
   abstract getBounds(): Bounds | null;
   abstract translate(dx: number, dy: number): Action;
   abstract rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
+  abstract serialize(): SerializedAction;
 
   getColor(): ColorRGBA | null {
     return null;
@@ -797,6 +905,22 @@ class TextAction extends BaseAction {
       this.editorSize
     );
   }
+
+  serialize(): SerializedAction {
+    return {
+      type: 'text',
+      x: this.x,
+      y: this.y,
+      markup: this.markup,
+      rotation: this.rotation,
+      color: this.style.color,
+      size: this.style.size,
+      fontDesc: this.style.fontDesc,
+      bg: this.style.bg,
+      align: this.style.align,
+      ...(this.editorSize ? {editorSize: this.editorSize} : {}),
+    };
+  }
 }
 
 export function makeTextAction(
@@ -1091,6 +1215,24 @@ class NumberStampAction extends BaseAction {
       }
     );
   }
+
+  serialize(): SerializedAction {
+    const s = this.style;
+    return {
+      type: 'number',
+      x: this.x,
+      y: this.y,
+      groupId: this.groupId,
+      variant: this.variant,
+      rotation: this.rotation,
+      radius: s.radius,
+      fillColor: s.fillColor,
+      foregroundColor: s.foregroundColor,
+      borderWidth: s.borderWidth,
+      fontDesc: s.fontDesc,
+      fontSize: s.fontSize,
+    };
+  }
 }
 
 export function makeNumberStampAction(
@@ -1241,6 +1383,15 @@ class StrokeAction extends BaseAction {
   withWidth(width: number): Action {
     return new StrokeAction(this.points, {...this.style, width}, this.tool);
   }
+
+  serialize(): SerializedAction {
+    return {
+      type: this.tool,
+      points: [...this.points],
+      color: this.style.color,
+      width: this.style.width,
+    };
+  }
 }
 
 class StrokeLiveStroke implements LiveStroke {
@@ -1353,6 +1504,20 @@ abstract class TwoEndpointAction extends BaseAction {
     if (handle === 'p2') return this.rebuild(this.x1, this.y1, ix, iy, this.style);
     return this;
   }
+
+  // Shared serialized endpoint + stroke fields; subclasses add their type tag
+  // and any extra state (arrowhead, fill, rotation, text, corner radius).
+  protected endpointData(): SerializedEndpoints {
+    return {
+      x1: this.x1,
+      y1: this.y1,
+      x2: this.x2,
+      y2: this.y2,
+      color: this.style.color,
+      width: this.style.width,
+      dash: this.style.dash,
+    };
+  }
 }
 
 // ---------- Line ----------
@@ -1367,6 +1532,10 @@ class LineAction extends TwoEndpointAction {
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
     return new LineAction(x1, y1, x2, y2, style);
+  }
+
+  serialize(): SerializedAction {
+    return {type: 'line', ...this.endpointData()};
   }
 }
 
@@ -1506,6 +1675,10 @@ class ArrowAction extends TwoEndpointAction {
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
     return new ArrowAction(x1, y1, x2, y2, style, this.filledHead);
+  }
+
+  serialize(): SerializedAction {
+    return {type: 'arrow', ...this.endpointData(), filledHead: this.filledHead};
   }
 }
 
@@ -1793,6 +1966,19 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     );
     return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation, this.text);
   }
+
+  // Shared serialized box fields (fill, rotation, and embedded text when
+  // present); subclasses prepend their type tag and add any extra state.
+  protected boxData(): {fill: ColorRGBA; rotation: number; text?: SerializedShapeText} {
+    const data: {fill: ColorRGBA; rotation: number; text?: SerializedShapeText} = {
+      fill: this.fill,
+      rotation: this.rotation,
+    };
+    if (this.text.markup) {
+      data.text = {markup: this.text.markup, style: {...this.text.style}};
+    }
+    return data;
+  }
 }
 
 class RectAction extends RotatableBoxAction {
@@ -1846,6 +2032,15 @@ class RectAction extends RotatableBoxAction {
       this.text,
       radius
     );
+  }
+
+  serialize(): SerializedAction {
+    return {
+      type: 'rect',
+      ...this.endpointData(),
+      ...this.boxData(),
+      cornerRadius: this.cornerRadius,
+    };
   }
 }
 
@@ -1917,6 +2112,10 @@ class OvalAction extends RotatableBoxAction {
     text: ShapeText
   ): Action {
     return new OvalAction(x1, y1, x2, y2, style, fill, rotation, text);
+  }
+
+  serialize(): SerializedAction {
+    return {type: 'oval', ...this.endpointData(), ...this.boxData()};
   }
 }
 
@@ -2082,6 +2281,122 @@ export function actionToolId(action: Action): ToolId | null {
   if (action instanceof TextAction) return 'text';
   if (action instanceof NumberStampAction) return 'number';
   return null;
+}
+
+// ---------- (De)serialization ----------
+
+// Serialize an action list to its on-disk forms (for the .annoscr document).
+export function serializeActions(actions: ReadonlyArray<Action>): SerializedAction[] {
+  return actions.map((a) => a.serialize());
+}
+
+function deserializeShapeText(text: SerializedShapeText | undefined): ShapeText {
+  if (!text) return EMPTY_SHAPE_TEXT;
+  return {
+    markup: text.markup,
+    style: {
+      color: text.style.color,
+      size: text.style.size,
+      fontDesc: text.style.fontDesc,
+      bg: text.style.bg,
+      align: text.style.align,
+    },
+  };
+}
+
+// Reconstruct one action from its serialized form (the inverse of
+// Action.serialize()). Stamps get a placeholder ordinal that deserializeActions
+// corrects via renumberStamps. Throws on an unknown discriminant (corrupt file).
+export function deserializeAction(data: SerializedAction): Action {
+  switch (data.type) {
+    case 'pen':
+    case 'highlighter':
+      return new StrokeAction(
+        data.points.map(([x, y]): [number, number] => [x, y]),
+        {color: data.color, width: data.width, dash: DEFAULT_DASH},
+        data.type
+      );
+    case 'line':
+      return new LineAction(data.x1, data.y1, data.x2, data.y2, {
+        color: data.color,
+        width: data.width,
+        dash: data.dash,
+      });
+    case 'arrow':
+      return new ArrowAction(
+        data.x1,
+        data.y1,
+        data.x2,
+        data.y2,
+        {color: data.color, width: data.width, dash: data.dash},
+        data.filledHead
+      );
+    case 'rect':
+      return new RectAction(
+        data.x1,
+        data.y1,
+        data.x2,
+        data.y2,
+        {color: data.color, width: data.width, dash: data.dash},
+        data.fill,
+        normalizeAngle(data.rotation),
+        deserializeShapeText(data.text),
+        data.cornerRadius
+      );
+    case 'oval':
+      return new OvalAction(
+        data.x1,
+        data.y1,
+        data.x2,
+        data.y2,
+        {color: data.color, width: data.width, dash: data.dash},
+        data.fill,
+        normalizeAngle(data.rotation),
+        deserializeShapeText(data.text)
+      );
+    case 'text':
+      return new TextAction(
+        data.x,
+        data.y,
+        data.markup,
+        normalizeAngle(data.rotation),
+        {
+          color: data.color,
+          size: data.size,
+          fontDesc: data.fontDesc,
+          bg: data.bg,
+          align: data.align,
+        },
+        data.editorSize
+      );
+    case 'number':
+      return new NumberStampAction(
+        data.x,
+        data.y,
+        1,
+        data.groupId,
+        data.variant,
+        normalizeAngle(data.rotation),
+        {
+          radius: data.radius,
+          fillColor: data.fillColor,
+          foregroundColor: data.foregroundColor,
+          borderWidth: data.borderWidth,
+          fontDesc: data.fontDesc,
+          fontSize: data.fontSize,
+        }
+      );
+    default: {
+      const bad: never = data;
+      throw new Error(`Unknown serialized action type: ${JSON.stringify(bad)}`);
+    }
+  }
+}
+
+// Rebuild an action list from serialized data, renumbering stamps so each
+// group's numbering is gap-free regardless of the stored placeholder ordinals.
+export function deserializeActions(data: ReadonlyArray<SerializedAction>): Action[] {
+  return renumberStamps(data.map(deserializeAction));
 }
 
 // ---------- helpers ----------

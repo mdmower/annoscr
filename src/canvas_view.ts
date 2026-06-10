@@ -564,6 +564,38 @@ export const CanvasView = GObject.registerClass(
       this.maybeApplyInitialZoom();
     }
 
+    // Load a saved annotation document: the source surface plus its editable
+    // actions, as a fresh single-entry history (no undo across the load — opening
+    // a file is a clean baseline, not an edit). Mirrors setImage's reset, then
+    // restores stamp-group bookkeeping from the loaded stamps and marks clean.
+    loadDocument(surface: Cairo.ImageSurface, actions: ReadonlyArray<Action>): void {
+      const restored = renumberStamps(actions);
+      this.history = [{surface, actions: restored}];
+      this.historyCursor = 0;
+      this.cleanStateRef = this.history[0];
+      this.lastCoalesceKey = null;
+      // Mint future group ids above the highest loaded one (never reused) and
+      // continue placement in the last group present. Variants are read straight
+      // from the stamps by groupVariantFor, so groupVariants stays empty; the
+      // remembered defaultStampVariant (a tool preference) survives the load.
+      let maxGroup = 0;
+      for (const a of restored) {
+        const g = numberStampGroup(a);
+        if (g !== null && g > maxGroup) maxGroup = g;
+      }
+      this.placementGroupId = maxGroup >= 1 ? maxGroup : 1;
+      this.nextGroupId = Math.max(2, maxGroup + 1);
+      this.groupVariants.clear();
+      this.mode = 'fit';
+      this.zoomFactor = 1;
+      this.pendingInitialZoom = true;
+      this.resetTransientState();
+      this.updateSizeRequest();
+      this.queue_draw();
+      this.notifyStateChange();
+      this.maybeApplyInitialZoom();
+    }
+
     // Choose the opening zoom for a freshly-loaded image: 1:1 when it fits the
     // viewport (native, crisp), fit when it's larger. Runs once per load, when
     // a real allocation is available.
@@ -650,6 +682,14 @@ export const CanvasView = GObject.registerClass(
       const s = this.state.surface;
       if (!s) return null;
       return renderToSurface(s, this.state.actions);
+    }
+
+    // Current source surface plus its editable actions (NOT flattened), for
+    // saving an annotation file. Null when there's no image.
+    documentSnapshot(): {surface: Cairo.ImageSurface; actions: ReadonlyArray<Action>} | null {
+      const s = this.state.surface;
+      if (!s) return null;
+      return {surface: s, actions: this.state.actions};
     }
 
     setTool(toolId: ToolId): void {

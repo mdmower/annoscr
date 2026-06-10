@@ -8,7 +8,7 @@ Terminal=false
 Type=Application
 Categories=Graphics;Photography;GTK;
 StartupNotify=true
-MimeType=image/png;image/jpeg;image/webp;image/bmp;image/tiff;
+MimeType=image/png;image/jpeg;image/webp;image/bmp;image/tiff;application/x-annoscr;
 Keywords=screenshot;annotate;arrow;markup;
 Actions=take-screenshot;
 

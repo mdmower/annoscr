@@ -83,6 +83,20 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
   pixbuf.savev(path, 'jpeg', ['quality'], ['90']);
 }
 
+// Encode a surface to PNG bytes in memory (no file). Shared by the clipboard
+// copy and the annotation-file image embed. Same GJS constraint as the JPEG
+// path: no JS-accessible cairo pixel data, so we go via the deprecated pixbuf
+// helper and Gdk.Texture's PNG encoder. Throws on a failed read so callers don't
+// mistake a no-op for success.
+export function surfaceToPngBytes(surface: Cairo.ImageSurface): GLib.Bytes {
+  const w = surface.getWidth();
+  const h = surface.getHeight();
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  const pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, w, h);
+  if (!pixbuf) throw new Error('Failed to read surface pixels for PNG encoding');
+  return Gdk.Texture.new_for_pixbuf(pixbuf).save_to_png_bytes();
+}
+
 // Put pre-encoded PNG bytes on the clipboard as image/png. Pre-encoding (vs.
 // providing a Gdk.Texture and letting GTK serialize on demand) avoids a
 // deadlock when this same process pastes the clipboard back: the synchronous
@@ -92,28 +106,20 @@ export function copySurfaceToClipboard(
   clipboard: Gdk.Clipboard,
   surface: Cairo.ImageSurface
 ): void {
-  const w = surface.getWidth();
-  const h = surface.getHeight();
-  // Same GJS constraint as the JPEG path: no JS-accessible way to get cairo
-  // pixel data, so the modern MemoryTexture route is closed. Stay on the
-  // deprecated helper until GJS exposes cairo_image_surface_get_data.
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, w, h);
-  // Throw rather than silently no-op so the caller doesn't mark the canvas
-  // clean as if the copy had succeeded.
-  if (!pixbuf) throw new Error('Failed to read surface pixels for clipboard copy');
-  const texture = Gdk.Texture.new_for_pixbuf(pixbuf);
-  const bytes = texture.save_to_png_bytes();
-  const provider = Gdk.ContentProvider.new_for_bytes('image/png', bytes);
+  const provider = Gdk.ContentProvider.new_for_bytes('image/png', surfaceToPngBytes(surface));
   clipboard.set_content(provider);
+}
+
+// Timestamp slug for default filenames, e.g. 2026-05-22-143015 (no extension).
+// Shared by the image export and the annotation-file default names.
+export function fileTimestamp(d: Date = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
 // Annoscr-2026-05-22-143015.png
 export function defaultSaveFilename(format: ImageFormat = 'png'): string {
-  const d = new Date();
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return `Annoscr-${ts}${FORMATS[format].ext}`;
+  return `Annoscr-${fileTimestamp()}${FORMATS[format].ext}`;
 }
 
 // User's Pictures directory if set; else home directory.

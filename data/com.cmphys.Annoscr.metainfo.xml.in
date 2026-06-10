@@ -21,6 +21,7 @@
 
   <provides>
     <binary>annoscr</binary>
+    <mediatype>application/x-annoscr</mediatype>
   </provides>
 
   <developer id="com.cmphys">

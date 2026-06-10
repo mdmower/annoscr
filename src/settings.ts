@@ -15,6 +15,7 @@ import {
   WIDTH_MIN,
 } from './actions.js';
 import {ImageFormat} from './exporter.js';
+import {asClampedNumber, asColor, isRecord} from './validators.js';
 
 const TOOL_ID_SET = new Set<string>(TOOL_IDS);
 
@@ -85,14 +86,6 @@ function settingsPath(): string {
 // value falls back to its default rather than propagating into the UI (where a
 // wrong type could, e.g., crash the save dialog on FORMATS[badFormat]).
 
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, n));
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
 function asBool(v: unknown, fallback: boolean): boolean {
   return typeof v === 'boolean' ? v : fallback;
 }
@@ -122,19 +115,6 @@ function asColorScheme(v: unknown): ColorScheme {
 
 function asFormat(v: unknown): ImageFormat {
   return v === 'png' || v === 'jpeg' ? v : DEFAULTS.defaultSaveFormat;
-}
-
-function asColor(v: unknown): ColorRGBA | undefined {
-  if (!Array.isArray(v) || v.length !== 4) return undefined;
-  const a = v as unknown[];
-  if (!a.every((n) => typeof n === 'number' && Number.isFinite(n))) return undefined;
-  const n = a as number[];
-  return [clamp(n[0], 0, 1), clamp(n[1], 0, 1), clamp(n[2], 0, 1), clamp(n[3], 0, 1)];
-}
-
-function asClampedNumber(v: unknown, lo: number, hi: number): number | undefined {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
-  return clamp(v, lo, hi);
 }
 
 // Parse one tool's persisted style, dropping malformed / out-of-range fields.

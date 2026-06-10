@@ -18,7 +18,7 @@ export function loadFromPixbuf(pixbuf: GdkPixbuf.Pixbuf): Cairo.ImageSurface {
   return surface;
 }
 
-export function loadFromStream(stream: Gio.FileInputStream): Cairo.ImageSurface {
+export function loadFromStream(stream: Gio.InputStream): Cairo.ImageSurface {
   try {
     return loadFromPixbuf(GdkPixbuf.Pixbuf.new_from_stream(stream, null));
   } finally {
@@ -28,4 +28,9 @@ export function loadFromStream(stream: Gio.FileInputStream): Cairo.ImageSurface 
 
 export function loadFromFile(file: Gio.File): Cairo.ImageSurface {
   return loadFromStream(file.read(null));
+}
+
+// Decode an in-memory image (e.g. the PNG embedded in an annotation file).
+export function loadFromBytes(bytes: Uint8Array): Cairo.ImageSurface {
+  return loadFromStream(Gio.MemoryInputStream.new_from_bytes(bytes));
 }
