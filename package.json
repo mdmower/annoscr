@@ -6,8 +6,10 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "build": "tsc -p .",
-    "watch": "tsc -p . --watch",
+    "configure": "if [ -f build-aux/xgettext.ini ]; then meson setup build --native-file build-aux/xgettext.ini; else meson setup build; fi",
+    "compile": "tsc -p .",
+    "build": "meson compile -C build",
+    "regenerate-languages": "meson compile -C build annoscr-pot",
     "lint": "eslint .",
     "lint:deb": "sh build-aux/lint-deb.sh",
     "format": "prettier -w .",
