@@ -18,7 +18,6 @@ import {
   STAMP_RADIUS_MIN,
   SerializedAction,
   SerializedShapeText,
-  StampVariant,
   TEXT_STYLE,
   TRANSPARENT_FILL,
   TextAlign,
@@ -32,7 +31,14 @@ import {
   serializeActions,
 } from './actions.js';
 import {fileTimestamp, surfaceToPngBytes} from './exporter.js';
-import {asClampedNumber, asColor, isRecord} from './validators.js';
+import {
+  asClampedNumber,
+  asColor,
+  asDash,
+  asNonEmptyString,
+  asStampVariant,
+  isRecord,
+} from './validators.js';
 import {loadFromBytes} from './image_loader.js';
 import {APP_VERSION} from './version.js';
 
@@ -96,22 +102,14 @@ export function serializeDocument(
 // STRUCTURAL fields with no sensible default — the type tag, geometry, a
 // text's content — throw DocumentError and reject the file.
 
-function asDash(v: unknown): DashStyle {
-  return v === 'solid' || v === 'dashed' || v === 'dotted' ? v : DEFAULT_DASH;
-}
-
-function asAlign(v: unknown, fallback: TextAlign): TextAlign {
-  return v === 'left' || v === 'center' || v === 'right' ? v : fallback;
+function asAlign(v: unknown): TextAlign | undefined {
+  return v === 'left' || v === 'center' || v === 'right' ? v : undefined;
 }
 
 // Free-rotation angle in radians; deserializeAction normalizes the range, so
 // only finiteness matters here.
 function asAngle(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
-}
-
-function asNonEmptyString(v: unknown, fallback: string): string {
-  return typeof v === 'string' && v.length > 0 ? v : fallback;
 }
 
 // A required coordinate: geometry has no fallback, so a malformed value
@@ -167,7 +165,7 @@ function sanitizeEndpoints(
     color: asColor(raw.color) ?? defaultColorForTool(tool),
     width:
       asClampedNumber(raw.width, WIDTH_MIN, WIDTH_MAX) ?? defaultWidthForTool(tool) ?? WIDTH_MIN,
-    dash: asDash(raw.dash),
+    dash: asDash(raw.dash) ?? DEFAULT_DASH,
   };
 }
 
@@ -181,9 +179,9 @@ function sanitizeShapeText(v: unknown): SerializedShapeText | undefined {
     style: {
       color: asColor(style.color) ?? SHAPE_TEXT_STYLE.color,
       size: asClampedNumber(style.size, FONT_SIZE_MIN, FONT_SIZE_MAX) ?? SHAPE_TEXT_STYLE.size,
-      fontDesc: asNonEmptyString(style.fontDesc, SHAPE_TEXT_STYLE.fontDesc),
+      fontDesc: asNonEmptyString(style.fontDesc) ?? SHAPE_TEXT_STYLE.fontDesc,
       bg: asColor(style.bg) ?? SHAPE_TEXT_STYLE.bg,
-      align: asAlign(style.align, SHAPE_TEXT_STYLE.align),
+      align: asAlign(style.align) ?? SHAPE_TEXT_STYLE.align,
     },
   };
 }
@@ -210,9 +208,9 @@ function sanitizeText(raw: Record<string, unknown>): SerializedAction {
     rotation: asAngle(raw.rotation),
     color: asColor(raw.color) ?? TEXT_STYLE.color,
     size: asClampedNumber(raw.size, FONT_SIZE_MIN, FONT_SIZE_MAX) ?? TEXT_STYLE.size,
-    fontDesc: asNonEmptyString(raw.fontDesc, TEXT_STYLE.fontDesc),
+    fontDesc: asNonEmptyString(raw.fontDesc) ?? TEXT_STYLE.fontDesc,
     bg: asColor(raw.bg) ?? TEXT_STYLE.bg,
-    align: asAlign(raw.align, TEXT_STYLE.align),
+    align: asAlign(raw.align) ?? TEXT_STYLE.align,
     ...(editorSize ? {editorSize} : {}),
   };
 }
@@ -225,8 +223,7 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
   // Defaults for the radius-scaled fields (border width, digit size), built
   // proportional to the validated radius.
   const defaults = numberStampStyle(foregroundColor, fillColor, radius);
-  const variant: StampVariant =
-    raw.variant === 'number' || raw.variant === 'letter' ? raw.variant : DEFAULT_STAMP_VARIANT;
+  const variant = asStampVariant(raw.variant) ?? DEFAULT_STAMP_VARIANT;
   // A bad group id folds into group 1; renumbering keeps the numbers gap-free.
   const groupId =
     typeof raw.groupId === 'number' && Number.isInteger(raw.groupId) && raw.groupId >= 1
@@ -245,7 +242,7 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
     // Bounds are sanity caps, not style limits: a border thicker than the
     // radius or a digit taller than the disc is junk input.
     borderWidth: asClampedNumber(raw.borderWidth, 0, radius) ?? defaults.borderWidth,
-    fontDesc: asNonEmptyString(raw.fontDesc, defaults.fontDesc),
+    fontDesc: asNonEmptyString(raw.fontDesc) ?? defaults.fontDesc,
     fontSize: asClampedNumber(raw.fontSize, 1, 4 * radius) ?? defaults.fontSize,
   };
 }

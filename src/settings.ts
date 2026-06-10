@@ -15,7 +15,16 @@ import {
   WIDTH_MIN,
 } from './actions.js';
 import {ImageFormat} from './exporter.js';
-import {asClampedNumber, asColor, isRecord} from './validators.js';
+import {
+  asBool,
+  asClampedNumber,
+  asColor,
+  asDash,
+  asNonEmptyString,
+  asStampVariant,
+  asString,
+  isRecord,
+} from './validators.js';
 
 const TOOL_ID_SET = new Set<string>(TOOL_IDS);
 
@@ -86,14 +95,6 @@ function settingsPath(): string {
 // value falls back to its default rather than propagating into the UI (where a
 // wrong type could, e.g., crash the save dialog on FORMATS[badFormat]).
 
-function asBool(v: unknown, fallback: boolean): boolean {
-  return typeof v === 'boolean' ? v : fallback;
-}
-
-function asString(v: unknown, fallback: string): string {
-  return typeof v === 'string' ? v : fallback;
-}
-
 // An ordered list of non-empty, de-duplicated strings, or undefined when none
 // survive (so an empty list reads the same as an absent one). Family existence
 // isn't checked here — that happens against the installed fonts when the
@@ -130,13 +131,14 @@ function asToolStyleEntry(raw: unknown): ToolStyleEntry | null {
   if (width !== undefined) entry.width = width;
   const fill = asColor(raw.fill);
   if (fill) entry.fill = fill;
-  if (raw.dash === 'solid' || raw.dash === 'dashed' || raw.dash === 'dotted') {
-    entry.dash = raw.dash;
-  }
-  if (typeof raw.filledHead === 'boolean') entry.filledHead = raw.filledHead;
+  const dash = asDash(raw.dash);
+  if (dash) entry.dash = dash;
+  const filledHead = asBool(raw.filledHead);
+  if (filledHead !== undefined) entry.filledHead = filledHead;
   const cornerRadius = asClampedNumber(raw.cornerRadius, CORNER_RADIUS_MIN, CORNER_RADIUS_MAX);
   if (cornerRadius !== undefined) entry.cornerRadius = cornerRadius;
-  if (typeof raw.fontDesc === 'string') entry.fontDesc = raw.fontDesc;
+  const fontDesc = asNonEmptyString(raw.fontDesc);
+  if (fontDesc) entry.fontDesc = fontDesc;
   const fontSize = asClampedNumber(raw.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
   if (fontSize !== undefined) entry.fontSize = fontSize;
   const stampRadius = asClampedNumber(raw.stampRadius, STAMP_RADIUS_MIN, STAMP_RADIUS_MAX);
@@ -157,9 +159,8 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
     }
   }
   const snap: ToolStylesSnapshot = {tools};
-  if (v.stampVariant === 'number' || v.stampVariant === 'letter') {
-    snap.stampVariant = v.stampVariant;
-  }
+  const stampVariant = asStampVariant(v.stampVariant);
+  if (stampVariant) snap.stampVariant = stampVariant;
   return snap;
 }
 
@@ -167,11 +168,11 @@ function sanitize(raw: unknown): AnnoscrSettings {
   if (!isRecord(raw)) return {...DEFAULTS};
   const out: AnnoscrSettings = {
     colorScheme: asColorScheme(raw.colorScheme),
-    rememberToolStyles: asBool(raw.rememberToolStyles, DEFAULTS.rememberToolStyles),
-    defaultSaveFolder: asString(raw.defaultSaveFolder, DEFAULTS.defaultSaveFolder),
+    rememberToolStyles: asBool(raw.rememberToolStyles) ?? DEFAULTS.rememberToolStyles,
+    defaultSaveFolder: asString(raw.defaultSaveFolder) ?? DEFAULTS.defaultSaveFolder,
     defaultSaveFormat: asFormat(raw.defaultSaveFormat),
-    confirmDiscard: asBool(raw.confirmDiscard, DEFAULTS.confirmDiscard),
-    selectAfterPlacement: asBool(raw.selectAfterPlacement, DEFAULTS.selectAfterPlacement),
+    confirmDiscard: asBool(raw.confirmDiscard) ?? DEFAULTS.confirmDiscard,
+    selectAfterPlacement: asBool(raw.selectAfterPlacement) ?? DEFAULTS.selectAfterPlacement,
   };
   const fontFamilies = asStringArray(raw.fontFamilies);
   if (fontFamilies) out.fontFamilies = fontFamilies;

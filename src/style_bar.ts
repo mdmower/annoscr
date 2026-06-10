@@ -34,16 +34,8 @@ import {
   isShapeAction,
   numberStampGroup,
   numberStampVariant,
+  styleValuesEqual,
 } from './actions.js';
-
-// Structural equality for style values (color arrays or scalar primitives),
-// used to detect a multi-selection that disagrees on a property.
-function styleValuesEqual(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((v, i) => v === b[i]);
-  }
-  return a === b;
-}
 
 // Set a control's caption, appending " (mixed)" when the selected actions
 // disagree on that property — the disclosure that editing the control will

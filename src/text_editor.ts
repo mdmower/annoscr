@@ -2,20 +2,10 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Pango from 'gi://Pango?version=1.0';
 import PangoCairo from 'gi://PangoCairo?version=1.0';
-import Cairo from 'cairo';
+import {getMeasureContext} from './actions.js';
 import type {ColorRGBA, EditorSize, TextAlign} from './actions.js';
 import {setAccessibleLabel} from './a11y.js';
 import {_} from './i18n.js';
-
-// Shared 1×1 context for measuring the box-mode text height (to center it
-// vertically). Created lazily after GTK is up.
-let measureCtx: Cairo.Context | null = null;
-function getMeasureCtx(): Cairo.Context {
-  if (!measureCtx) {
-    measureCtx = new Cairo.Context(new Cairo.ImageSurface(Cairo.Format.ARGB32, 1, 1));
-  }
-  return measureCtx;
-}
 
 // Styling for the floating text editor, applied once at the display level (the
 // classes are editor-specific, so leaking onto other widgets is a non-issue).
@@ -690,7 +680,7 @@ export class TextEditor {
   // Wrapped pixel height of the current text at the box wrap width + display font.
   private measureBoxTextHeight(): number {
     if (!this.currentStyle) return 0;
-    const layout = PangoCairo.create_layout(getMeasureCtx());
+    const layout = PangoCairo.create_layout(getMeasureContext());
     const desc = Pango.FontDescription.from_string(this.currentStyle.fontDesc);
     desc.set_absolute_size(this.currentStyle.size * this.displayScale * Pango.SCALE);
     layout.set_font_description(desc);

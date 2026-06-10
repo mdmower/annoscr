@@ -6,6 +6,17 @@ import {getDefaultTextFont} from './font_catalogue.js';
 
 export type ColorRGBA = [number, number, number, number];
 
+// Structural equality for style property values (color arrays or scalar
+// primitives). Shared by the canvas (skip no-op edits that would push an
+// invisible undo step) and the style bar (detect a multi-selection that
+// disagrees on a property).
+export function styleValuesEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+}
+
 // Stroke dash style for the discrete-path tools (line / arrow / rect / oval).
 // 'dotted' is a short dash of length == line width (not a round dot); see
 // dashPattern + applyStrokeStyle for the rendering details.
@@ -649,12 +660,13 @@ abstract class BaseAction implements Action {
 
 // ---------- Text ----------
 
-// Shared 1×1 context for measuring Pango layouts at TextAction construction.
-// Pango metrics for an absolute-size font don't depend on the target surface,
-// so one tiny context is enough and matches what draw()/export render at any
-// scale. Created lazily on first use, after GTK is initialized.
+// Shared 1×1 context for measuring Pango layouts off-screen (TextAction bounds
+// at construction; the text editor's box-text height). Pango metrics for an
+// absolute-size font don't depend on the target surface, so one tiny context is
+// enough and matches what draw()/export render at any scale. Created lazily on
+// first use, after GTK is initialized.
 let measureContext: Cairo.Context | null = null;
-function getMeasureContext(): Cairo.Context {
+export function getMeasureContext(): Cairo.Context {
   if (!measureContext) {
     measureContext = new Cairo.Context(new Cairo.ImageSurface(Cairo.Format.ARGB32, 1, 1));
   }

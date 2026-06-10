@@ -42,8 +42,10 @@ import {
   numberStampVariant,
   reassignStamp,
   renumberStamps,
+  roundedRectPath,
   setStampVariantInGroup,
   shapeWithoutText,
+  styleValuesEqual,
 } from './actions.js';
 import {resizeSurface, rotateSurface} from './image_transforms.js';
 import {renderToSurface} from './exporter.js';
@@ -140,15 +142,6 @@ function normalizeRegion(r: {x1: number; y1: number; x2: number; y2: number}): R
   const maxY = Math.max(r.y1, r.y2);
   if (maxX - minX < 1 || maxY - minY < 1) return null;
   return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
-}
-
-// Structural equality for style values (color arrays or scalar primitives).
-// Used to skip no-op edits that would otherwise push an invisible undo step.
-function valuesEqual(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((v, i) => v === b[i]);
-  }
-  return a === b;
 }
 
 interface CanvasState {
@@ -1141,7 +1134,7 @@ export const CanvasView = GObject.registerClass(
         // Re-picking the value an action already has would push a content-
         // identical (new-reference) state — an undo step that does nothing
         // visible. Skip those actions.
-        if (valuesEqual(current, value)) return a;
+        if (styleValuesEqual(current, value)) return a;
         changed = true;
         return apply(a, value);
       });
@@ -3017,22 +3010,6 @@ function drawCandidateBox(cr: Cairo.Context, bounds: Bounds, scale: number): voi
   );
   cr.stroke();
   cr.restore();
-}
-
-function roundedRectPath(
-  cr: Cairo.Context,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-): void {
-  cr.newSubPath();
-  cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
-  cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
-  cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
-  cr.arc(x + r, y + r, r, Math.PI, (3 * Math.PI) / 2);
-  cr.closePath();
 }
 
 // A translucent dark pill with light text, anchored just off the top-right of
