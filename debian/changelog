@@ -1,3 +1,18 @@
+annoscr (1.0.0) unstable; urgency=medium
+
+  * Editable annotation files (.annoscr): save the canvas image and its
+    annotations together, then reopen to keep editing — from the menu, file
+    manager, drag-and-drop, or the command line.
+  * New Undo memory preference bounds the memory the undo history keeps for
+    canvas rotate/resize steps.
+  * The standalone text editor now previews text at the current zoom level.
+  * Editing and accessibility polish: a keyboard focus ring on the canvas, a
+    tilted hover outline on rotated annotations, and a marker on mixed-value
+    style controls when several annotations are selected.
+  * Translated the paste notifications.
+
+ -- Matt Mower <mdmower@cmphys.com>  Wed, 10 Jun 2026 23:22:57 -0700
+
 annoscr (0.9.0) unstable; urgency=medium
 
   * First public release.

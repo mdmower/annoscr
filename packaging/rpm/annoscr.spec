@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        0.9.0
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -81,5 +81,12 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Wed Jun 10 2026 Matt Mower <mdmower@cmphys.com> - 1.0.0-1
+- Editable annotation files (.annoscr): save the canvas and annotations together and reopen to keep editing.
+- New Undo memory preference bounds the memory kept for canvas rotate/resize undo steps.
+- The standalone text editor previews text at the current zoom level.
+- Editing and accessibility polish: keyboard focus ring, tilted outline on rotated annotations, mixed-value marker.
+- Translated the paste notifications.
+
 * Thu Jun 04 2026 Matt Mower <mdmower@cmphys.com> - 0.9.0-1
 - First public release.

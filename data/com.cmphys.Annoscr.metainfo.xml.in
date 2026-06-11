@@ -11,7 +11,7 @@
     <p>
       Annoscr is a lightweight screenshot annotation tool for GNOME.
       Add arrows, text, shapes, highlighter strokes, and numbered stamps
-      to images. Rotate or crop as needed, then export or copy to clipboard.
+      to images. Rotate or resize as needed, then export or copy to clipboard.
     </p>
   </description>
 
@@ -31,6 +31,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.0.0" date="2026-06-10">
+      <description its:translate="no">
+        <ul>
+          <li>Editable annotation files (.annoscr): save the canvas and its annotations together, then reopen to keep editing.</li>
+          <li>New Undo memory preference bounds the memory kept for canvas rotate/resize undo steps.</li>
+          <li>The standalone text editor previews text at the current zoom level.</li>
+          <li>Editing and accessibility polish: a keyboard focus ring, a tilted outline on rotated annotations, and a mixed-value marker for multi-selections.</li>
+          <li>Translated the paste notifications.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-06-04">
       <description its:translate="no">
         <p>First public release.</p>

@@ -38,7 +38,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Keyboard & accessibility**: the canvas is keyboard-drivable (walk, select, nudge, resize, rotate, and edit most annotations without the mouse), and every control carries an accessible label for screen readers. The complete shortcut list lives in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
 
-- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, remember tool styles between sessions, default save folder and format, confirm before discarding, and select-after-placement; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
+- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, remember tool styles between sessions, default save folder and format, confirm before discarding, select-after-placement, and an undo-memory budget; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
 
 ## Requirements
 
@@ -112,9 +112,9 @@ sha256sum -c SHA256SUMS
 Each artifact also carries its own detached signature (`.asc` for the `.deb` and `.rpm`, `.sig` for the Arch package) if you'd rather check one directly:
 
 ```sh
-gpg --verify annoscr_0.9.0_all.deb.asc annoscr_0.9.0_all.deb
+gpg --verify annoscr_1.0.0_all.deb.asc annoscr_1.0.0_all.deb
 
-gpg --verify annoscr-0.9.0-1-any.pkg.tar.zst.sig annoscr-0.9.0-1-any.pkg.tar.zst
+gpg --verify annoscr-1.0.0-1-any.pkg.tar.zst.sig annoscr-1.0.0-1-any.pkg.tar.zst
 ```
 
 ### Arch keyring
@@ -129,7 +129,7 @@ sudo pacman-key --add annoscr-signing-key.asc
 sudo pacman-key --lsign-key 7B5B62F9C73C2BC9E451A82F39B4E90009822511
 
 # install
-sudo pacman -U ./annoscr-0.9.0-1-any.pkg.tar.zst
+sudo pacman -U ./annoscr-1.0.0-1-any.pkg.tar.zst
 ```
 
 ## Usage
