@@ -139,10 +139,17 @@ function cursorForTool(id: ToolId): string {
 }
 
 function normalizeRegion(r: {x1: number; y1: number; x2: number; y2: number}): ResizeRect | null {
-  const minX = Math.min(r.x1, r.x2);
-  const maxX = Math.max(r.x1, r.x2);
-  const minY = Math.min(r.y1, r.y2);
-  const maxY = Math.max(r.y1, r.y2);
+  // Snap the edges to whole pixels: drag coordinates are fractional (widget px
+  // ÷ zoom), but a Cairo surface has integral dimensions — GJS truncates
+  // fractional ones — so without snapping the applied canvas comes out a pixel
+  // smaller than the (rounded) status readout, the crop lands off the dashed
+  // preview, and actions translate by a fractional origin that leaves them
+  // sub-pixel offset from the pixels they were drawn over. Rounding here keeps
+  // every consumer (overlay, readout, apply) on one integral rectangle.
+  const minX = Math.round(Math.min(r.x1, r.x2));
+  const maxX = Math.round(Math.max(r.x1, r.x2));
+  const minY = Math.round(Math.min(r.y1, r.y2));
+  const maxY = Math.round(Math.max(r.y1, r.y2));
   if (maxX - minX < 1 || maxY - minY < 1) return null;
   return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
 }
@@ -1357,13 +1364,14 @@ export const CanvasView = GObject.registerClass(
       return {w: s.getWidth(), h: s.getHeight()};
     }
 
-    // Width × height of the currently-defined resize region (rounded to whole
-    // pixels), or null if no region or not in resize mode.
+    // Width × height of the currently-defined resize region — whole pixels,
+    // exactly what applyResize will produce (normalizeRegion snaps the rect) —
+    // or null if no region or not in resize mode.
     getResizeDimensions(): {w: number; h: number} | null {
       if (this.currentToolId !== 'resize') return null;
       const r = this.getResizeRect();
       if (!r) return null;
-      return {w: Math.round(r.w), h: Math.round(r.h)};
+      return {w: r.w, h: r.h};
     }
 
     addAction(action: Action): void {
@@ -1528,9 +1536,10 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Returns the resize region normalized (positive w/h) if defined and
-    // non-degenerate. May extend outside the current image bounds — that
-    // means "the new canvas pads beyond the current image."
+    // Returns the resize region normalized (positive w/h) and snapped to whole
+    // pixels (see normalizeRegion) if defined and non-degenerate. May extend
+    // outside the current image bounds — that means "the new canvas pads
+    // beyond the current image."
     getResizeRect(): ResizeRect | null {
       if (!this.resizeRegion || !this.state.surface) return null;
       return normalizeRegion(this.resizeRegion);
