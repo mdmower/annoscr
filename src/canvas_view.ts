@@ -1070,6 +1070,9 @@ export const CanvasView = GObject.registerClass(
       this.selectedIndices.clear();
       for (let k = 0; k < moved.length; k++) this.selectedIndices.add(insertAt + k);
       this.pushState({surface: this.state.surface, actions: next});
+      // The splice moved actions around; re-derive the cached hover candidate
+      // (see reorderSelected).
+      this.refreshHoverCandidate();
       this.queue_draw();
       this.notifyStateChange();
       return true;
@@ -1407,6 +1410,10 @@ export const CanvasView = GObject.registerClass(
       });
       if (this.editingActionIndex === index) this.editingActionIndex = -1;
       this.selectedIndices.clear();
+      // Removal shifted every index above it; re-derive the cached hover
+      // candidate or it would outline (and Space-select) whatever slid into
+      // the old slot (see reorderSelected).
+      this.refreshHoverCandidate();
       this.queue_draw();
     }
 
@@ -1425,6 +1432,9 @@ export const CanvasView = GObject.registerClass(
         actions: survivors,
       });
       this.selectedIndices.clear();
+      // Deletion shifted the indices above the removed actions; re-derive the
+      // cached hover candidate (see reorderSelected).
+      this.refreshHoverCandidate();
       this.queue_draw();
       announce(this, formatN(_('%d deleted'), removed));
       return true;
