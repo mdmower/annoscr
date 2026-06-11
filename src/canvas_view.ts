@@ -2736,6 +2736,13 @@ export const CanvasView = GObject.registerClass(
       const i = this.hoverCandidate;
       if (i < 0 || i >= acts.length || i === this.editingActionIndex) return;
       if (this.selectedIndices.size === 1 && this.selectedIndices.has(i)) return;
+      // A rotatable action gets a tilted outline matching its selection box (the
+      // loose AABB of a steeply rotated shape reads as the wrong target).
+      const ob = acts[i].getOrientedBounds();
+      if (ob) {
+        drawOrientedCandidateBox(cr, ob, scale);
+        return;
+      }
       const bounds = acts[i].getBounds();
       if (bounds) drawCandidateBox(cr, bounds, scale);
     }
@@ -3000,20 +3007,37 @@ function drawResizeHandle(cr: Cairo.Context, x: number, y: number, scale: number
 // transient "this is what a click will hit" marker, distinct from the solid
 // blue selection box. Slightly tighter pad than the selection box so the two
 // don't sit exactly on top of each other when both are shown.
-function drawCandidateBox(cr: Cairo.Context, bounds: Bounds, scale: number): void {
-  const pad = 2 / scale;
-  cr.save();
+function setCandidateStroke(cr: Cairo.Context, scale: number): void {
   cr.setSourceRGBA(0.45, 0.75, 1.0, 0.95); // light blue
   cr.setLineWidth(1.5 / scale);
   cr.setDash([6 / scale, 4 / scale], 0);
   cr.setLineCap(Cairo.LineCap.BUTT);
   cr.setLineJoin(Cairo.LineJoin.MITER);
+}
+
+function drawCandidateBox(cr: Cairo.Context, bounds: Bounds, scale: number): void {
+  const pad = 2 / scale;
+  cr.save();
+  setCandidateStroke(cr, scale);
   cr.rectangle(
     bounds.x1 - pad,
     bounds.y1 - pad,
     bounds.x2 - bounds.x1 + 2 * pad,
     bounds.y2 - bounds.y1 + 2 * pad
   );
+  cr.stroke();
+  cr.restore();
+}
+
+// The candidate outline for a rotatable action: the same dashed light-blue
+// look, tilted to the action's oriented box like drawOrientedSelectionBox.
+function drawOrientedCandidateBox(cr: Cairo.Context, ob: OrientedBounds, scale: number): void {
+  const pad = 2 / scale;
+  cr.save();
+  setCandidateStroke(cr, scale);
+  cr.translate(ob.cx, ob.cy);
+  cr.rotate(ob.angle);
+  cr.rectangle(-ob.halfW - pad, -ob.halfH - pad, 2 * (ob.halfW + pad), 2 * (ob.halfH + pad));
   cr.stroke();
   cr.restore();
 }
