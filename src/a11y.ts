@@ -28,8 +28,9 @@ export function labelFromTooltip(w: Gtk.Widget): void {
 }
 
 // Name a control by one or more visible label widgets. The control's accessible
-// name then tracks the label's text live, so a caption that gains a "(mixed)"
-// suffix is reflected to AT without a second update call.
+// name then tracks the labels' accessible names live, so updating a caption's
+// name (e.g. setAccessibleLabel to carry a "(mixed)" note) reaches the control
+// without a second update call.
 //
 // The LABELLED_BY value is a reference list, which GJS only marshals correctly
 // when boxed in a Gtk.AccessibleList via new_from_list (a plain array fails to

@@ -37,11 +37,25 @@ import {
   styleValuesEqual,
 } from './actions.js';
 
-// Set a control's caption, appending " (mixed)" when the selected actions
-// disagree on that property — the disclosure that editing the control will
-// flatten them to one value.
+// Orange for the "mixed" marker dot. A concrete hex — Pango markup can't
+// reference theme @colors — chosen to read on both light and dark caption
+// backgrounds (Adwaita orange 4).
+const MIX_DOT_COLOR = '#e66100';
+
+// Set a control's caption. When the selected actions disagree on the property,
+// a compact superscript dot trails the caption (rather than a "(mixed)" suffix
+// that widens the group). The dot is visual-only: an explicit accessible label
+// keeps the caption's name reading "Base (mixed)" so screen readers still
+// announce the mixed state — GTK derives the control's labelled-by name from
+// the label's accessible name, so the glyph never reaches AT.
 function setCaption(label: Gtk.Label, base: string, mixed: boolean): void {
-  label.set_label(mixed ? `${base} ${_('(mixed)')}` : base);
+  if (mixed) {
+    const esc = GLib.markup_escape_text(base, -1);
+    label.set_markup(`${esc} <span foreground="${MIX_DOT_COLOR}"><sup>●</sup></span>`);
+  } else {
+    label.set_text(base);
+  }
+  setAccessibleLabel(label, mixed ? `${base} ${_('(mixed)')}` : base);
 }
 
 // Paint a color swatch: a checkerboard (so transparency reads as such) with the
@@ -402,10 +416,10 @@ export class StyleBar {
       {group: this.alignGroup, sep: alignSep},
     ];
 
-    // Name each control by its caption. The control's accessible name then
-    // tracks the caption text, so the "(mixed)" suffix refresh() appends is
-    // reflected to AT for free. (Swatches and align toggles are wired at their
-    // creation above.)
+    // Name each control by its caption. The control's accessible name tracks
+    // the caption's accessible name, so the "(mixed)" that setCaption keeps in
+    // the caption's accessible label (the dot is visual-only) reaches AT for
+    // free. (Swatches and align toggles are wired at their creation above.)
     setLabelledBy(this.widthScale, this.widthLabel);
     setLabelledBy(this.cornerScale, this.cornerLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);

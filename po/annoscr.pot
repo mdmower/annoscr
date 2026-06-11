@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 22:21-0700\n"
+"POT-Creation-Date: 2026-06-10 23:01-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -79,50 +79,50 @@ msgstr ""
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1385
+#: src/canvas_view.ts:1370
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1442
+#: src/canvas_view.ts:1427
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:1822
+#: src/canvas_view.ts:1807
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:1863 src/zoom_controller.ts:149
+#: src/canvas_view.ts:1848 src/zoom_controller.ts:149
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:1936
+#: src/canvas_view.ts:1921
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:1937
+#: src/canvas_view.ts:1922
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:1940
+#: src/canvas_view.ts:1925
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:1948 src/canvas_view.ts:1952
+#: src/canvas_view.ts:1933 src/canvas_view.ts:1937
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:1949
+#: src/canvas_view.ts:1934
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:1959
+#: src/canvas_view.ts:1944
 msgid "Annotation"
 msgstr ""
 
@@ -161,11 +161,11 @@ msgstr ""
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:79 src/style_bar.ts:350 src/style_bar.ts:839
+#: src/dialogs.ts:79 src/style_bar.ts:364 src/style_bar.ts:853
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:92 src/style_bar.ts:263 src/style_bar.ts:754
+#: src/dialogs.ts:92 src/style_bar.ts:277 src/style_bar.ts:768
 msgid "Width"
 msgstr ""
 
@@ -173,7 +173,7 @@ msgstr ""
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:132 src/style_bar.ts:236 src/style_bar.ts:745
+#: src/dialogs.ts:132 src/style_bar.ts:250 src/style_bar.ts:759
 msgid "Fill"
 msgstr ""
 
@@ -479,7 +479,7 @@ msgstr ""
 msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:86 src/style_bar.ts:271 src/style_bar.ts:763
+#: src/shortcuts_dialog.ts:86 src/style_bar.ts:285 src/style_bar.ts:777
 #: src/window_constants.ts:102
 msgid "Line"
 msgstr ""
@@ -536,113 +536,113 @@ msgstr ""
 msgid "or"
 msgstr ""
 
-#: src/style_bar.ts:44
+#: src/style_bar.ts:58
 msgid "(mixed)"
 msgstr ""
 
-#: src/style_bar.ts:215
+#: src/style_bar.ts:229
 msgid "Selection actions"
 msgstr ""
 
-#: src/style_bar.ts:227 src/style_bar.ts:736
+#: src/style_bar.ts:241 src/style_bar.ts:750
 msgid "Color"
 msgstr ""
 
-#: src/style_bar.ts:269
+#: src/style_bar.ts:283
 msgid "Solid"
 msgstr ""
 
-#: src/style_bar.ts:269
+#: src/style_bar.ts:283
 msgid "Dashed"
 msgstr ""
 
-#: src/style_bar.ts:269
+#: src/style_bar.ts:283
 msgid "Dotted"
 msgstr ""
 
-#: src/style_bar.ts:291 src/style_bar.ts:772
+#: src/style_bar.ts:305 src/style_bar.ts:786
 msgid "Corners"
 msgstr ""
 
-#: src/style_bar.ts:297
+#: src/style_bar.ts:311
 msgid "Open"
 msgstr ""
 
-#: src/style_bar.ts:297
+#: src/style_bar.ts:311
 msgid "Filled"
 msgstr ""
 
-#: src/style_bar.ts:299 src/style_bar.ts:781
+#: src/style_bar.ts:313 src/style_bar.ts:795
 msgid "Arrowhead"
 msgstr ""
 
-#: src/style_bar.ts:309 src/style_bar.ts:898
+#: src/style_bar.ts:323 src/style_bar.ts:912
 msgid "Group"
 msgstr ""
 
-#: src/style_bar.ts:315 src/window_constants.ts:101
+#: src/style_bar.ts:329 src/window_constants.ts:101
 msgid "Number"
 msgstr ""
 
-#: src/style_bar.ts:315
+#: src/style_bar.ts:329
 msgid "Letter"
 msgstr ""
 
-#: src/style_bar.ts:317 src/style_bar.ts:913
+#: src/style_bar.ts:331 src/style_bar.ts:927
 msgid "Variant"
 msgstr ""
 
-#: src/style_bar.ts:326 src/style_bar.ts:822
+#: src/style_bar.ts:340 src/style_bar.ts:836
 msgid "Text color"
 msgstr ""
 
-#: src/style_bar.ts:348 src/style_bar.ts:832
+#: src/style_bar.ts:362 src/style_bar.ts:846
 msgid "Font"
 msgstr ""
 
-#: src/style_bar.ts:365
+#: src/style_bar.ts:379
 msgid "Align left"
 msgstr ""
 
-#: src/style_bar.ts:368
+#: src/style_bar.ts:382
 msgid "Align center"
 msgstr ""
 
-#: src/style_bar.ts:374
+#: src/style_bar.ts:388
 msgid "Align right"
 msgstr ""
 
-#: src/style_bar.ts:386 src/style_bar.ts:848
+#: src/style_bar.ts:400 src/style_bar.ts:862
 msgid "Align"
 msgstr ""
 
 #. Add/Edit text leads (the primary action for a shape); shown + relabeled in
 #. refreshAddTextButton, hidden for non-shape selections.
-#: src/style_bar.ts:448 src/style_bar.ts:861
+#: src/style_bar.ts:462 src/style_bar.ts:875
 msgid "Add text"
 msgstr ""
 
-#: src/style_bar.ts:465
+#: src/style_bar.ts:479
 msgid "Duplicate (Ctrl+D)"
 msgstr ""
 
-#: src/style_bar.ts:467
+#: src/style_bar.ts:481
 msgid "Bring to front (Ctrl+Shift+])"
 msgstr ""
 
-#: src/style_bar.ts:468
+#: src/style_bar.ts:482
 msgid "Bring forward (Ctrl+])"
 msgstr ""
 
-#: src/style_bar.ts:469
+#: src/style_bar.ts:483
 msgid "Send backward (Ctrl+[)"
 msgstr ""
 
-#: src/style_bar.ts:470
+#: src/style_bar.ts:484
 msgid "Send to back (Ctrl+Shift+[)"
 msgstr ""
 
-#: src/style_bar.ts:473
+#: src/style_bar.ts:487
 msgid "Stamps renumber within their group."
 msgstr ""
 
@@ -650,36 +650,36 @@ msgstr ""
 #. popover and unparents it on dispose, avoiding the "Finalizing GtkButton …
 #. still has children left" warning at quit. No dropdown arrow because the
 #. swatch is a custom child and always-show-arrow defaults off.
-#: src/style_bar.ts:535
+#: src/style_bar.ts:549
 msgid "Pick a color"
 msgstr ""
 
-#: src/style_bar.ts:547
+#: src/style_bar.ts:561
 msgid "Hex"
 msgstr ""
 
-#: src/style_bar.ts:553
+#: src/style_bar.ts:567
 msgid "#RGB, #RGBA, #RRGGBB, or #RRGGBBAA"
 msgstr ""
 
-#: src/style_bar.ts:560
+#: src/style_bar.ts:574
 msgid "Opacity"
 msgstr ""
 
-#: src/style_bar.ts:578
+#: src/style_bar.ts:592
 msgid "Palette…"
 msgstr ""
 
-#: src/style_bar.ts:861
+#: src/style_bar.ts:875
 msgid "Edit text"
 msgstr ""
 
-#: src/style_bar.ts:923
+#: src/style_bar.ts:937
 #, javascript-format
 msgid "Group %d"
 msgstr ""
 
-#: src/style_bar.ts:924
+#: src/style_bar.ts:938
 msgid "+ New group"
 msgstr ""
 
