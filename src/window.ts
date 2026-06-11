@@ -31,7 +31,7 @@ import {
   parseDocument,
   serializeDocument,
 } from './document.js';
-import {getSettings, updateSettings} from './settings.js';
+import {getSettings, undoMemoryBytes, updateSettings} from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
 import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
@@ -356,6 +356,7 @@ export const AnnoscrWindow = GObject.registerClass(
         this.zoom.applyPendingScroll();
       });
       this.restoreToolStyles();
+      this.applyUndoMemory();
       this.zoom.refresh();
       this.styleBar.refresh();
 
@@ -369,6 +370,12 @@ export const AnnoscrWindow = GObject.registerClass(
     private restoreToolStyles(): void {
       const s = getSettings();
       if (s.rememberToolStyles && s.toolStyles) this.canvas.importToolStyles(s.toolStyles);
+    }
+
+    // Push the undo-memory preference into the canvas as a byte budget.
+    // Applied at startup and again whenever the preference changes.
+    private applyUndoMemory(): void {
+      this.canvas.setUndoMemoryBudget(undoMemoryBytes(getSettings().undoMemory));
     }
 
     // Persist per-tool styles on the way out, if the user opted in. Called from
@@ -386,11 +393,14 @@ export const AnnoscrWindow = GObject.registerClass(
         this.add_action(action);
       };
       add('preferences', () =>
-        presentPreferences(this, () => {
-          // The chosen font set changed — push it into the catalogue and rebuild
-          // the dropdown.
-          setChosenFonts(getSettings().fontFamilies ?? []);
-          this.styleBar.rebuildFontDropdown();
+        presentPreferences(this, {
+          onFontsChanged: () => {
+            // The chosen font set changed — push it into the catalogue and
+            // rebuild the dropdown.
+            setChosenFonts(getSettings().fontFamilies ?? []);
+            this.styleBar.rebuildFontDropdown();
+          },
+          onUndoMemoryChanged: () => this.applyUndoMemory(),
         })
       );
       add('shortcuts', () => presentShortcuts(this));

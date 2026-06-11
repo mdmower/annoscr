@@ -425,6 +425,15 @@ export const CanvasView = GObject.registerClass(
     // it gets its own slot rather than reusing toolWidths.
     private toolStampRadii: Map<ToolId, number> = new Map();
 
+    // Pixel-memory budget (bytes) for the distinct surfaces history retains;
+    // null = unbounded. Annotation edits share their surface by reference, but
+    // every rotate / canvas-resize pushes a freshly allocated full-resolution
+    // surface — a transform-heavy history is where the memory goes, so the
+    // bound is on surface bytes (stride × height), not entry count. The value
+    // is policy and comes from the window (the user's undo-memory preference);
+    // the canvas only enforces it.
+    private surfaceBytesCap: number | null = null;
+
     // Reference-equality marker for "clean": the canvas state that matches
     // the most recent save or fresh-image-load. If the current state
     // is the same object, nothing has been modified since. Stays valid
@@ -509,8 +518,52 @@ export const CanvasView = GObject.registerClass(
           this.historyCursor -= excess;
         }
       }
+      this.enforceSurfaceCap();
       this.lastCoalesceKey = coalesceKey;
       this.notifyStateChange();
+    }
+
+    // Apply the user's undo-memory preference (bytes; null = unlimited) and
+    // re-enforce it on the live history immediately, so lowering the budget
+    // releases memory without waiting for the next edit. Listeners are
+    // notified since the trim may have changed history.
+    setUndoMemoryBudget(bytes: number | null): void {
+      if (this.surfaceBytesCap === bytes) return;
+      this.surfaceBytesCap = bytes;
+      this.enforceSurfaceCap();
+      this.notifyStateChange();
+    }
+
+    // Drop the oldest history entries until the distinct surfaces the
+    // survivors reference fit surfaceBytesCap. The trim is a strict prefix: an
+    // entry can't outlive its surface (the entry IS {surface, actions}), so
+    // evicting a surface takes every entry that references it — and everything
+    // older — with it. The newest distinct surface is always retained
+    // regardless of size (the current image must exist), so on a source whose
+    // single surface busts the budget, only cross-transform undo is lost —
+    // annotation entries sharing the current surface cost nothing and survive.
+    // The cut is clamped to the cursor for the live budget-lowering case
+    // (setUndoMemoryBudget after undos): the state being viewed is never
+    // trimmed, even if redo entries alone exceed the budget.
+    private enforceSurfaceCap(): void {
+      if (this.surfaceBytesCap === null) return;
+      const seen = new Set<Cairo.ImageSurface>();
+      let bytes = 0;
+      for (let i = this.history.length - 1; i >= 0; i--) {
+        const s = this.history[i].surface;
+        if (!s || seen.has(s)) continue;
+        const size = s.getStride() * s.getHeight();
+        if (seen.size >= 1 && bytes + size > this.surfaceBytesCap) {
+          const cut = Math.min(i + 1, this.historyCursor);
+          if (cut > 0) {
+            this.history.splice(0, cut);
+            this.historyCursor -= cut;
+          }
+          return;
+        }
+        seen.add(s);
+        bytes += size;
+      }
     }
 
     private resetTransientState(): void {

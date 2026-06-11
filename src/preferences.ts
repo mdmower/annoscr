@@ -2,13 +2,19 @@ import Gio from 'gi://Gio?version=2.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 
-import {ColorScheme, getSettings, updateSettings} from './settings.js';
+import {ColorScheme, UndoMemory, getSettings, updateSettings} from './settings.js';
 import {labelFromTooltip} from './a11y.js';
 import {_, N_} from './i18n.js';
 
 const COLOR_SCHEMES: ColorScheme[] = ['system', 'light', 'dark'];
 // N_-marked (module-level); translated at dialog-build time with _() below.
 const COLOR_SCHEME_LABELS = [N_('Follow system'), N_('Light'), N_('Dark')];
+
+// Row order ↔ preset mapping for the undo-memory ComboRow. Labels are the bare
+// sizes (mirroring settings.undoMemoryBytes) — friendly names made the
+// ComboRow's collapsed value truncate.
+const UNDO_MEMORY_ORDER: UndoMemory[] = ['low', 'normal', 'high', 'unlimited'];
+const UNDO_MEMORY_LABELS = [N_('128 MiB'), N_('256 MiB'), N_('1 GiB'), N_('Unlimited')];
 
 // Apply a color scheme via libadwaita. Called from the dialog on change and
 // once at startup so the saved choice takes effect before any UI is shown.
@@ -27,7 +33,15 @@ export function applyColorScheme(scheme: ColorScheme): void {
   }
 }
 
-export function presentPreferences(parent: Gtk.Window, onFontsChanged?: () => void): void {
+export interface PreferencesCallbacks {
+  // The chosen font set changed; the caller pushes it into the catalogue and
+  // rebuilds the font dropdown.
+  onFontsChanged?: () => void;
+  // The undo-memory preset changed; the caller re-applies it to the canvas.
+  onUndoMemoryChanged?: () => void;
+}
+
+export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCallbacks): void {
   const s = getSettings();
   const dialog = new Adw.PreferencesDialog();
   const page = new Adw.PreferencesPage();
@@ -80,7 +94,7 @@ export function presentPreferences(parent: Gtk.Window, onFontsChanged?: () => vo
   const commitFonts = (): void => {
     updateSettings({fontFamilies: families.length > 0 ? [...families] : undefined});
     rebuildFontRows();
-    onFontsChanged?.();
+    callbacks?.onFontsChanged?.();
   };
 
   const makeIconButton = (icon: string, tip: string, onClick: () => void): Gtk.Button => {
@@ -236,6 +250,21 @@ export function presentPreferences(parent: Gtk.Window, onFontsChanged?: () => vo
     updateSettings({selectAfterPlacement: selectAfterRow.get_active()});
   });
   behavior.add(selectAfterRow);
+
+  const undoMemoryRow = new Adw.ComboRow({
+    title: _('Undo memory'),
+    subtitle: _(
+      'Rotating or resizing the canvas keeps a full image copy per undo step; the oldest steps are dropped over this limit'
+    ),
+    model: Gtk.StringList.new(UNDO_MEMORY_LABELS.map((l) => _(l))),
+    selected: Math.max(0, UNDO_MEMORY_ORDER.indexOf(s.undoMemory)),
+  });
+  undoMemoryRow.connect('notify::selected', () => {
+    const preset = UNDO_MEMORY_ORDER[undoMemoryRow.get_selected()] ?? 'normal';
+    updateSettings({undoMemory: preset});
+    callbacks?.onUndoMemoryChanged?.();
+  });
+  behavior.add(undoMemoryRow);
   page.add(behavior);
 
   dialog.present(parent);

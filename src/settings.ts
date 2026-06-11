@@ -30,6 +30,27 @@ const TOOL_ID_SET = new Set<string>(TOOL_IDS);
 
 export type ColorScheme = 'system' | 'light' | 'dark';
 
+// Pixel-memory budget preset for canvas undo history (the surfaces rotate /
+// canvas-resize snapshots pin; see CanvasView's surface cap).
+export type UndoMemory = 'low' | 'normal' | 'high' | 'unlimited';
+
+// The byte budget a preset stands for; null = no budget. The mapping lives
+// here so Preferences (labels) and the window (applying it to the canvas)
+// can't drift apart.
+export function undoMemoryBytes(m: UndoMemory): number | null {
+  switch (m) {
+    case 'low':
+      return 128 * 1024 * 1024;
+    case 'high':
+      return 1024 * 1024 * 1024;
+    case 'unlimited':
+      return null;
+    case 'normal':
+    default:
+      return 256 * 1024 * 1024;
+  }
+}
+
 // One tool's persisted style. Each field is optional: only properties the user
 // actually changed (present in CanvasView's per-tool maps) are written, so a
 // future change to a tool's static default still wins for untouched tools.
@@ -67,6 +88,7 @@ export interface AnnoscrSettings {
   // selected (so it's immediately editable/resizable/rotatable). Off keeps the
   // current tool for rapid repeated placement.
   selectAfterPlacement: boolean;
+  undoMemory: UndoMemory;
   // Family names shown in the text font dropdown, in order; the first is the
   // text tool's default. Empty/absent = the automatic selection built from
   // font_catalogue's candidate lists. Families that aren't installed are dropped
@@ -83,6 +105,7 @@ const DEFAULTS: AnnoscrSettings = {
   defaultSaveFormat: 'png',
   confirmDiscard: true,
   selectAfterPlacement: true,
+  undoMemory: 'normal',
 };
 
 function settingsPath(): string {
@@ -112,6 +135,12 @@ function asStringArray(v: unknown): string[] | undefined {
 
 function asColorScheme(v: unknown): ColorScheme {
   return v === 'light' || v === 'dark' || v === 'system' ? v : DEFAULTS.colorScheme;
+}
+
+function asUndoMemory(v: unknown): UndoMemory {
+  return v === 'low' || v === 'normal' || v === 'high' || v === 'unlimited'
+    ? v
+    : DEFAULTS.undoMemory;
 }
 
 function asFormat(v: unknown): ImageFormat {
@@ -173,6 +202,7 @@ function sanitize(raw: unknown): AnnoscrSettings {
     defaultSaveFormat: asFormat(raw.defaultSaveFormat),
     confirmDiscard: asBool(raw.confirmDiscard) ?? DEFAULTS.confirmDiscard,
     selectAfterPlacement: asBool(raw.selectAfterPlacement) ?? DEFAULTS.selectAfterPlacement,
+    undoMemory: asUndoMemory(raw.undoMemory),
   };
   const fontFamilies = asStringArray(raw.fontFamilies);
   if (fontFamilies) out.fontFamilies = fontFamilies;
