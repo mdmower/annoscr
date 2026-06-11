@@ -242,9 +242,10 @@ export interface TextStyle {
   align: TextAlign;
 }
 
-// Editor frame dimensions in widget-space pixels — stored on TextAction so
-// re-edits restore the size the user dragged the editor to at commit time.
-// Doesn't affect the rendered output; purely a UX preference per action.
+// Editor frame dimensions in image-space pixels (the allocated frame divided
+// by the zoom at commit) — stored on TextAction so re-edits restore the size
+// the user dragged the editor to, with the same on-image footprint at any
+// zoom. Doesn't affect the rendered output; purely a UX preference per action.
 export interface EditorSize {
   width: number;
   height: number;

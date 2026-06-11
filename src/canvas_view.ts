@@ -78,6 +78,9 @@ export interface TextEditRequestOptions {
   replaceIndex?: number;
   rotation?: number;
   editorSize?: EditorSize;
+  // Canvas display scale at request time, so the standalone editor previews
+  // text at its rendered on-screen size (box mode carries its own scale).
+  scale?: number;
   // Shape-text edit: the box shape's index, its current text style, and the
   // box's inner text rect in widget px (+ zoom). The window turns these into the
   // editor's box mode + commit target. Absent → a standalone TextAction edit.
@@ -1808,7 +1811,7 @@ export const CanvasView = GObject.registerClass(
         return true;
       }
       if (this.currentToolId === 'text' && this.onTextEditRequest) {
-        this.onTextEditRequest(ix, iy, cx, cy);
+        this.onTextEditRequest(ix, iy, cx, cy, {scale: this.currentTransform().scale});
         return true;
       }
       return false;
@@ -2256,7 +2259,9 @@ export const CanvasView = GObject.registerClass(
       if (!this.state.surface) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
       if (this.currentToolId === 'text') {
-        if (this.onTextEditRequest) this.onTextEditRequest(ix, iy, wx, wy);
+        if (this.onTextEditRequest) {
+          this.onTextEditRequest(ix, iy, wx, wy, {scale: this.currentTransform().scale});
+        }
       } else if (this.currentToolId === 'number') {
         // Stamps inherit the active Color (foreground) + Fill (interior) from
         // the style bar; placeNumberStampAt builds and adds the stamp so the
@@ -2302,6 +2307,7 @@ export const CanvasView = GObject.registerClass(
             replaceIndex: idx,
             rotation: state.rotation,
             editorSize: state.editorSize,
+            scale: t.scale,
           }
         );
         return true;

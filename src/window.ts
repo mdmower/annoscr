@@ -289,6 +289,7 @@ export const AnnoscrWindow = GObject.registerClass(
             rotation: options?.rotation,
             editorSize: options?.editorSize,
             style,
+            scale: options?.scale,
           });
           // Picker now reflects the editor's style (color + font of the
           // in-progress edit), so refresh to point dropdown + buttons at it.

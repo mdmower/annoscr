@@ -232,6 +232,9 @@ export interface TextEditorBeginOptions {
   // Box-overlay geometry for shape text. When set, the editor sizes to the box,
   // word-wraps, justifies by align, scales the font by zoom, and hides the grip.
   boxMode?: BoxMode;
+  // Canvas display scale (zoom) for a standalone edit, so the preview font
+  // matches the rendered size. Box mode carries its own in boxMode.scale.
+  scale?: number;
 }
 
 export class TextEditor {
@@ -469,7 +472,7 @@ export class TextEditor {
     this.replaceIndex = options?.replaceIndex;
     this.editTarget = options?.editTarget;
     const box = options?.boxMode;
-    this.displayScale = box ? box.scale : 1;
+    this.displayScale = box ? box.scale : (options?.scale ?? 1);
     this.pendingTags.clear();
     // Box mode word-wraps to the box width; standalone keeps each line natural.
     this.view.set_wrap_mode(box ? Gtk.WrapMode.WORD : Gtk.WrapMode.NONE);
@@ -506,14 +509,7 @@ export class TextEditor {
       this.viewOverlay.set_halign(Gtk.Align.FILL);
       this.boxViewAreaH = 0;
       this.view.set_top_margin(0);
-      if (options?.editorSize) {
-        // Re-edit: restore the dimensions the action was committed at.
-        this.view.set_size_request(options.editorSize.width, options.editorSize.height);
-      } else {
-        // Fresh placement: one line tall at the active font size (grows with
-        // content — see oneLineHeight).
-        this.view.set_size_request(EDITOR_DEFAULT_WIDTH, oneLineHeight(options?.style?.size));
-      }
+      this.applyStandaloneViewSize(options?.editorSize, options?.style?.size);
     }
     if (options?.markup) {
       this.setBufferFromMarkup(options.markup);
@@ -545,6 +541,26 @@ export class TextEditor {
     this.syncButtonStates();
   }
 
+  // Standalone mode: size the view to a re-edit's stored frame — image-space,
+  // so scaled by the zoom for the same on-image footprint — or to a one-line
+  // default at the on-screen font size for a fresh placement (grows with
+  // content — see oneLineHeight).
+  private applyStandaloneViewSize(editorSize?: EditorSize, fontSize?: number): void {
+    if (editorSize) {
+      this.view.set_size_request(
+        Math.max(EDITOR_MIN_WIDTH, Math.round(editorSize.width * this.displayScale)),
+        editorSize.height > 0
+          ? Math.max(EDITOR_MIN_HEIGHT, Math.round(editorSize.height * this.displayScale))
+          : -1
+      );
+    } else {
+      this.view.set_size_request(
+        EDITOR_DEFAULT_WIDTH,
+        oneLineHeight(fontSize !== undefined ? fontSize * this.displayScale : undefined)
+      );
+    }
+  }
+
   commitIfActive(selectAfter = false): void {
     if (!this.active) return;
     const start = this.buffer.get_start_iter();
@@ -555,14 +571,16 @@ export class TextEditor {
     const style = this.currentStyle;
     const editTarget = this.editTarget;
     // Snapshot the actual allocated size (not the size_request) so re-edits
-    // restore the visual frame rather than a -1 "natural" placeholder. Guard
-    // against a never-allocated view reporting 0: fall back to the default
-    // width / natural height so a re-edit can't restore a collapsed frame.
+    // restore the visual frame rather than a -1 "natural" placeholder, divided
+    // by the display scale so the stored size is image-space (a re-edit at any
+    // zoom then keeps the same on-image footprint). Guard against a
+    // never-allocated view reporting 0: fall back to the default width /
+    // natural height so a re-edit can't restore a collapsed frame.
     const allocW = this.view.get_width();
     const allocH = this.view.get_height();
     const editorSize: EditorSize = {
-      width: allocW > 0 ? allocW : EDITOR_DEFAULT_WIDTH,
-      height: allocH > 0 ? allocH : -1,
+      width: allocW > 0 ? Math.round(allocW / this.displayScale) : EDITOR_DEFAULT_WIDTH,
+      height: allocH > 0 ? Math.round(allocH / this.displayScale) : -1,
     };
     this.reset();
     if (!style) {
@@ -652,13 +670,16 @@ export class TextEditor {
   }
 
   // Push the full style into the live view: base tag (font+color), the view CSS
-  // font/caret (scaled for box mode), and the justification (box mode only).
+  // font/caret (scaled for box mode), and the justification. The view is shared
+  // by both edit modes, so standalone explicitly resets to LEFT (standalone
+  // text is always left-aligned) rather than inheriting whatever justification
+  // the previous box edit set.
   private applyViewStyle(style: TextEditorStyle): void {
     this.updateBaseTag(style);
     setEditorViewStyle(style.fontDesc, style.size * this.displayScale, style.color);
-    if (this.editTarget) {
-      this.view.set_justification(pangoJustification(style.align));
-    }
+    this.view.set_justification(
+      this.editTarget ? pangoJustification(style.align) : Gtk.Justification.LEFT
+    );
   }
 
   private applyBaseTagToBuffer(): void {
