@@ -329,11 +329,13 @@ export const CanvasView = GObject.registerClass(
     // (the live editor widget shows in its place).
     private editingActionIndex: number = -1;
 
-    // Set when a press finished an in-progress re-edit (a canvas click outside
-    // the editor); makes that same press not also select/move. The press's
-    // drag-begin fires too and may run after the commit cleared
-    // editingActionIndex, so the editing-index check alone can't stop it.
-    // Reset in onDragEnd (fires for every primary press) so it never leaks.
+    // One-press latch: set when a press is consumed by committing an open
+    // text editor — a click-away from a re-edit, or a text-tool click-away
+    // whose commit switched the tool to select (select-after-placement). The
+    // same press's drag-begin/update/end must not also select, move, or
+    // toggle: they can run after the commit cleared editingActionIndex (or
+    // after the tool switch), so those checks alone can't stop them. Reset in
+    // onDragEnd (fires for every primary press) so it never leaks.
     private suppressSelectThisPress: boolean = false;
 
     // Raw resize region while in resize mode (image-space coords; may extend
@@ -1645,7 +1647,17 @@ export const CanvasView = GObject.registerClass(
           if (this.onCommitRequest) this.onCommitRequest();
           return;
         }
+        const toolAtPress = this.currentToolId;
         this.onCanvasPress(x, y);
+        // A text-tool press that commits an open editor can switch the tool to
+        // select mid-press (select-after-placement picks the new text). Latch
+        // so the rest of THIS press's gesture doesn't also run the select
+        // path: drag-begin would re-resolve at the click point and clear (or
+        // steal) that fresh selection, and a moving release would drag it.
+        // Same consumed-press rule as the re-edit commit above.
+        if (toolAtPress === 'text' && this.currentToolId === 'select') {
+          this.suppressSelectThisPress = true;
+        }
       });
       this.add_controller(click);
 
@@ -2111,7 +2123,7 @@ export const CanvasView = GObject.registerClass(
     private onDragBegin(wx: number, wy: number, gesture: Gtk.GestureDrag): void {
       if (!this.state.surface) return;
       if (this.currentToolId === 'select') {
-        // This press already committed a re-edit (handled in the GestureClick
+        // This press already committed an edit (handled in the GestureClick
         // controller); don't let its drag-begin select/move too.
         if (this.suppressSelectThisPress) return;
         // A text action is mid-re-edit (hidden, live editor in its place).
@@ -2172,6 +2184,12 @@ export const CanvasView = GObject.registerClass(
 
     private onDragUpdate(wx: number, wy: number, constrain: boolean): void {
       if (this.currentToolId === 'select') {
+        // A press consumed by an editor commit must not move the selection
+        // either — the commit may have left the fresh text selected, and
+        // drag-begin may have run before the latch was armed (gesture
+        // dispatch order isn't guaranteed), so the begin-guard alone isn't
+        // enough.
+        if (this.suppressSelectThisPress) return;
         // Per-action resize: reshape the lone selected action live from the
         // grabbed handle. Shift squares a corner (rect/oval); endpoints ignore
         // it. Takes precedence over the move path below.
@@ -2243,12 +2261,22 @@ export const CanvasView = GObject.registerClass(
     }
 
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
-      // Clear the commit-press latch here: drag-end fires for every primary
-      // press (clicks included), so it's reset before the next press whatever
-      // order GestureClick and GestureDrag ran in. When the latch was set this
-      // press, onDragBegin returned early, so nothing below started anyway.
+      // Capture and clear the commit-press latch: drag-end fires for every
+      // primary press (clicks included), so it's reset before the next press
+      // whatever order GestureClick and GestureDrag ran in.
+      const suppressed = this.suppressSelectThisPress;
       this.suppressSelectThisPress = false;
       if (this.currentToolId === 'select') {
+        // A latched press never started a select gesture (begin/update bail
+        // on it), so end it inertly — releasing must not push a move of
+        // whatever the commit left selected.
+        if (suppressed) {
+          this.moving = false;
+          this.moveDx = 0;
+          this.moveDy = 0;
+          this.shiftToggleDrag = false;
+          return;
+        }
         // Per-action resize/rotate: commit the reshaped/rotated action in one
         // history entry (a click without a drag, or a drag back to the original,
         // pushes nothing).
