@@ -1686,6 +1686,12 @@ export const CanvasView = GObject.registerClass(
           this.onSelectDoubleClick(x, y);
           return;
         }
+        // Past the first press, a placement tool would just re-place at the same
+        // spot — a hidden stacked stamp (number jumps by 2), a doubled pen dot.
+        // Ignore it. GTK only reports n_press >= 2 for near-coincident clicks,
+        // so rapid placement at distinct spots (n_press resets to 1) is
+        // unaffected; this only drops the degenerate stacked placement.
+        if (n_press >= 2 && this.currentToolId !== 'select') return;
         // A first press on the canvas (necessarily outside the editor frame,
         // which would have swallowed it) while a text is being re-edited
         // finishes that edit, consistent with the text tool. The press is
