@@ -30,9 +30,12 @@ export function rotateSurface(
 // offset (-x, -y) in destination coords. Equivalent to "what does the source
 // look like when the canvas origin moves to (x, y) and the canvas size is
 // (w, h)". The region may extend outside the source bounds; Cairo clips the
-// blit automatically. The new ARGB32 surface starts zeroed (fully
-// transparent); if `fill` is provided and has non-zero alpha, the area
-// outside the source's clipped region is painted with that color first.
+// blit automatically. The new ARGB32 surface starts zeroed (fully transparent).
+// If `fill` is provided and has non-zero alpha, the newly-added margin — the
+// destination area outside the source's placement rect — is painted with it.
+// The source region keeps its own pixels, so an alpha image's interior
+// transparency is preserved: the fill is a border, not a backdrop behind the
+// whole canvas.
 export function resizeSurface(
   src: Cairo.ImageSurface,
   x: number,
@@ -43,13 +46,20 @@ export function resizeSurface(
 ): Cairo.ImageSurface {
   const dst = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
   const cr = new Cairo.Context(dst);
-  if (fill && fill[3] > 0) {
-    cr.setSourceRGBA(fill[0], fill[1], fill[2], fill[3]);
-    cr.paint();
-  }
   cr.setSourceSurface(src, -x, -y);
   (cr.getSource() as Cairo.SurfacePattern).setFilter(Cairo.Filter.NEAREST);
   cr.paint();
+  if (fill && fill[3] > 0) {
+    // Fill only the complement of the source's placement rect (whole surface
+    // XOR that rect, via even-odd), so transparency inside the source is left
+    // untouched. Both rects are integer-aligned, so the shared edge has no
+    // antialiased seam.
+    cr.setFillRule(Cairo.FillRule.EVEN_ODD);
+    cr.rectangle(0, 0, w, h);
+    cr.rectangle(-x, -y, src.getWidth(), src.getHeight());
+    cr.setSourceRGBA(fill[0], fill[1], fill[2], fill[3]);
+    cr.fill();
+  }
   return dst;
 }
 
