@@ -1614,6 +1614,10 @@ export const CanvasView = GObject.registerClass(
       this.liveStroke = null;
       this.selectedIndices.clear();
       this.editingActionIndex = -1;
+      // The actions moved with the image, so the cached candidate index now
+      // points at a different on-screen spot than the (motionless) pointer.
+      // Re-derive it from what's actually under the cursor in the rotated frame.
+      this.refreshHoverCandidate();
       this.queue_draw();
     }
 
@@ -2850,8 +2854,8 @@ export const CanvasView = GObject.registerClass(
     }
 
     // The hover candidate — the action the next click acts on — outlined in
-    // solid amber, distinct from the dashed cyan selection box. Shown only for
-    // the select tool, while not moving, and not over the re-edited action.
+    // dashed light blue, distinct from the solid blue selection box. Shown only
+    // for the select tool, while not moving, and not over the re-edited action.
     // Suppressed when it's the lone selection (the selection box already marks
     // it) to avoid a redundant double outline.
     private drawHoverCandidate(
