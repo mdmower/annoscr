@@ -726,6 +726,11 @@ class TextAction extends BaseAction {
   private readonly bounds: Bounds;
   private readonly w: number;
   private readonly h: number;
+  // How far the background plate extends past the glyph rect on each side (0
+  // when the plate is transparent). Folded into bounds/hit-test/oriented box so
+  // a visible plate is selectable and the selection box tracks what's drawn,
+  // not just the glyphs.
+  private readonly platePad: number;
 
   constructor(
     public readonly x: number,
@@ -739,7 +744,9 @@ class TextAction extends BaseAction {
     const [w, h] = this.buildLayout(getMeasureContext()).get_pixel_size();
     this.w = w;
     this.h = h;
-    this.bounds = textBounds(this.x, this.y, w, h, this.rotation);
+    this.platePad = style.bg[3] > 0 ? Math.round(style.size * TEXT_BG_PAD_RATIO) : 0;
+    const p = this.platePad;
+    this.bounds = textBounds(this.x - p, this.y - p, w + 2 * p, h + 2 * p, this.rotation);
   }
 
   private buildLayout(cr: Cairo.Context): Pango.Layout {
@@ -759,7 +766,7 @@ class TextAction extends BaseAction {
     // same rotated frame so it tilts with the text. Skipped when transparent.
     const bg = this.style.bg;
     if (bg[3] > 0) {
-      const pad = Math.round(this.style.size * TEXT_BG_PAD_RATIO);
+      const pad = this.platePad;
       roundedRectPath(cr, -pad, -pad, this.w + 2 * pad, this.h + 2 * pad, TEXT_BG_RADIUS);
       cr.setSourceRGBA(bg[0], bg[1], bg[2], bg[3]);
       cr.fill();
@@ -822,8 +829,8 @@ class TextAction extends BaseAction {
     return {
       cx: this.x + this.w / 2,
       cy: this.y + this.h / 2,
-      halfW: this.w / 2,
-      halfH: this.h / 2,
+      halfW: this.w / 2 + this.platePad,
+      halfH: this.h / 2 + this.platePad,
       angle: this.rotation,
     };
   }
@@ -840,7 +847,7 @@ class TextAction extends BaseAction {
     // Inverse rotation (−angle): rotate the offset back to the upright frame.
     const lx = dx * cos + dy * sin;
     const ly = -dx * sin + dy * cos;
-    return Math.abs(lx) <= this.w / 2 && Math.abs(ly) <= this.h / 2;
+    return Math.abs(lx) <= this.w / 2 + this.platePad && Math.abs(ly) <= this.h / 2 + this.platePad;
   }
 
   // Text has no stroke/outline (getColor stays null, inherited); its glyph
