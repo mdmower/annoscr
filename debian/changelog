@@ -1,3 +1,23 @@
+annoscr (1.0.1) unstable; urgency=medium
+
+  * Cursor-anchored zoom now stays pinned under the pointer instead of
+    drifting or lurching when zooming from a fitted or scrolled view.
+  * Resize snaps to whole pixels, so the crop lands exactly on the dashed
+    preview and annotations stay pixel-aligned.
+  * A non-transparent resize fill now covers only the added margin instead
+    of bleeding through transparent areas of the existing image.
+  * A fast double-click with the number, pen, or highlighter tool no longer
+    drops a duplicate stamp or dot.
+  * A text annotation's background plate is now included in click hit-testing
+    and in the selection and hover outlines.
+  * The hover aim outline is re-derived after a whole-canvas rotate, a delete,
+    or a stamp-group reassignment, so it tracks the right annotation.
+  * Command-line --help now documents the FILE argument (an image or .annoscr
+    file to open).
+  * The select-after-placement selection now survives the text commit click.
+
+ -- Matt Mower <mdmower@cmphys.com>  Thu, 11 Jun 2026 18:34:53 -0700
+
 annoscr (1.0.0) unstable; urgency=medium
 
   * Editable annotation files (.annoscr): save the canvas image and its

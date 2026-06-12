@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -81,6 +81,16 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Thu Jun 11 2026 Matt Mower <mdmower@cmphys.com> - 1.0.1-1
+- Cursor-anchored zoom stays pinned under the pointer instead of drifting.
+- Resize snaps to whole pixels so the crop matches the dashed preview.
+- A resize fill covers only the added margin, not transparent areas of the existing image.
+- A fast double-click no longer drops a duplicate stamp or pen dot.
+- A text annotation's background plate is included in hit-testing and selection bounds.
+- The hover aim outline tracks the right annotation after a rotate, delete, or group change.
+- Command-line --help documents the FILE argument.
+- The select-after-placement selection survives the text commit click.
+
 * Wed Jun 10 2026 Matt Mower <mdmower@cmphys.com> - 1.0.0-1
 - Editable annotation files (.annoscr): save the canvas and annotations together and reopen to keep editing.
 - New Undo memory preference bounds the memory kept for canvas rotate/resize undo steps.

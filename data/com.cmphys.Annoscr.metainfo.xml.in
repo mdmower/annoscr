@@ -31,6 +31,19 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.0.1" date="2026-06-11">
+      <description its:translate="no">
+        <ul>
+          <li>Cursor-anchored zoom now stays pinned under the pointer instead of drifting.</li>
+          <li>Resize snaps to whole pixels, so the crop lands exactly on the preview.</li>
+          <li>A resize fill now covers only the added margin, not transparent areas of the existing image.</li>
+          <li>A fast double-click no longer drops a duplicate stamp or pen dot.</li>
+          <li>A text annotation's background plate is included in click and selection bounds.</li>
+          <li>The hover aim outline tracks the right annotation after a rotate, delete, or group change.</li>
+          <li>Command-line help now documents the FILE argument.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-06-10">
       <description its:translate="no">
         <ul>
