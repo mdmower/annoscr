@@ -299,8 +299,9 @@ export const CanvasView = GObject.registerClass(
     private mode: 'fit' | 'fixed' = 'fit';
     private zoomFactor: number = 1;
 
-    // Last known pointer position in widget-local coords, for cursor-anchored
-    // zoom. null when the pointer is outside the widget.
+    // Last known pointer position in widget-local coords, for the hover/dig
+    // aim (the stack under the pointer). null when the pointer is outside the
+    // widget.
     private lastPointer: [number, number] | null = null;
 
     private liveStroke: LiveStroke | null = null;
@@ -711,13 +712,6 @@ export const CanvasView = GObject.registerClass(
       return this.mode === 'fit';
     }
 
-    // Last pointer position in widget-local coords (= content coords inside the
-    // scrolled viewport), or null when the pointer is outside. Used to anchor
-    // Ctrl+scroll zoom on the point under the cursor.
-    getLastPointer(): [number, number] | null {
-      return this.lastPointer;
-    }
-
     // The current display scale (1 = 100%). In fit mode this is computed from
     // the widget size; in fixed mode it equals the zoom factor. Null with no
     // image or before first allocation.
@@ -728,6 +722,40 @@ export const CanvasView = GObject.registerClass(
       const h = this.get_height();
       if (w <= 0 || h <= 0) return null;
       return this.computeTransform(w, h).scale;
+    }
+
+    // The widget-space position of image-space (0, 0) — the centering/
+    // letterbox margins plus any displayed-area origin shift. Without it a
+    // cursor-anchored zoom is wrong whenever the image doesn't fill the
+    // viewport. Null mirrors getZoomScale.
+    getViewOffset(): [number, number] | null {
+      const s = this.state.surface;
+      if (!s) return null;
+      const w = this.get_width();
+      const h = this.get_height();
+      if (w <= 0 || h <= 0) return null;
+      const t = this.computeTransform(w, h);
+      return [t.offsetX, t.offsetY];
+    }
+
+    // The post-layout geometry for a fixed zoom: the content size the canvas
+    // will occupy (viewport-bounded below) and where image-space (0, 0) will
+    // land. Mirrors updateSizeRequest + computeTransform so the zoom
+    // controller can scroll for a new zoom BEFORE the relayout — until then
+    // the live transform still reflects the old allocation. Null with no
+    // image.
+    predictLayout(zoom: number): {offX: number; offY: number; w: number; h: number} | null {
+      if (!this.state.surface) return null;
+      const area = this.displayedArea();
+      const vis = this.visibleRect();
+      const w = Math.max(Math.ceil(area.w * zoom), Math.round(vis.w));
+      const h = Math.max(Math.ceil(area.h * zoom), Math.round(vis.h));
+      return {
+        offX: Math.floor((w - area.w * zoom) / 2 - area.x * zoom),
+        offY: Math.floor((h - area.h * zoom) / 2 - area.y * zoom),
+        w,
+        h,
+      };
     }
 
     hasImage(): boolean {
