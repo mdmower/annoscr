@@ -72,6 +72,13 @@ export const AnnoscrApplication = GObject.registerClass(
         _('Capture a screenshot via the desktop portal on startup'),
         null
       );
+      // GOptionContext only lists the flags by default; spell out the positional
+      // FILE argument in the Usage line and explain it, so `--help` reveals that
+      // an image or .annoscr file can be opened directly.
+      this.set_option_context_parameter_string('[FILE]');
+      this.set_option_context_summary(
+        _('Annotate a screenshot. FILE is an image or .annoscr file to open.')
+      );
     }
 
     vfunc_startup(): void {

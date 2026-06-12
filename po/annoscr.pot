@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 23:23-0700\n"
+"POT-Creation-Date: 2026-06-11 17:50-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -75,54 +75,58 @@ msgstr ""
 msgid "Capture a screenshot via the desktop portal on startup"
 msgstr ""
 
-#: src/canvas_view.ts:472
+#: src/application.ts:80
+msgid "Annotate a screenshot. FILE is an image or .annoscr file to open."
+msgstr ""
+
+#: src/canvas_view.ts:482
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1370
+#: src/canvas_view.ts:1411
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1427
+#: src/canvas_view.ts:1475
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:1807
+#: src/canvas_view.ts:1866
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:1848 src/zoom_controller.ts:149
+#: src/canvas_view.ts:1907 src/zoom_controller.ts:161
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:1921
+#: src/canvas_view.ts:1980
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:1922
+#: src/canvas_view.ts:1981
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:1925
+#: src/canvas_view.ts:1984
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:1933 src/canvas_view.ts:1937
+#: src/canvas_view.ts:1992 src/canvas_view.ts:1996
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:1934
+#: src/canvas_view.ts:1993
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:1944
+#: src/canvas_view.ts:2003
 msgid "Annotation"
 msgstr ""
 
@@ -888,22 +892,22 @@ msgstr ""
 msgid "Highlight"
 msgstr ""
 
-#: src/zoom_controller.ts:69
+#: src/zoom_controller.ts:81
 msgid "Fit"
 msgstr ""
 
-#: src/zoom_controller.ts:70
+#: src/zoom_controller.ts:82
 msgid "Fit to window (Ctrl+0)"
 msgstr ""
 
-#: src/zoom_controller.ts:77
+#: src/zoom_controller.ts:89
 msgid "1:1 pixel zoom (Ctrl+1)"
 msgstr ""
 
-#: src/zoom_controller.ts:105
+#: src/zoom_controller.ts:117
 msgid "Drag to zoom"
 msgstr ""
 
-#: src/zoom_controller.ts:105
+#: src/zoom_controller.ts:117
 msgid "Hold Shift to fine-tune"
 msgstr ""
