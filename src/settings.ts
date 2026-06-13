@@ -89,6 +89,14 @@ export interface AnnoscrSettings {
   // current tool for rapid repeated placement.
   selectAfterPlacement: boolean;
   undoMemory: UndoMemory;
+  // Last window geometry, restored on launch. Position is intentionally absent:
+  // GTK4 exposes no toplevel-positioning API (the compositor owns placement on
+  // Wayland), so only size + maximized state are ours to persist. While
+  // maximized, width/height hold the last unmaximized size, so unmaximizing
+  // after a restore returns to the right footprint.
+  windowWidth: number;
+  windowHeight: number;
+  windowMaximized: boolean;
   // Family names shown in the text font dropdown, in order; the first is the
   // text tool's default. Empty/absent = the automatic selection built from
   // font_catalogue's candidate lists. Families that aren't installed are dropped
@@ -106,7 +114,15 @@ const DEFAULTS: AnnoscrSettings = {
   confirmDiscard: true,
   selectAfterPlacement: true,
   undoMemory: 'normal',
+  windowWidth: 960,
+  windowHeight: 640,
+  windowMaximized: false,
 };
+
+// Bounds for the persisted window size — just enough to reject absurd or stale
+// hand-edited values; GTK enforces the real natural minimum at display time.
+const WINDOW_SIZE_MIN = 360;
+const WINDOW_SIZE_MAX = 16384;
 
 function settingsPath(): string {
   return GLib.build_filenamev([GLib.get_user_config_dir(), 'annoscr', 'settings.json']);
@@ -203,6 +219,11 @@ function sanitize(raw: unknown): AnnoscrSettings {
     confirmDiscard: asBool(raw.confirmDiscard) ?? DEFAULTS.confirmDiscard,
     selectAfterPlacement: asBool(raw.selectAfterPlacement) ?? DEFAULTS.selectAfterPlacement,
     undoMemory: asUndoMemory(raw.undoMemory),
+    windowWidth:
+      asClampedNumber(raw.windowWidth, WINDOW_SIZE_MIN, WINDOW_SIZE_MAX) ?? DEFAULTS.windowWidth,
+    windowHeight:
+      asClampedNumber(raw.windowHeight, WINDOW_SIZE_MIN, WINDOW_SIZE_MAX) ?? DEFAULTS.windowHeight,
+    windowMaximized: asBool(raw.windowMaximized) ?? DEFAULTS.windowMaximized,
   };
   const fontFamilies = asStringArray(raw.fontFamilies);
   if (fontFamilies) out.fontFamilies = fontFamilies;

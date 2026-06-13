@@ -31,7 +31,7 @@ import {
   parseDocument,
   serializeDocument,
 } from './document.js';
-import {getSettings, undoMemoryBytes, updateSettings} from './settings.js';
+import {AnnoscrSettings, getSettings, undoMemoryBytes, updateSettings} from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
 import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
@@ -69,12 +69,14 @@ export const AnnoscrWindow = GObject.registerClass(
     private toastOverlay!: Adw.ToastOverlay;
 
     constructor(app: InstanceType<typeof AnnoscrApplication>) {
+      const settings = getSettings();
       super({
         application: app,
         title: 'Annoscr',
-        default_width: 960,
-        default_height: 640,
+        default_width: Math.round(settings.windowWidth),
+        default_height: Math.round(settings.windowHeight),
       });
+      if (settings.windowMaximized) this.maximize();
 
       installWindowCss();
 
@@ -381,9 +383,19 @@ export const AnnoscrWindow = GObject.registerClass(
     // Persist per-tool styles on the way out, if the user opted in. Called from
     // the close guard, the choke point every quit path passes through.
     private flushSettings(): void {
+      const partial: Partial<AnnoscrSettings> = {};
       if (getSettings().rememberToolStyles) {
-        updateSettings({toolStyles: this.canvas.exportToolStyles()});
+        partial.toolStyles = this.canvas.exportToolStyles();
       }
+      // get_default_size tracks the current size while unmaximized and retains
+      // the last unmaximized size while maximized, so we persist both freely.
+      const [w, h] = this.get_default_size();
+      if (w > 0 && h > 0) {
+        partial.windowWidth = w;
+        partial.windowHeight = h;
+      }
+      partial.windowMaximized = this.maximized;
+      updateSettings(partial);
     }
 
     private installActions(app: InstanceType<typeof AnnoscrApplication>): void {
