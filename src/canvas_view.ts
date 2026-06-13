@@ -2248,8 +2248,8 @@ export const CanvasView = GObject.registerClass(
         // enough.
         if (this.suppressSelectThisPress) return;
         // Per-action resize: reshape the lone selected action live from the
-        // grabbed handle. Shift squares a corner (rect/oval); endpoints ignore
-        // it. Takes precedence over the move path below.
+        // grabbed handle. Shift squares a corner (rect/oval) or snaps an
+        // endpoint's angle (line/arrow). Takes precedence over the move path.
         if (this.actionGrab) {
           const i = this.soleSelectedIndex();
           if (i < 0) return;

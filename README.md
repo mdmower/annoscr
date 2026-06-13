@@ -18,6 +18,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
   - Click to select an annotation, or Shift+Click for several; then move, delete, duplicate, restack, or restyle them together.
   - Resize a line, arrow, rectangle, oval, or stamp by its handles; rotate a text, stamp, rectangle, or oval with its gizmo
     - Rectangles and ovals can be constrained to squares and circles, respectively.
+    - Lines and arrows can be constrained to 15° angle increments.
     - Rotations can be constrained to 15° increments.
   - Re-edit a text annotation by double-clicking it.
   - Dig through stacked annotations.

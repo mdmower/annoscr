@@ -287,6 +287,10 @@ const HIGHLIGHTER_STYLE: Style = {
 const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
+// Shift-constraint step for a line/arrow drag: 15°, the same detent the rotate
+// gizmo uses. Since 15° divides 90°, the snap lands on horizontal and vertical
+// as well as the diagonals.
+const ANGLE_SNAP = Math.PI / 12;
 // Transparent white: no visible plate until the user raises the opacity.
 const TEXT_BG_DEFAULT: ColorRGBA = [1, 1, 1, 0];
 export const TEXT_STYLE: TextStyle = {
@@ -1515,8 +1519,9 @@ abstract class TwoEndpointAction extends BaseAction {
   }
 
   // Default per-action resize for the two-endpoint shapes: a handle at each
-  // endpoint, dragged freely (constrain is ignored — lines/arrows don't snap).
-  // Rect/Oval override both with box handles.
+  // endpoint. `constrain` (Shift) snaps the dragged end's angle to ANGLE_SNAP
+  // about the anchored end, matching the live-draw constraint. Rect/Oval
+  // override both with box handles.
   getResizeHandles(): ResizeHandle[] {
     return [
       {id: 'p1', x: this.x1, y: this.y1},
@@ -1524,9 +1529,15 @@ abstract class TwoEndpointAction extends BaseAction {
     ];
   }
 
-  resizeByHandle(handle: HandleId, ix: number, iy: number, _constrain: boolean): Action {
-    if (handle === 'p1') return this.rebuild(ix, iy, this.x2, this.y2, this.style);
-    if (handle === 'p2') return this.rebuild(this.x1, this.y1, ix, iy, this.style);
+  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
+    if (handle === 'p1') {
+      const [nx, ny] = constrain ? constrainAngle(this.x2, this.y2, ix, iy, ANGLE_SNAP) : [ix, iy];
+      return this.rebuild(nx, ny, this.x2, this.y2, this.style);
+    }
+    if (handle === 'p2') {
+      const [nx, ny] = constrain ? constrainAngle(this.x1, this.y1, ix, iy, ANGLE_SNAP) : [ix, iy];
+      return this.rebuild(this.x1, this.y1, nx, ny, this.style);
+    }
     return this;
   }
 
@@ -1566,7 +1577,7 @@ class LineAction extends TwoEndpointAction {
 
 // Shared base for the single-drag live strokes of the two-endpoint shapes.
 // build() turns the current endpoints into the finished Action; the degenerate
-// guard and the optional Shift-to-square (gated on `constrainable`) live here.
+// guard and the optional Shift constraint (via `constrainEndpoint`) live here.
 abstract class EndpointLiveStroke implements LiveStroke {
   protected endX: number;
   protected endY: number;
@@ -1580,16 +1591,16 @@ abstract class EndpointLiveStroke implements LiveStroke {
     this.endY = y1;
   }
 
-  // Whether Shift snaps the drag to a square/circle. Rect/oval opt in.
-  protected get constrainable(): boolean {
-    return false;
+  // Shift constrains the drag. Subclasses opt in: rect/oval square the box,
+  // line/arrow snap the angle to ANGLE_SNAP. Default leaves the endpoint free.
+  protected constrainEndpoint(x: number, y: number): [number, number] {
+    return [x, y];
   }
 
   protected abstract build(): Action;
 
   extendTo(x: number, y: number, constrain: boolean): void {
-    [this.endX, this.endY] =
-      constrain && this.constrainable ? constrainSquare(this.x1, this.y1, x, y) : [x, y];
+    [this.endX, this.endY] = constrain ? this.constrainEndpoint(x, y) : [x, y];
   }
 
   finish(): Action | null {
@@ -1604,6 +1615,10 @@ abstract class EndpointLiveStroke implements LiveStroke {
 }
 
 class LineLiveStroke extends EndpointLiveStroke {
+  protected constrainEndpoint(x: number, y: number): [number, number] {
+    return constrainAngle(this.x1, this.y1, x, y, ANGLE_SNAP);
+  }
+
   protected build(): Action {
     return new LineAction(this.x1, this.y1, this.endX, this.endY, this.style);
   }
@@ -1715,6 +1730,10 @@ class ArrowLiveStroke extends EndpointLiveStroke {
     private readonly filledHead: boolean
   ) {
     super(x1, y1, style);
+  }
+
+  protected constrainEndpoint(x: number, y: number): [number, number] {
+    return constrainAngle(this.x1, this.y1, x, y, ANGLE_SNAP);
   }
 
   protected build(): Action {
@@ -2080,8 +2099,8 @@ class RectLiveStroke extends EndpointLiveStroke {
     super(x1, y1, style);
   }
 
-  protected get constrainable(): boolean {
-    return true;
+  protected constrainEndpoint(x: number, y: number): [number, number] {
+    return constrainSquare(this.x1, this.y1, x, y);
   }
 
   protected build(): Action {
@@ -2154,8 +2173,8 @@ class OvalLiveStroke extends EndpointLiveStroke {
     super(x1, y1, style);
   }
 
-  protected get constrainable(): boolean {
-    return true;
+  protected constrainEndpoint(x: number, y: number): [number, number] {
+    return constrainSquare(this.x1, this.y1, x, y);
   }
 
   protected build(): Action {
@@ -2486,6 +2505,23 @@ function constrainSquare(x1: number, y1: number, x2: number, y2: number): [numbe
   const sx = Math.sign(dx) || 1;
   const sy = Math.sign(dy) || 1;
   return [x1 + sx * size, y1 + sy * size];
+}
+
+// Snap (x2,y2) to the nearest multiple of `step` radians around (x1,y1) while
+// keeping the drag length, so a constrained line/arrow holds its angle.
+function constrainAngle(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  step: number
+): [number, number] {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return [x2, y2];
+  const snapped = Math.round(Math.atan2(dy, dx) / step) * step;
+  return [x1 + len * Math.cos(snapped), y1 + len * Math.sin(snapped)];
 }
 
 // The 8 box handles (4 corners + 4 edge midpoints) of the normalized rectangle
