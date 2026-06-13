@@ -764,10 +764,15 @@ class TextAction extends BaseAction {
     cr.translate(-this.w / 2, -this.h / 2);
     // Background plate behind the glyphs (padded, slightly rounded), in the
     // same rotated frame so it tilts with the text. Skipped when transparent.
+    // Sized from the layout we're actually drawing — not the construction-time
+    // this.w/this.h — so the plate can't under/overshoot the rendered glyphs
+    // when font resolution or metric hinting differs between the measure
+    // context and the live canvas context (most visible with monospace).
     const bg = this.style.bg;
     if (bg[3] > 0) {
       const pad = this.platePad;
-      roundedRectPath(cr, -pad, -pad, this.w + 2 * pad, this.h + 2 * pad, TEXT_BG_RADIUS);
+      const [lw, lh] = layout.get_pixel_size();
+      roundedRectPath(cr, -pad, -pad, lw + 2 * pad, lh + 2 * pad, TEXT_BG_RADIUS);
       cr.setSourceRGBA(bg[0], bg[1], bg[2], bg[3]);
       cr.fill();
     }
