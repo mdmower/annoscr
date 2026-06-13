@@ -141,9 +141,9 @@ sha256sum -c SHA256SUMS
 Each artifact also carries its own detached signature (`.asc` for the `.deb` and `.rpm`, `.sig` for the Arch package) if you'd rather check one directly:
 
 ```sh
-gpg --verify annoscr_1.0.1_all.deb.asc annoscr_1.0.1_all.deb
+gpg --verify annoscr_1.0.2_all.deb.asc annoscr_1.0.2_all.deb
 
-gpg --verify annoscr-1.0.1-1-any.pkg.tar.zst.sig annoscr-1.0.1-1-any.pkg.tar.zst
+gpg --verify annoscr-1.0.2-1-any.pkg.tar.zst.sig annoscr-1.0.2-1-any.pkg.tar.zst
 ```
 
 ### Arch keyring
@@ -158,7 +158,7 @@ sudo pacman-key --add annoscr-signing-key.asc
 sudo pacman-key --lsign-key 7B5B62F9C73C2BC9E451A82F39B4E90009822511
 
 # install
-sudo pacman -U ./annoscr-1.0.1-1-any.pkg.tar.zst
+sudo pacman -U ./annoscr-1.0.2-1-any.pkg.tar.zst
 ```
 
 ## Usage

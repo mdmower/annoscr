@@ -31,6 +31,13 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.0.2" date="2026-06-12">
+      <description its:translate="no">
+        <ul>
+          <li>A text annotation's background plate now wraps the text exactly, so the glyphs no longer spill past its edge with some fonts.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-06-11">
       <description its:translate="no">
         <ul>

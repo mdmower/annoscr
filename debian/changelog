@@ -1,3 +1,11 @@
+annoscr (1.0.2) unstable; urgency=medium
+
+  * A text annotation's background plate is now measured from the same layout
+    that draws the glyphs, so it always wraps the text exactly instead of
+    letting the glyphs spill past its edge (most visible with monospace fonts).
+
+ -- Matt Mower <mdmower@cmphys.com>  Fri, 12 Jun 2026 22:45:00 -0700
+
 annoscr (1.0.1) unstable; urgency=medium
 
   * Cursor-anchored zoom now stays pinned under the pointer instead of

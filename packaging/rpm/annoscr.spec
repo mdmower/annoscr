@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        1.0.1
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -81,6 +81,9 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Fri Jun 12 2026 Matt Mower <mdmower@cmphys.com> - 1.0.2-1
+- A text annotation's background plate wraps the text exactly, so the glyphs no longer spill past its edge with some fonts.
+
 * Thu Jun 11 2026 Matt Mower <mdmower@cmphys.com> - 1.0.1-1
 - Cursor-anchored zoom stays pinned under the pointer instead of drifting.
 - Resize snaps to whole pixels so the crop matches the dashed preview.

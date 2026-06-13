@@ -1,6 +1,6 @@
 # Maintainer: Matt Mower <mdmower@cmphys.com>
 pkgname=annoscr
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Lightweight screenshot annotation tool for GNOME"
 arch=('any')
