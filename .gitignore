@@ -2,8 +2,9 @@ build/
 node_modules/
 *.tsbuildinfo
 
-# Release artifacts collected by `npm run dist`
+# Release artifacts collected by `npm run dist` and `reprepro`
 dist/
+repo/
 
 # Claude Code context
 CLAUDE.md

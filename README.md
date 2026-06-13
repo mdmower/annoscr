@@ -78,6 +78,35 @@ sudo pacman -U ./annoscr-*-any.pkg.tar.zst
 
 To build from source instead, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+### apt repository (Debian / Ubuntu)
+
+For automatic updates, add the CMPhys apt repository rather than downloading the `.deb` from the releases page. First, add the signing key (the same `CMPhys Releases` key that signs every release):
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSL https://repo.cmphys.com/cmphys-releases.gpg \
+  -o /etc/apt/keyrings/cmphys-releases.gpg
+```
+
+Then, create `/etc/apt/sources.list.d/cmphys.sources`, setting `Suites` to your distribution's codename. Use `trixie` or `forky` on Debian, `noble` or `resolute` on Ubuntu:
+
+```
+Types: deb
+URIs: https://repo.cmphys.com
+Suites: trixie
+Components: main
+Signed-By: /etc/apt/keyrings/cmphys-releases.gpg
+```
+
+Finally, update apt sources and install:
+
+```sh
+sudo apt update
+sudo apt install annoscr
+```
+
+Subsequent releases arrive through `apt upgrade` like any other package. The repository serves the same arch-independent `.deb` as the releases page, with its `Release` index signed by the key above, so no per-download verification step is needed.
+
 ### Verifying downloads
 
 Release artifacts are GPG-signed. The signing key is `CMPhys Releases <mdmower@cmphys.com>`, fingerprint:
@@ -175,6 +204,19 @@ Application Options:
   ```sh
   annoscr path/to/drawing.annoscr
   ```
+
+### Capture with a keyboard shortcut (GNOME)
+
+To grab and annotate a screenshot with a single keypress, bind `annoscr --screenshot` to a custom shortcut:
+
+1. Open **Settings > Keyboard**, then click **View and Customize Shortcuts**.
+2. Scroll to **Custom Shortcuts**, click **+**, and fill in:
+   - **Name**: `Annoscr screenshot`
+   - **Command**: `annoscr --screenshot`
+   - **Shortcut**: press your chosen combination, for example `Ctrl+Alt+A`.
+3. Click **Add**.
+
+Pressing the shortcut launches Annoscr, which immediately captures through the desktop portal (it may ask which screen or window to capture). To use the **Print** key itself, first clear GNOME's built-in screenshot binding under **Settings > Keyboard > Keyboard Shortcuts > Screenshots**, since it claims that key by default.
 
 ## Roadmap
 
