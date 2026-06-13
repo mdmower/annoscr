@@ -44,8 +44,7 @@ The `git archive` line stages a source tarball for `rpmbuild`; for an actual rel
 ## Cutting a release
 
 ```sh
-# Sync version across package.json (+ lockfile), the spec, and the PKGBUILD.
-# Also adds a dated entry to debian/changelog, the metainfo, and the spec %changelog.
+# Sync the version across package.json (+ lockfile), the spec, and the PKGBUILD.
 npm run set-version -- x.y.z
 
 # Build .deb + .rpm + Arch packages into dist/
@@ -54,6 +53,19 @@ npm run dist
 # Generate detached GPG signatures and signed SHA256SUMS in dist/
 npm run sign
 ```
+
+`npm run set-version` ([build-aux/set-version.sh](../build-aux/set-version.sh)) only
+syncs the version _fields_; it does not write any release notes. Before building,
+hand-add a dated `x.y.z` entry to all three changelogs (it prints this reminder too):
+
+- `debian/changelog` (e.g. `dch -v x.y.z`),
+- `data/com.cmphys.Annoscr.metainfo.xml.in` — a `<release version="x.y.z" date="YYYY-MM-DD">` block whose body is wrapped in `<description its:translate="no">`,
+- `packaging/rpm/annoscr.spec` `%changelog`.
+
+Also bump the hardcoded version examples in [README.md](../README.md) (the verify/install
+commands) and this file (the `git archive` example above), and regenerate the translation
+template if UI strings changed since the last release (`npm run regenerate-languages`,
+writing `po/annoscr.pot`). `npm run dist` aborts if any of the version fields disagree.
 
 `npm run dist` ([build-aux/dist.sh](../build-aux/dist.sh)) builds the `.deb` on this host and the `.rpm` and Arch package in Fedora/Arch Docker containers (so it needs Docker and network for those two). All packages are saved to gitignored `dist/`, ready to attach to a GitHub release. This command aborts if any version fields disagree.
 
