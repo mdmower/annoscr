@@ -31,6 +31,14 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.0.3" date="2026-06-14">
+      <description its:translate="no">
+        <ul>
+          <li>The window remembers its size and maximized state across launches.</li>
+          <li>Holding Shift while drawing a line or arrow snaps its angle to 15° increments.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.2" date="2026-06-12">
       <description its:translate="no">
         <ul>
