@@ -31,6 +31,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.0" date="2026-06-17">
+      <description its:translate="no">
+        <ul>
+          <li>New preferences can close the window automatically after a save or copy, and a silent-save option writes images straight to the default folder without a dialog.</li>
+          <li>When the window auto-closes, a system notification appears with a thumbnail; click it to reopen the saved file or re-paste the copied image, or use "Show in Files" to reveal a saved image.</li>
+          <li>Images now respect their EXIF orientation when loaded, so photos from phones and cameras appear upright.</li>
+          <li>An arrowhead no longer overshoots the shaft on very short arrows.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.3" date="2026-06-14">
       <description its:translate="no">
         <ul>

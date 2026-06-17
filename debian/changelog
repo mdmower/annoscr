@@ -1,3 +1,20 @@
+annoscr (1.1.0) unstable; urgency=medium
+
+  * New preferences can close the window automatically after saving an image
+    or copying to the clipboard, and a silent-save option writes images
+    straight to the default folder without a dialog; a "Save image as…" menu
+    item always opens the dialog for a one-off location.
+  * When the window auto-closes after a save or copy, a system notification
+    appears with a thumbnail of the image; clicking it reopens the saved file
+    or re-pastes the copied image, and a "Show in Files" button reveals a
+    saved image in the file manager.
+  * Images now respect their EXIF orientation when loaded, so photos from
+    phones and cameras appear upright.
+  * An arrowhead no longer overshoots the shaft on very short arrows; its
+    length is capped at the shaft length.
+
+ -- Matt Mower <mdmower@cmphys.com>  Tue, 17 Jun 2026 12:00:00 -0700
+
 annoscr (1.0.3) unstable; urgency=medium
 
   * The window now remembers its size and maximized state across launches.

@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        1.0.3
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -82,6 +82,12 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Tue Jun 17 2026 Matt Mower <mdmower@cmphys.com> - 1.1.0-1
+- New preferences can close the window after a save or copy, and a silent-save option writes images straight to the default folder without a dialog.
+- When the window auto-closes, a system notification with a thumbnail reopens the saved file or re-pastes the copied image, and "Show in Files" reveals a saved image.
+- Images respect their EXIF orientation when loaded, so photos appear upright.
+- An arrowhead no longer overshoots the shaft on very short arrows.
+
 * Sun Jun 14 2026 Matt Mower <mdmower@cmphys.com> - 1.0.3-1
 - The window remembers its size and maximized state across launches.
 - Holding Shift while drawing a line or arrow snaps its angle to 15° increments.
