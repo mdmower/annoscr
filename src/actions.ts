@@ -1650,8 +1650,12 @@ class ArrowAction extends TwoEndpointAction {
   // geometry lives in one place. The arms run back from the tip (x2, y2) at
   // ±headAngle off the shaft direction.
   private arrowheadArms(): [[number, number], [number, number]] {
-    const angle = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
-    const headLen = this.style.width * 5;
+    const dx = this.x2 - this.x1;
+    const dy = this.y2 - this.y1;
+    const angle = Math.atan2(dy, dx);
+    // Cap the head at the shaft length so a short arrow's head shrinks with it
+    // rather than projecting back past the tail.
+    const headLen = Math.min(this.style.width * 5, Math.hypot(dx, dy));
     const headAngle = Math.PI / 6;
     return [
       [
