@@ -4,8 +4,11 @@ import Gio from 'gi://Gio?version=2.0';
 import Cairo from 'cairo';
 
 export function loadFromPixbuf(pixbuf: GdkPixbuf.Pixbuf): Cairo.ImageSurface {
-  const w = pixbuf.get_width();
-  const h = pixbuf.get_height();
+  // Apply any EXIF orientation (new_from_stream doesn't); returns the same
+  // pixbuf when there's nothing to rotate, null on failure.
+  const oriented = pixbuf.apply_embedded_orientation() ?? pixbuf;
+  const w = oriented.get_width();
+  const h = oriented.get_height();
   const surface = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
   const cr = new Cairo.Context(surface);
   // Gdk.cairo_set_source_pixbuf is deprecated since 4.20. The replacement
@@ -13,7 +16,7 @@ export function loadFromPixbuf(pixbuf: GdkPixbuf.Pixbuf): Cairo.ImageSurface {
   // requires cairo_image_surface_get_data, which GJS deliberately omits
   // (only getStride is exposed). No JS-accessible migration exists today.
   // eslint-disable-next-line @typescript-eslint/no-deprecated
-  Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
+  Gdk.cairo_set_source_pixbuf(cr, oriented, 0, 0);
   cr.paint();
   return surface;
 }
