@@ -227,6 +227,16 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
     updateSettings({defaultSaveFormat: formatRow.get_selected() === 1 ? 'jpeg' : 'png'});
   });
   saving.add(formatRow);
+
+  const silentSaveRow = new Adw.SwitchRow({
+    title: _('Save images without choosing a location'),
+    subtitle: _('Write straight to the folder and format above; “Save image as…” still asks'),
+    active: s.saveWithoutDialog,
+  });
+  silentSaveRow.connect('notify::active', () => {
+    updateSettings({saveWithoutDialog: silentSaveRow.get_active()});
+  });
+  saving.add(silentSaveRow);
   page.add(saving);
 
   // Behavior
@@ -250,6 +260,26 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
     updateSettings({selectAfterPlacement: selectAfterRow.get_active()});
   });
   behavior.add(selectAfterRow);
+
+  const closeAfterSaveRow = new Adw.SwitchRow({
+    title: _('Close after saving an image'),
+    subtitle: _('Only when exporting a PNG or JPEG, not when saving an annotation file'),
+    active: s.closeAfterImageSave,
+  });
+  closeAfterSaveRow.connect('notify::active', () => {
+    updateSettings({closeAfterImageSave: closeAfterSaveRow.get_active()});
+  });
+  behavior.add(closeAfterSaveRow);
+
+  const closeAfterCopyRow = new Adw.SwitchRow({
+    title: _('Close after copying to the clipboard'),
+    subtitle: _('Closes without prompting to save unsaved changes'),
+    active: s.closeAfterImageCopy,
+  });
+  closeAfterCopyRow.connect('notify::active', () => {
+    updateSettings({closeAfterImageCopy: closeAfterCopyRow.get_active()});
+  });
+  behavior.add(closeAfterCopyRow);
 
   const undoMemoryRow = new Adw.ComboRow({
     title: _('Undo memory'),

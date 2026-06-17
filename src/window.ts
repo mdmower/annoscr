@@ -43,6 +43,12 @@ import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
 import {labelFromTooltip} from './a11y.js';
 import {_} from './i18n.js';
 
+// Wayland hands clipboard data to consumers on demand from the source app, so
+// quitting the instant a copy is made can lose it before the clipboard manager
+// fetches the bytes. After a copy that auto-closes, keep the process alive this
+// long so the hand-off completes; the window is already gone meanwhile.
+const CLIPBOARD_GRACE_MS = 1000;
+
 export const AnnoscrWindow = GObject.registerClass(
   {GTypeName: 'AnnoscrWindow'},
   class extends Adw.ApplicationWindow {
@@ -108,10 +114,10 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.saveButton = new Gtk.Button({
         icon_name: 'document-save-symbolic',
-        tooltip_text: _('Save image… (Ctrl+S)'),
+        tooltip_text: _('Save image (Ctrl+S)'),
         sensitive: false,
       });
-      this.saveButton.connect('clicked', () => this.saveImageDialog());
+      this.saveButton.connect('clicked', () => this.saveImage());
       labelFromTooltip(this.saveButton);
       header.pack_start(this.saveButton);
 
@@ -127,6 +133,12 @@ export const AnnoscrWindow = GObject.registerClass(
       // Primary menu — packed first so it lands at the right edge, next to the
       // window controls (the standard GNOME spot).
       const menu = new Gio.Menu();
+      // Always-dialog image export — the escape hatch for picking a one-off
+      // location when "save without choosing a location" makes the header Save
+      // button (and Ctrl+S) write silently to the default folder.
+      const imageSection = new Gio.Menu();
+      imageSection.append(_('Save image as…'), 'win.saveas');
+      menu.append_section(null, imageSection);
       // Annotation-file open/save: a reopenable document (image + editable
       // actions), distinct from the prominent PNG/JPEG export on the header bar.
       const fileSection = new Gio.Menu();
@@ -420,6 +432,7 @@ export const AnnoscrWindow = GObject.registerClass(
       add('quit', () => this.close());
       add('opendoc', () => this.openDocumentDialog());
       add('savedoc', () => this.saveDocumentDialog());
+      add('saveas', () => this.saveImageDialog());
       app.set_accels_for_action('win.preferences', ['<Control>comma']);
       app.set_accels_for_action('win.shortcuts', ['<Control>question']);
       app.set_accels_for_action('win.quit', ['<Control>q']);
@@ -680,7 +693,7 @@ export const AnnoscrWindow = GObject.registerClass(
         this.canvas.redo();
       });
       this.bindShortcut(controller, '<Control>s', () => {
-        if (this.canvas.hasImage()) this.saveImageDialog();
+        this.saveImage();
       });
       // Ctrl+C must not steal the editor's text-copy shortcut when the editor
       // is open. The TextView's built-in handler normally consumes the event
@@ -840,6 +853,63 @@ export const AnnoscrWindow = GObject.registerClass(
       controller.add_shortcut(new Gtk.Shortcut({trigger, action}));
     }
 
+    // The header Save button and Ctrl+S. Writes silently to the default folder
+    // when the preference is set; otherwise opens the save dialog. "Save image
+    // as…" always takes the dialog path.
+    private saveImage(): void {
+      if (!this.canvas.hasImage()) return;
+      if (getSettings().saveWithoutDialog) this.saveImageSilent();
+      else this.saveImageDialog();
+    }
+
+    // Dialog-free save: default folder + format, auto-generated timestamped name.
+    private saveImageSilent(): void {
+      this.editor.commitIfActive();
+      const surface = this.canvas.exportSnapshot();
+      if (!surface) return;
+      const settings = getSettings();
+      const format = settings.defaultSaveFormat;
+      const folder = settings.defaultSaveFolder || defaultSaveFolderPath();
+      const path = GLib.build_filenamev([folder, defaultSaveFilename(format)]);
+      try {
+        saveSurface(surface, path, format);
+        this.canvas.markClean();
+        this.onImageSaved(path, true);
+      } catch (e) {
+        console.error('saveSurface failed', e);
+        this.showToast(_('Could not save image'));
+      }
+    }
+
+    // Shared post-save handling for both the dialog and silent paths. Closes the
+    // window when the auto-close-after-save preference is on (the canvas is
+    // already clean, so no discard prompt); a silent save that stays open shows
+    // a confirming toast.
+    private onImageSaved(path: string, silent: boolean): void {
+      if (getSettings().closeAfterImageSave) {
+        this.close();
+      } else if (silent) {
+        // Stayed open with no dialog shown — confirm with an in-window toast.
+        this.showToast(_('Saved %s').replace('%s', GLib.path_get_basename(path)));
+      }
+    }
+
+    // Close after a copy, holding the process briefly so the clipboard hand-off
+    // completes (see CLIPBOARD_GRACE_MS). Also skips the discard prompt, since a
+    // copy doesn't mark the canvas saved.
+    private closeAfterCopy(): void {
+      this.skipCloseConfirm = true;
+      const app = this.get_application();
+      if (app) {
+        app.hold();
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, CLIPBOARD_GRACE_MS, () => {
+          app.release();
+          return GLib.SOURCE_REMOVE;
+        });
+      }
+      this.close();
+    }
+
     private saveImageDialog(): void {
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
@@ -896,6 +966,7 @@ export const AnnoscrWindow = GObject.registerClass(
         try {
           saveSurface(surface, path, format);
           this.canvas.markClean();
+          this.onImageSaved(path, false);
         } catch (e) {
           console.error('saveSurface failed', e);
           this.showToast(_('Could not save image'));
@@ -1022,7 +1093,11 @@ export const AnnoscrWindow = GObject.registerClass(
       if (!surface) return;
       try {
         copySurfaceToClipboard(this.get_clipboard(), surface);
-        this.showToast(_('Image copied to clipboard'));
+        if (getSettings().closeAfterImageCopy) {
+          this.closeAfterCopy();
+        } else {
+          this.showToast(_('Image copied to clipboard'));
+        }
       } catch (e) {
         console.error('copySurfaceToClipboard failed', e);
         this.showToast(_('Could not copy image'));

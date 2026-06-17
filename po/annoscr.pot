@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-14 22:03-0700\n"
+"POT-Creation-Date: 2026-06-17 09:49-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -295,33 +295,58 @@ msgstr ""
 msgid "Default format"
 msgstr ""
 
-#. Behavior
+#: src/preferences.ts:232
+msgid "Save images without choosing a location"
+msgstr ""
+
 #: src/preferences.ts:233
+msgid ""
+"Write straight to the folder and format above; “Save image as…” still asks"
+msgstr ""
+
+#. Behavior
+#: src/preferences.ts:243
 msgid "Behavior"
 msgstr ""
 
-#: src/preferences.ts:235
+#: src/preferences.ts:245
 msgid "Confirm before discarding unsaved changes"
 msgstr ""
 
-#: src/preferences.ts:236
+#: src/preferences.ts:246
 msgid "Ask before replacing an annotated canvas you haven't saved"
 msgstr ""
 
-#: src/preferences.ts:245
+#: src/preferences.ts:255
 msgid "Select after placing"
 msgstr ""
 
-#: src/preferences.ts:246
+#: src/preferences.ts:256
 msgid ""
 "Switch to the select tool and select each annotation right after you place it"
 msgstr ""
 
-#: src/preferences.ts:255
+#: src/preferences.ts:265
+msgid "Close after saving an image"
+msgstr ""
+
+#: src/preferences.ts:266
+msgid "Only when exporting a PNG or JPEG, not when saving an annotation file"
+msgstr ""
+
+#: src/preferences.ts:275
+msgid "Close after copying to the clipboard"
+msgstr ""
+
+#: src/preferences.ts:276
+msgid "Closes without prompting to save unsaved changes"
+msgstr ""
+
+#: src/preferences.ts:285
 msgid "Undo memory"
 msgstr ""
 
-#: src/preferences.ts:257
+#: src/preferences.ts:287
 msgid ""
 "Rotating or resizing the canvas keeps a full image copy per undo step; the "
 "oldest steps are dropped over this limit"
@@ -331,7 +356,7 @@ msgstr ""
 msgid "General"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:31 src/window.ts:499
+#: src/shortcuts_dialog.ts:31 src/window.ts:512
 msgid "Open image"
 msgstr ""
 
@@ -339,7 +364,7 @@ msgstr ""
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:33 src/window.ts:848
+#: src/shortcuts_dialog.ts:33 src/window.ts:918
 msgid "Save image"
 msgstr ""
 
@@ -351,15 +376,15 @@ msgstr ""
 msgid "Paste image"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:36 src/window.ts:136
+#: src/shortcuts_dialog.ts:36 src/window.ts:148
 msgid "Preferences"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:140 src/window.ts:137
+#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:140 src/window.ts:149
 msgid "Keyboard shortcuts"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:38 src/window.ts:139
+#: src/shortcuts_dialog.ts:38 src/window.ts:151
 msgid "Quit"
 msgstr ""
 
@@ -711,160 +736,170 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
-#: src/window.ts:87
+#: src/window.ts:93
 msgid "New blank canvas… (Ctrl+N)"
 msgstr ""
 
-#: src/window.ts:95
+#: src/window.ts:101
 msgid "Open image… (Ctrl+O)"
 msgstr ""
 
-#: src/window.ts:103
+#: src/window.ts:109
 msgid "Take screenshot… (Ctrl+Shift+S)"
 msgstr ""
 
-#: src/window.ts:111
-msgid "Save image… (Ctrl+S)"
+#: src/window.ts:117
+msgid "Save image (Ctrl+S)"
 msgstr ""
 
-#: src/window.ts:120
+#: src/window.ts:126
 msgid "Copy image to clipboard (Ctrl+C)"
 msgstr ""
 
-#: src/window.ts:133
+#: src/window.ts:140
+msgid "Save image as…"
+msgstr ""
+
+#: src/window.ts:145
 msgid "Open annotation file…"
 msgstr ""
 
-#: src/window.ts:134
+#: src/window.ts:146
 msgid "Save annotation file…"
 msgstr ""
 
-#: src/window.ts:138
+#: src/window.ts:150
 msgid "About Annoscr"
 msgstr ""
 
-#: src/window.ts:142
+#: src/window.ts:154
 msgid "Main menu"
 msgstr ""
 
-#: src/window.ts:153
+#: src/window.ts:165
 msgid "Resize canvas… (Ctrl+E)"
 msgstr ""
 
-#: src/window.ts:161
+#: src/window.ts:173
 msgid "Rotate right 90° (Ctrl+R)"
 msgstr ""
 
-#: src/window.ts:169
+#: src/window.ts:181
 msgid "Rotate left 90° (Ctrl+Shift+R)"
 msgstr ""
 
-#: src/window.ts:323
+#: src/window.ts:335
 msgid ""
 "Create a blank canvas, open an image, paste from the clipboard, or drop a "
 "file here."
 msgstr ""
 
-#: src/window.ts:435
+#: src/window.ts:448
 msgid "Closing the window"
 msgstr ""
 
-#: src/window.ts:493
+#: src/window.ts:506
 msgid "Opening a new image"
 msgstr ""
 
-#: src/window.ts:501
+#: src/window.ts:514
 msgid "Images"
 msgstr ""
 
 #. Guards an unsaved canvas before replacing it. Harmless at cold startup
 #. (confirmDiscard proceeds immediately when nothing is dirty); the guard
 #. matters now that `--new` can reach an already-running instance.
-#: src/window.ts:525 src/window.ts:531
+#: src/window.ts:538 src/window.ts:544
 msgid "Creating a blank canvas"
 msgstr ""
 
-#: src/window.ts:541
+#: src/window.ts:554
 msgid "Opening this annotation file"
 msgstr ""
 
-#: src/window.ts:545
+#: src/window.ts:558
 msgid "Opening this image"
 msgstr ""
 
-#: src/window.ts:569
+#: src/window.ts:582
 msgid "Opening the screenshot"
 msgstr ""
 
-#: src/window.ts:581
+#: src/window.ts:594
 msgid "Screenshot cancelled"
 msgstr ""
 
-#: src/window.ts:596
+#: src/window.ts:609
 #, javascript-format
 msgid "Could not open \"%s\""
 msgstr ""
 
-#: src/window.ts:638
+#: src/window.ts:651
 msgid "Opening the dropped annotation file"
 msgstr ""
 
-#: src/window.ts:643
+#: src/window.ts:656
 msgid "Opening the dropped image"
+msgstr ""
+
+#: src/window.ts:880 src/window.ts:972
+msgid "Could not save image"
+msgstr ""
+
+#. Stayed open with no dialog shown — confirm with an in-window toast.
+#: src/window.ts:893
+#, javascript-format
+msgid "Saved %s"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:857
+#: src/window.ts:927
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:901
-msgid "Could not save image"
-msgstr ""
-
-#: src/window.ts:913
+#: src/window.ts:984
 msgid "Save annotation file"
 msgstr ""
 
-#: src/window.ts:927 src/window.ts:981
+#: src/window.ts:998 src/window.ts:1052
 msgid "Annotation file"
 msgstr ""
 
-#: src/window.ts:968
+#: src/window.ts:1039
 msgid "Could not save annotation file"
 msgstr ""
 
-#: src/window.ts:974
+#: src/window.ts:1045
 msgid "Opening an annotation file"
 msgstr ""
 
-#: src/window.ts:980
+#: src/window.ts:1051
 msgid "Open annotation file"
 msgstr ""
 
-#: src/window.ts:1014
+#: src/window.ts:1085
 msgid "Could not open annotation file"
 msgstr ""
 
-#: src/window.ts:1025
+#: src/window.ts:1099
 msgid "Image copied to clipboard"
 msgstr ""
 
-#: src/window.ts:1028
+#: src/window.ts:1103
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:1033
+#: src/window.ts:1108
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:1059 src/window.ts:1091
+#: src/window.ts:1134 src/window.ts:1166
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:1071 src/window.ts:1088
+#: src/window.ts:1146 src/window.ts:1163
 msgid "Clipboard has no image to paste"
 msgstr ""
 

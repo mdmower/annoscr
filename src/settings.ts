@@ -83,11 +83,20 @@ export interface AnnoscrSettings {
   // Empty string = fall back to the XDG Pictures directory (default behavior).
   defaultSaveFolder: string;
   defaultSaveFormat: ImageFormat;
+  // Save images straight to the default folder with an auto-generated name,
+  // skipping the file dialog. "Save image as…" still opens the dialog.
+  saveWithoutDialog: boolean;
   confirmDiscard: boolean;
   // After placing an annotation, switch to the select tool with the new item
   // selected (so it's immediately editable/resizable/rotatable). Off keeps the
   // current tool for rapid repeated placement.
   selectAfterPlacement: boolean;
+  // Close the window after exporting an image (PNG/JPEG). Does not apply to
+  // saving an annotation (.annoscr) file.
+  closeAfterImageSave: boolean;
+  // Close the window after copying the image to the clipboard. Because a copy
+  // doesn't mark the canvas saved, auto-closing skips the discard prompt.
+  closeAfterImageCopy: boolean;
   undoMemory: UndoMemory;
   // Last window geometry, restored on launch. Position is intentionally absent:
   // GTK4 exposes no toplevel-positioning API (the compositor owns placement on
@@ -111,8 +120,11 @@ const DEFAULTS: AnnoscrSettings = {
   rememberToolStyles: true,
   defaultSaveFolder: '',
   defaultSaveFormat: 'png',
+  saveWithoutDialog: false,
   confirmDiscard: true,
   selectAfterPlacement: true,
+  closeAfterImageSave: false,
+  closeAfterImageCopy: false,
   undoMemory: 'normal',
   windowWidth: 960,
   windowHeight: 640,
@@ -216,8 +228,11 @@ function sanitize(raw: unknown): AnnoscrSettings {
     rememberToolStyles: asBool(raw.rememberToolStyles) ?? DEFAULTS.rememberToolStyles,
     defaultSaveFolder: asString(raw.defaultSaveFolder) ?? DEFAULTS.defaultSaveFolder,
     defaultSaveFormat: asFormat(raw.defaultSaveFormat),
+    saveWithoutDialog: asBool(raw.saveWithoutDialog) ?? DEFAULTS.saveWithoutDialog,
     confirmDiscard: asBool(raw.confirmDiscard) ?? DEFAULTS.confirmDiscard,
     selectAfterPlacement: asBool(raw.selectAfterPlacement) ?? DEFAULTS.selectAfterPlacement,
+    closeAfterImageSave: asBool(raw.closeAfterImageSave) ?? DEFAULTS.closeAfterImageSave,
+    closeAfterImageCopy: asBool(raw.closeAfterImageCopy) ?? DEFAULTS.closeAfterImageCopy,
     undoMemory: asUndoMemory(raw.undoMemory),
     windowWidth:
       asClampedNumber(raw.windowWidth, WINDOW_SIZE_MIN, WINDOW_SIZE_MAX) ?? DEFAULTS.windowWidth,
