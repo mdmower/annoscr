@@ -22,6 +22,19 @@ metainfo_file = i18n.merge_file(
   install_dir: get_option('datadir') / 'metainfo',
 )
 
+# D-Bus service file: makes the bus name activatable so the "Show in Files"
+# button on an autoclose-export notification can relaunch the app after it has
+# quit. Exec needs an absolute path.
+service_conf = configuration_data()
+service_conf.set('bindir', get_option('prefix') / get_option('bindir'))
+configure_file(
+  input: '@0@.service.in'.format(app_id),
+  output: '@0@.service'.format(app_id),
+  configuration: service_conf,
+  install: true,
+  install_dir: get_option('datadir') / 'dbus-1' / 'services',
+)
+
 # Validate desktop file (best-effort; warn only if tool missing).
 desktop_validate = find_program('desktop-file-validate', required: false)
 if desktop_validate.found()

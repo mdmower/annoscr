@@ -97,6 +97,30 @@ export function surfaceToPngBytes(surface: Cairo.ImageSurface): GLib.Bytes {
   return Gdk.Texture.new_for_pixbuf(pixbuf).save_to_png_bytes();
 }
 
+// A SQUARE PNG thumbnail (side ≤ maxDim) with the image scaled to fit and
+// centered on transparency. Square on purpose: GNOME renders a notification
+// icon in a square slot and stretches a non-square image to fill it, so a
+// landscape capture comes out distorted. A square image can't be stretched, so
+// the letterboxed result keeps the true aspect (transparent bars on the short
+// sides). Encoded as bytes — small, so the D-Bus payload stays light.
+export function surfaceThumbnailPngBytes(surface: Cairo.ImageSurface, maxDim = 256): GLib.Bytes {
+  const w = surface.getWidth();
+  const h = surface.getHeight();
+  const longest = Math.max(w, h);
+  const side = Math.min(maxDim, longest); // never upscale a small image
+  const scale = side / longest;
+  const sw = Math.max(1, Math.round(w * scale));
+  const sh = Math.max(1, Math.round(h * scale));
+  const thumb = new Cairo.ImageSurface(Cairo.Format.ARGB32, side, side);
+  const cr = new Cairo.Context(thumb);
+  cr.translate((side - sw) / 2, (side - sh) / 2);
+  cr.scale(scale, scale);
+  cr.setSourceSurface(surface, 0, 0);
+  cr.paint();
+  thumb.flush();
+  return surfaceToPngBytes(thumb);
+}
+
 // Put pre-encoded PNG bytes on the clipboard as image/png. Pre-encoding (vs.
 // providing a Gdk.Texture and letting GTK serialize on demand) avoids a
 // deadlock when this same process pastes the clipboard back: the synchronous

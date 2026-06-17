@@ -23,6 +23,7 @@ import {
   defaultSaveFolderPath,
   formatFromPath,
   saveSurface,
+  surfaceThumbnailPngBytes,
 } from './exporter.js';
 import {
   DOC_EXTENSION,
@@ -43,11 +44,15 @@ import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
 import {labelFromTooltip} from './a11y.js';
 import {_} from './i18n.js';
 
-// Wayland hands clipboard data to consumers on demand from the source app, so
-// quitting the instant a copy is made can lose it before the clipboard manager
-// fetches the bytes. After a copy that auto-closes, keep the process alive this
-// long so the hand-off completes; the window is already gone meanwhile.
-const CLIPBOARD_GRACE_MS = 1000;
+// After an autoclose export we close the window but keep the process alive this
+// long, so the just-sent notification's async D-Bus delivery flushes before the
+// app exits. The window is already gone, so the app looks closed meanwhile.
+const NOTIFY_GRACE_MS = 1000;
+
+// How long a cold-relaunch paste waits for the clipboard to advertise content
+// (the Wayland selection offer arrives only once our window is focused) before
+// giving up silently.
+const CLIPBOARD_READY_TIMEOUT_MS = 3000;
 
 export const AnnoscrWindow = GObject.registerClass(
   {GTypeName: 'AnnoscrWindow'},
@@ -874,35 +879,83 @@ export const AnnoscrWindow = GObject.registerClass(
       try {
         saveSurface(surface, path, format);
         this.canvas.markClean();
-        this.onImageSaved(path, true);
+        this.onImageSaved(path, true, surface);
       } catch (e) {
         console.error('saveSurface failed', e);
         this.showToast(_('Could not save image'));
       }
     }
 
-    // Shared post-save handling for both the dialog and silent paths. Closes the
-    // window when the auto-close-after-save preference is on (the canvas is
-    // already clean, so no discard prompt); a silent save that stays open shows
-    // a confirming toast.
-    private onImageSaved(path: string, silent: boolean): void {
+    // Shared post-save handling for both the dialog and silent paths. On
+    // autoclose the window is going away, so feedback is a system notification
+    // (a toast would die with the window). Clicking it reopens the saved file;
+    // the "Show in Files" button is offered only for a silent save, since a
+    // dialog save already let the user pick (and see) the folder.
+    private onImageSaved(path: string, silent: boolean, surface: Cairo.ImageSurface): void {
       if (getSettings().closeAfterImageSave) {
-        this.close();
+        this.sendExportNotification({
+          title: _('Image saved'),
+          body: GLib.path_get_basename(path),
+          openPath: path,
+          showInFiles: silent,
+          thumbnailBytes: surfaceThumbnailPngBytes(surface),
+        });
+        this.closeAfterExport(false);
       } else if (silent) {
         // Stayed open with no dialog shown — confirm with an in-window toast.
         this.showToast(_('Saved %s').replace('%s', GLib.path_get_basename(path)));
       }
+      // Dialog save without autoclose: the file dialog itself was the feedback.
     }
 
-    // Close after a copy, holding the process briefly so the clipboard hand-off
-    // completes (see CLIPBOARD_GRACE_MS). Also skips the discard prompt, since a
-    // copy doesn't mark the canvas saved.
-    private closeAfterCopy(): void {
-      this.skipCloseConfirm = true;
+    // Post-autoclose feedback. A notification is owned by the session, so it
+    // outlives the closing window. The image is shown as the icon — a square
+    // letterboxed thumbnail (as the screenshot portal shows one); a raw FileIcon
+    // would be distorted by GNOME's square icon slot just like a copy's bytes.
+    private sendExportNotification(opts: {
+      title: string;
+      body?: string;
+      // A saved file: clicking the notification reopens it in Annoscr; with
+      // showInFiles, a button also reveals it in the file manager.
+      openPath?: string;
+      showInFiles?: boolean;
+      // A clipboard copy: clicking the notification opens the copied image.
+      pasteOnClick?: boolean;
+      // The square thumbnail bytes for the notification icon.
+      thumbnailBytes?: GLib.Bytes;
+    }): void {
       const app = this.get_application();
+      if (!app) return;
+      const notification = Gio.Notification.new(opts.title);
+      if (opts.body) notification.set_body(opts.body);
+      if (opts.thumbnailBytes) notification.set_icon(Gio.BytesIcon.new(opts.thumbnailBytes));
+      if (opts.openPath) {
+        notification.set_default_action_and_target(
+          'app.open-file',
+          GLib.Variant.new_string(opts.openPath)
+        );
+        if (opts.showInFiles) {
+          // "Show in Files" matches the desktop portal's button wording.
+          notification.add_button_with_target(
+            _('Show in Files'),
+            'app.show-in-files',
+            GLib.Variant.new_string(opts.openPath)
+          );
+        }
+      } else if (opts.pasteOnClick) {
+        notification.set_default_action('app.paste-clipboard');
+      }
+      app.send_notification('annoscr-export', notification);
+    }
+
+    // Close the window after an autoclose export, holding the process briefly so
+    // the notification's async delivery completes before the app exits.
+    private closeAfterExport(skipConfirm: boolean): void {
+      const app = this.get_application();
+      if (skipConfirm) this.skipCloseConfirm = true;
       if (app) {
         app.hold();
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, CLIPBOARD_GRACE_MS, () => {
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, NOTIFY_GRACE_MS, () => {
           app.release();
           return GLib.SOURCE_REMOVE;
         });
@@ -966,7 +1019,7 @@ export const AnnoscrWindow = GObject.registerClass(
         try {
           saveSurface(surface, path, format);
           this.canvas.markClean();
-          this.onImageSaved(path, false);
+          this.onImageSaved(path, false, surface);
         } catch (e) {
           console.error('saveSurface failed', e);
           this.showToast(_('Could not save image'));
@@ -1094,7 +1147,15 @@ export const AnnoscrWindow = GObject.registerClass(
       try {
         copySurfaceToClipboard(this.get_clipboard(), surface);
         if (getSettings().closeAfterImageCopy) {
-          this.closeAfterCopy();
+          // Clicking the notification reopens the copied image from the
+          // clipboard. A copy doesn't mark the canvas saved, so skip the
+          // discard prompt on the way out (the prefs info text warns of this).
+          this.sendExportNotification({
+            title: _('Image copied to clipboard'),
+            pasteOnClick: true,
+            thumbnailBytes: surfaceThumbnailPngBytes(surface),
+          });
+          this.closeAfterExport(true);
         } else {
           this.showToast(_('Image copied to clipboard'));
         }
@@ -1102,6 +1163,46 @@ export const AnnoscrWindow = GObject.registerClass(
         console.error('copySurfaceToClipboard failed', e);
         this.showToast(_('Could not copy image'));
       }
+    }
+
+    // Reopen the copied image when the "Image copied to clipboard" notification
+    // is clicked (the app's paste-clipboard action), creating a window first if
+    // needed. On a cold relaunch the new process hasn't received the clipboard
+    // selection offer yet — on Wayland it arrives only once our window is
+    // focused — so an immediate read finds nothing. Wait until the clipboard
+    // advertises content, then paste; bounded by a timeout, and silent on
+    // give-up so a cold start doesn't flash a misleading "no image" toast.
+    pasteWhenReady(): void {
+      const clipboard = this.get_clipboard();
+      const ready = (): boolean => {
+        const mimes = clipboard.get_formats()?.get_mime_types() ?? [];
+        return IMAGE_MIME_TYPES.some((m) => mimes.includes(m)) || mimes.includes('text/uri-list');
+      };
+      if (ready()) {
+        this.pasteFromClipboard();
+        return;
+      }
+      let changedId = 0;
+      let timeoutId = 0;
+      const finish = (doPaste: boolean): void => {
+        if (changedId) {
+          clipboard.disconnect(changedId);
+          changedId = 0;
+        }
+        if (timeoutId) {
+          GLib.source_remove(timeoutId);
+          timeoutId = 0;
+        }
+        if (doPaste) this.pasteFromClipboard();
+      };
+      changedId = clipboard.connect('changed', () => {
+        if (ready()) finish(true);
+      });
+      timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, CLIPBOARD_READY_TIMEOUT_MS, () => {
+        timeoutId = 0;
+        finish(ready());
+        return GLib.SOURCE_REMOVE;
+      });
     }
 
     private pasteFromClipboard(): void {

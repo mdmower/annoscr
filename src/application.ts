@@ -91,6 +91,65 @@ export const AnnoscrApplication = GObject.registerClass(
       if (iconPath && display) {
         Gtk.IconTheme.get_for_display(display).add_search_path(iconPath);
       }
+
+      // The "Show in Files" button on an autoclose-export notification routes
+      // here. It can fire after the window (or the whole app) is gone, which
+      // D-Bus-activates us headless — registering on the application (not a
+      // window) is what lets the action be serviced in that case.
+      const showInFiles = new Gio.SimpleAction({
+        name: 'show-in-files',
+        parameter_type: GLib.VariantType.new('s'),
+      });
+      showInFiles.connect('activate', (_action, param) => {
+        if (param) this.showInFiles(param.deepUnpack() as string);
+      });
+      this.add_action(showInFiles);
+
+      // Clicking an "Image saved" notification reopens the saved file. Like the
+      // button above this can fire after the app has quit, D-Bus-activating us;
+      // a window is created if there isn't one.
+      const openFile = new Gio.SimpleAction({
+        name: 'open-file',
+        parameter_type: GLib.VariantType.new('s'),
+      });
+      openFile.connect('activate', (_action, param) => {
+        if (!param) return;
+        const win = this.ensureWindow();
+        win.present();
+        win.openFileChecked(Gio.File.new_for_path(param.deepUnpack() as string));
+      });
+      this.add_action(openFile);
+
+      // Clicking an "Image copied to clipboard" notification reopens the copied
+      // (flattened) image by pasting it back from the clipboard.
+      const pasteClipboard = new Gio.SimpleAction({name: 'paste-clipboard'});
+      pasteClipboard.connect('activate', () => {
+        const win = this.ensureWindow();
+        win.present();
+        win.pasteWhenReady();
+      });
+      this.add_action(pasteClipboard);
+    }
+
+    private ensureWindow(): InstanceType<typeof AnnoscrWindow> {
+      return (this.active_window ?? new AnnoscrWindow(this)) as InstanceType<typeof AnnoscrWindow>;
+    }
+
+    // Open the file manager on the given file's folder, highlighting the file.
+    private showInFiles(path: string): void {
+      const launcher = new Gtk.FileLauncher({file: Gio.File.new_for_path(path)});
+      // Hold across the async call: a headless activation has no window keeping
+      // the app alive, so without this the process could exit before the file
+      // manager is launched.
+      this.hold();
+      launcher.open_containing_folder(this.active_window, null, (_src, res) => {
+        try {
+          launcher.open_containing_folder_finish(res);
+        } catch (e) {
+          console.error('open_containing_folder failed', e);
+        }
+        this.release();
+      });
     }
 
     private applyOptions(options: GLib.VariantDict): void {

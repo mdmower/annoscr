@@ -73,6 +73,7 @@ npm install --no-audit --no-fund
 %doc README.md
 %{_bindir}/%{name}
 %{_datadir}/applications/com.cmphys.Annoscr.desktop
+%{_datadir}/dbus-1/services/com.cmphys.Annoscr.service
 %{_metainfodir}/com.cmphys.Annoscr.metainfo.xml
 %{_datadir}/mime/packages/com.cmphys.Annoscr.mime.xml
 %{_datadir}/icons/hicolor/scalable/apps/com.cmphys.Annoscr.svg
