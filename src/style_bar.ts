@@ -535,6 +535,9 @@ export class StyleBar {
     // Suppress the entry/slider change handlers while we set their values
     // programmatically (on popup, or when one control drives the other).
     let syncing = false;
+    // The exact text syncControls() last wrote into the hex entry. applyHex
+    // gates on this so an untouched entry never commits (see applyHex).
+    let lastSyncedText = '';
 
     const area = new Gtk.DrawingArea({
       width_request: 28,
@@ -605,38 +608,41 @@ export class StyleBar {
     // Reflect `current` into the entry + slider without re-triggering commits.
     const syncControls = (): void => {
       syncing = true;
-      hexEntry.set_text(colorToHex(current));
+      lastSyncedText = colorToHex(current);
+      hexEntry.set_text(lastSyncedText);
       opacityScale.set_value(Math.round(current[3] * 100));
       syncing = false;
     };
 
-    const applyHex = (): void => {
+    // `force` true = the user pressed Enter (an explicit "apply this"), so the
+    // shown value broadcasts even when unchanged — the way to flatten a mixed
+    // selection to the displayed color. false = a focus-leave, which must not
+    // commit an untouched entry: the shown hex is an 8-bit rounding of a float
+    // color, so re-parsing an unedited entry yields a slightly different float
+    // and looks like a change; a stray leave (the popover's own open/dismiss
+    // focus juggling fires `leave` with no user input) would then silently
+    // flatten a mixed multi-selection. Gate that case on the text differing.
+    const applyHex = (force: boolean): void => {
+      if (!force && hexEntry.get_text() === lastSyncedText) return;
       const parsed = parseHexColor(hexEntry.get_text());
       if (!parsed) {
         // Invalid input: snap the entry back to the live color.
-        syncing = true;
-        hexEntry.set_text(colorToHex(current));
-        syncing = false;
+        syncControls();
         return;
       }
       // 6-digit keeps the current opacity; 8-digit carries its own alpha.
       const alpha = parsed.hadAlpha ? parsed.color[3] : current[3];
-      const next: ColorRGBA = [parsed.color[0], parsed.color[1], parsed.color[2], alpha];
-      // Only commit a real edit. Without this, merely opening the popover and
-      // dismissing it (focus-leave with unchanged text) would commit — and on a
-      // mixed multi-selection that would silently flatten it. An intentional
-      // change still commits (and flattens a mixed selection) as expected.
-      if (!next.every((v, i) => v === current[i])) commit(next);
+      commit([parsed.color[0], parsed.color[1], parsed.color[2], alpha]);
       // syncControls() normalizes the text via set_text(), which parks the
       // cursor at position 0; move it to the end so editing resumes naturally.
       syncControls();
       hexEntry.set_position(-1);
     };
-    hexEntry.connect('activate', applyHex);
+    hexEntry.connect('activate', () => applyHex(true));
     // Also apply when focus leaves the entry, so typing then clicking the
     // slider/another control commits without needing Enter.
     const focusCtl = new Gtk.EventControllerFocus();
-    focusCtl.connect('leave', applyHex);
+    focusCtl.connect('leave', () => applyHex(false));
     hexEntry.add_controller(focusCtl);
 
     opacityScale.connect('value-changed', () => {
