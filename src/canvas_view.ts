@@ -323,6 +323,16 @@ export const CanvasView = GObject.registerClass(
     // gesture, not a grab).
     private shiftToggleDrag: boolean = false;
 
+    // Marquee (rubber-band) selection. A select-tool drag begun on empty canvas
+    // sweeps a dashed rectangle; on release, every action whose box is fully
+    // inside it becomes the selection (replacing any prior one). Both corners
+    // are stored in IMAGE space (anchor + live corner) so the band stays pinned
+    // to the image if the view scrolls mid-drag. `bandStart` non-null = a band
+    // is armed (set on the empty press); `bandCurrent` stays null until the
+    // pointer actually moves, so a bare click clears without selecting.
+    private bandStart: [number, number] | null = null;
+    private bandCurrent: [number, number] | null = null;
+
     // "Aim" state for digging through overlapping actions (select tool). The
     // hover candidate is the action the next click acts on, drawn with a
     // distinct outline. `digDepth` indexes into the hit-stack under the
@@ -1197,6 +1207,63 @@ export const CanvasView = GObject.registerClass(
       this.notifyStateChange();
     }
 
+    // Select every action (Ctrl+A). Consumes the key (returns true) only with
+    // the select tool active and at least one action — whether or not the set
+    // actually changed — so it doesn't leak to the scroller; returns false
+    // otherwise so the accelerator falls through.
+    selectAll(): boolean {
+      if (this.currentToolId !== 'select' || this.state.actions.length === 0) return false;
+      const prevKey = this.selectionKey();
+      this.selectedIndices.clear();
+      for (let i = 0; i < this.state.actions.length; i++) this.selectedIndices.add(i);
+      if (this.selectionKey() !== prevKey) {
+        this.lastCoalesceKey = null;
+        this.notifyStateChange();
+      }
+      this.queue_draw();
+      return true;
+    }
+
+    // Replace the selection with every action whose footprint is fully inside
+    // the marquee rectangle (image-space corners). Rotatable actions test their
+    // oriented (tilted) box, so a rotated shape counts only when its real
+    // footprint fits — not its looser axis-aligned bounds; everything else uses
+    // its axis-aligned bounds. Selection isn't undo history, so this only
+    // notifies (no pushState).
+    private selectBand(x1: number, y1: number, x2: number, y2: number): void {
+      const minX = Math.min(x1, x2);
+      const maxX = Math.max(x1, x2);
+      const minY = Math.min(y1, y2);
+      const maxY = Math.max(y1, y2);
+      const prevKey = this.selectionKey();
+      this.selectedIndices.clear();
+      this.state.actions.forEach((a, i) => {
+        const corners = actionCorners(a);
+        if (
+          corners &&
+          corners.every(([px, py]) => px >= minX && px <= maxX && py >= minY && py <= maxY)
+        ) {
+          this.selectedIndices.add(i);
+        }
+      });
+      if (this.selectionKey() !== prevKey) {
+        this.lastCoalesceKey = null;
+        this.notifyStateChange();
+      }
+    }
+
+    // Cancel an in-progress marquee drag (Escape). Returns true if a band was
+    // active so the caller consumes the key; the pending drag-end then finds no
+    // band and ends inertly. Leaves the selection untouched — Escape with no
+    // band falls through to clearSelection.
+    cancelBand(): boolean {
+      if (!this.bandStart) return false;
+      this.bandStart = null;
+      this.bandCurrent = null;
+      this.queue_draw();
+      return true;
+    }
+
     getActionAt(index: number): Action | null {
       const cur = this.state.actions;
       if (index < 0 || index >= cur.length) return null;
@@ -2054,6 +2121,8 @@ export const CanvasView = GObject.registerClass(
       this.moveDx = 0;
       this.moveDy = 0;
       this.shiftToggleDrag = false;
+      this.bandStart = null;
+      this.bandCurrent = null;
 
       const candidate = this.resolveCandidate(ix, iy);
       if (isShift(gesture)) {
@@ -2068,6 +2137,9 @@ export const CanvasView = GObject.registerClass(
       } else if (candidate < 0 || !this.selectedIndices.has(candidate)) {
         this.selectedIndices.clear();
         if (candidate >= 0) this.selectedIndices.add(candidate);
+        // Empty press: arm a marquee. The drag builds it; a bare click (no
+        // motion) just leaves the cleared selection.
+        else this.bandStart = [ix, iy];
       }
 
       this.queue_draw();
@@ -2247,6 +2319,13 @@ export const CanvasView = GObject.registerClass(
         // dispatch order isn't guaranteed), so the begin-guard alone isn't
         // enough.
         if (this.suppressSelectThisPress) return;
+        // Marquee in progress: extend the band to the cursor (image space) and
+        // repaint. Armed only on an empty press, so no handle/move can be live.
+        if (this.bandStart) {
+          this.bandCurrent = this.widgetToImage(wx, wy);
+          this.queue_draw();
+          return;
+        }
         // Per-action resize: reshape the lone selected action live from the
         // grabbed handle. Shift squares a corner (rect/oval) or snaps an
         // endpoint's angle (line/arrow). Takes precedence over the move path.
@@ -2332,6 +2411,21 @@ export const CanvasView = GObject.registerClass(
           this.moveDx = 0;
           this.moveDy = 0;
           this.shiftToggleDrag = false;
+          this.bandStart = null;
+          this.bandCurrent = null;
+          return;
+        }
+        // Marquee release: select every action fully inside the swept rectangle
+        // (replacing the prior selection). A band with no motion (bandCurrent
+        // null) was a bare click — already cleared on press — so it selects
+        // nothing here.
+        if (this.bandStart) {
+          const start = this.bandStart;
+          const current = this.bandCurrent;
+          this.bandStart = null;
+          this.bandCurrent = null;
+          if (current) this.selectBand(start[0], start[1], current[0], current[1]);
+          this.queue_draw();
           return;
         }
         // Per-action resize/rotate: commit the reshaped/rotated action in one
@@ -2869,7 +2963,13 @@ export const CanvasView = GObject.registerClass(
       acts: ReadonlyArray<Action>,
       scale: number
     ): void {
-      if (this.currentToolId !== 'select' || this.moving || this.actionGrab || this.rotateGrab)
+      if (
+        this.currentToolId !== 'select' ||
+        this.moving ||
+        this.actionGrab ||
+        this.rotateGrab ||
+        this.bandStart
+      )
         return;
       const i = this.hoverCandidate;
       if (i < 0 || i >= acts.length || i === this.editingActionIndex) return;
@@ -2992,6 +3092,9 @@ export const CanvasView = GObject.registerClass(
       this.drawRotateGizmo(cr, t.scale);
       this.drawHoverCandidate(cr, acts, t.scale);
       this.drawGroupBadges(cr, acts, t.scale);
+      if (this.bandStart && this.bandCurrent) {
+        drawSelectionBand(cr, this.bandStart, this.bandCurrent, t.scale);
+      }
 
       // Thin border around the current image so the canvas is distinguishable
       // from the app background — important once the surface has transparent
@@ -3163,6 +3266,58 @@ function drawCandidateBox(cr: Cairo.Context, bounds: Bounds, scale: number): voi
     bounds.x2 - bounds.x1 + 2 * pad,
     bounds.y2 - bounds.y1 + 2 * pad
   );
+  cr.stroke();
+  cr.restore();
+}
+
+// The four corner points (image space) of an action's selection footprint:
+// the oriented (tilted) box for rotatable actions, else the axis-aligned
+// bounds. Drives the marquee containment test, so a rotated shape is judged by
+// its real tilted box rather than its looser AABB. Null when the action has no
+// bounds.
+function actionCorners(action: Action): Array<[number, number]> | null {
+  const ob = action.getOrientedBounds();
+  if (ob) {
+    const c = Math.cos(ob.angle);
+    const s = Math.sin(ob.angle);
+    return (
+      [
+        [-ob.halfW, -ob.halfH],
+        [ob.halfW, -ob.halfH],
+        [ob.halfW, ob.halfH],
+        [-ob.halfW, ob.halfH],
+      ] as Array<[number, number]>
+    ).map(([lx, ly]) => [ob.cx + lx * c - ly * s, ob.cy + lx * s + ly * c]);
+  }
+  const b = action.getBounds();
+  if (!b) return null;
+  return [
+    [b.x1, b.y1],
+    [b.x2, b.y1],
+    [b.x2, b.y2],
+    [b.x1, b.y2],
+  ];
+}
+
+// The marquee (rubber-band) rectangle, drawn in image space with the same
+// dashed light-blue stroke as the hover candidate plus a faint wash, so it
+// reads as a transient sweep region. Corners are the two stored image-space
+// points; the cairo context is already image-transformed.
+function drawSelectionBand(
+  cr: Cairo.Context,
+  start: [number, number],
+  current: [number, number],
+  scale: number
+): void {
+  const x = Math.min(start[0], current[0]);
+  const y = Math.min(start[1], current[1]);
+  const w = Math.abs(current[0] - start[0]);
+  const h = Math.abs(current[1] - start[1]);
+  cr.save();
+  cr.rectangle(x, y, w, h);
+  cr.setSourceRGBA(0.45, 0.75, 1.0, 0.12); // faint light-blue wash
+  cr.fillPreserve();
+  setCandidateStroke(cr, scale);
   cr.stroke();
   cr.restore();
 }

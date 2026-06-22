@@ -44,6 +44,7 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', 'Z'], desc: N_('Undo')},
       {keys: ['Ctrl', 'Shift', 'Z'], alt: ['Ctrl', 'Y'], desc: N_('Redo')},
       {keys: ['Delete'], alt: ['Backspace'], desc: N_('Delete selection')},
+      {keys: ['Ctrl', 'A'], desc: N_('Select all annotations (select tool)')},
       {keys: ['Ctrl', 'D'], desc: N_('Duplicate selection')},
       {keys: ['Ctrl', 'G'], desc: N_('Start a new stamp group (number / select tool)')},
       {keys: ['Esc'], desc: N_('Deselect')},

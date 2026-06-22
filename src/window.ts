@@ -746,6 +746,12 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
+      // Select all annotations (select tool only; falls through otherwise so the
+      // editor keeps Ctrl+A as select-all-text).
+      this.bindShortcut(controller, '<Control>a', () => {
+        if (this.editor.isActive()) return false;
+        return this.canvas.selectAll();
+      });
       // Duplicate the selection. Guarded so the chord falls through when nothing
       // is selected (or the editor is open) rather than swallowing the event.
       this.bindShortcut(controller, '<Control>d', () => {
@@ -786,9 +792,13 @@ export const AnnoscrWindow = GObject.registerClass(
           this.toolbar.exitResizeMode(false);
           return true;
         }
-        // Deselect when the select tool has something picked. Returning false
-        // when nothing is selected lets the event bubble (e.g. to a dialog).
-        if (this.canvas.getTool() === 'select') return this.canvas.clearSelection();
+        // Cancel an in-progress marquee, else deselect when the select tool has
+        // something picked. Returning false when there's nothing to cancel or
+        // deselect lets the event bubble (e.g. to a dialog).
+        if (this.canvas.getTool() === 'select') {
+          if (this.canvas.cancelBand()) return true;
+          return this.canvas.clearSelection();
+        }
         return false;
       });
       for (const tool of TOOLS) {

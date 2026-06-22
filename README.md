@@ -15,7 +15,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
   - Remembered styles: each tool's defaults update when you create or restyle an annotation, so the next one matches.
 
 - **Selecting and editing**
-  - Click to select an annotation, or Shift+Click for several; then move, delete, duplicate, restack, or restyle them together.
+  - Click to select an annotation, Shift+Click to add or remove several, or drag a box across empty canvas to select everything fully inside it; Ctrl+A selects all and Esc clears the selection. Then move, delete, duplicate, restack, or restyle them together.
   - Resize a line, arrow, rectangle, oval, or stamp by its handles; rotate a text, stamp, rectangle, or oval with its gizmo
     - Rectangles and ovals can be constrained to squares and circles, respectively.
     - Lines and arrows can be constrained to 15° angle increments.
@@ -224,6 +224,8 @@ Pressing the shortcut launches Annoscr, which immediately captures through the d
 Annoscr is in active development. Planned work:
 
 - **Improved style toolbar**: the horizontally scrollable style bar shown when many options are available is a stopgap.
+- **Marquee auto-scroll**: when a rubber-band selection reaches the edge of the viewport, scroll the canvas so the box can extend past what is currently visible.
+- **Drag to pan**: right-click and drag to pan the canvas.
 
 ## Contributing
 
