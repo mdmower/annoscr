@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 13:41-0700\n"
+"POT-Creation-Date: 2026-06-22 15:18-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -79,54 +79,54 @@ msgstr ""
 msgid "Annotate a screenshot. FILE is an image or .annoscr file to open."
 msgstr ""
 
-#: src/canvas_view.ts:492
+#: src/canvas_view.ts:504
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1478
+#: src/canvas_view.ts:1490
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1542
+#: src/canvas_view.ts:1554
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:1943
+#: src/canvas_view.ts:1985
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:1984 src/zoom_controller.ts:161
+#: src/canvas_view.ts:2026 src/zoom_controller.ts:171
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:2057
+#: src/canvas_view.ts:2119
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:2058
+#: src/canvas_view.ts:2120
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:2061
+#: src/canvas_view.ts:2123
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:2069 src/canvas_view.ts:2073
+#: src/canvas_view.ts:2131 src/canvas_view.ts:2135
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:2070
+#: src/canvas_view.ts:2132
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:2080
+#: src/canvas_view.ts:2142
 msgid "Annotation"
 msgstr ""
 
@@ -165,11 +165,11 @@ msgstr ""
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:79 src/style_bar.ts:364 src/style_bar.ts:853
+#: src/dialogs.ts:79 src/style_bar.ts:364 src/style_bar.ts:859
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:92 src/style_bar.ts:277 src/style_bar.ts:768
+#: src/dialogs.ts:92 src/style_bar.ts:277 src/style_bar.ts:774
 msgid "Width"
 msgstr ""
 
@@ -177,7 +177,7 @@ msgstr ""
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:132 src/style_bar.ts:250 src/style_bar.ts:759
+#: src/dialogs.ts:132 src/style_bar.ts:250 src/style_bar.ts:765
 msgid "Fill"
 msgstr ""
 
@@ -380,7 +380,7 @@ msgstr ""
 msgid "Preferences"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:141 src/window.ts:154
+#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:142 src/window.ts:154
 msgid "Keyboard shortcuts"
 msgstr ""
 
@@ -512,7 +512,7 @@ msgstr ""
 msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:87 src/style_bar.ts:285 src/style_bar.ts:777
+#: src/shortcuts_dialog.ts:87 src/style_bar.ts:285 src/style_bar.ts:783
 #: src/window_constants.ts:102
 msgid "Line"
 msgstr ""
@@ -553,19 +553,23 @@ msgstr ""
 msgid "Zoom at the pointer"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:104
+#: src/shortcuts_dialog.ts:101
+msgid "Pan the canvas (when nothing is selected)"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:105
 msgid "Resize mode"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:106
+#: src/shortcuts_dialog.ts:107
 msgid "Apply resize"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:107
+#: src/shortcuts_dialog.ts:108
 msgid "Cancel resize"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:133
+#: src/shortcuts_dialog.ts:134
 msgid "or"
 msgstr ""
 
@@ -577,7 +581,7 @@ msgstr ""
 msgid "Selection actions"
 msgstr ""
 
-#: src/style_bar.ts:241 src/style_bar.ts:750
+#: src/style_bar.ts:241 src/style_bar.ts:756
 msgid "Color"
 msgstr ""
 
@@ -593,7 +597,7 @@ msgstr ""
 msgid "Dotted"
 msgstr ""
 
-#: src/style_bar.ts:305 src/style_bar.ts:786
+#: src/style_bar.ts:305 src/style_bar.ts:792
 msgid "Corners"
 msgstr ""
 
@@ -605,11 +609,11 @@ msgstr ""
 msgid "Filled"
 msgstr ""
 
-#: src/style_bar.ts:313 src/style_bar.ts:795
+#: src/style_bar.ts:313 src/style_bar.ts:801
 msgid "Arrowhead"
 msgstr ""
 
-#: src/style_bar.ts:323 src/style_bar.ts:912
+#: src/style_bar.ts:323 src/style_bar.ts:918
 msgid "Group"
 msgstr ""
 
@@ -621,15 +625,15 @@ msgstr ""
 msgid "Letter"
 msgstr ""
 
-#: src/style_bar.ts:331 src/style_bar.ts:927
+#: src/style_bar.ts:331 src/style_bar.ts:933
 msgid "Variant"
 msgstr ""
 
-#: src/style_bar.ts:340 src/style_bar.ts:836
+#: src/style_bar.ts:340 src/style_bar.ts:842
 msgid "Text color"
 msgstr ""
 
-#: src/style_bar.ts:362 src/style_bar.ts:846
+#: src/style_bar.ts:362 src/style_bar.ts:852
 msgid "Font"
 msgstr ""
 
@@ -645,13 +649,13 @@ msgstr ""
 msgid "Align right"
 msgstr ""
 
-#: src/style_bar.ts:400 src/style_bar.ts:862
+#: src/style_bar.ts:400 src/style_bar.ts:868
 msgid "Align"
 msgstr ""
 
 #. Add/Edit text leads (the primary action for a shape); shown + relabeled in
 #. refreshAddTextButton, hidden for non-shape selections.
-#: src/style_bar.ts:462 src/style_bar.ts:875
+#: src/style_bar.ts:462 src/style_bar.ts:881
 msgid "Add text"
 msgstr ""
 
@@ -683,36 +687,36 @@ msgstr ""
 #. popover and unparents it on dispose, avoiding the "Finalizing GtkButton …
 #. still has children left" warning at quit. No dropdown arrow because the
 #. swatch is a custom child and always-show-arrow defaults off.
-#: src/style_bar.ts:549
+#: src/style_bar.ts:552
 msgid "Pick a color"
 msgstr ""
 
-#: src/style_bar.ts:561
+#: src/style_bar.ts:564
 msgid "Hex"
 msgstr ""
 
-#: src/style_bar.ts:567
+#: src/style_bar.ts:570
 msgid "#RGB, #RGBA, #RRGGBB, or #RRGGBBAA"
 msgstr ""
 
-#: src/style_bar.ts:574
+#: src/style_bar.ts:577
 msgid "Opacity"
 msgstr ""
 
-#: src/style_bar.ts:592
+#: src/style_bar.ts:595
 msgid "Palette…"
 msgstr ""
 
-#: src/style_bar.ts:875
+#: src/style_bar.ts:881
 msgid "Edit text"
 msgstr ""
 
-#: src/style_bar.ts:937
+#: src/style_bar.ts:943
 #, javascript-format
 msgid "Group %d"
 msgstr ""
 
-#: src/style_bar.ts:938
+#: src/style_bar.ts:944
 msgid "+ New group"
 msgstr ""
 
@@ -939,22 +943,22 @@ msgstr ""
 msgid "Highlight"
 msgstr ""
 
-#: src/zoom_controller.ts:81
+#: src/zoom_controller.ts:91
 msgid "Fit"
 msgstr ""
 
-#: src/zoom_controller.ts:82
+#: src/zoom_controller.ts:92
 msgid "Fit to window (Ctrl+0)"
 msgstr ""
 
-#: src/zoom_controller.ts:89
+#: src/zoom_controller.ts:99
 msgid "1:1 pixel zoom (Ctrl+1)"
 msgstr ""
 
-#: src/zoom_controller.ts:117
+#: src/zoom_controller.ts:127
 msgid "Drag to zoom"
 msgstr ""
 
-#: src/zoom_controller.ts:117
+#: src/zoom_controller.ts:127
 msgid "Hold Shift to fine-tune"
 msgstr ""

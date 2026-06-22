@@ -48,7 +48,17 @@ export class ZoomController {
       vscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
     });
     this.scrolled.set_child(content);
+    // The content isn't scrollable, so ScrolledWindow wraps it in a Viewport
+    // whose scroll-to-focus is on by default: when the canvas grabs focus (it
+    // does on every first click) the viewport scrolls to bring the focused
+    // child into view. The canvas fills the whole — larger than the viewport —
+    // scrollable area, so that "scroll into view" snaps the position and drags
+    // the canvas out from under a stationary pointer mid-press. The canvas does
+    // its own scrolling, so this auto-scroll is never wanted; turn it off.
+    const viewport = this.scrolled.get_child();
+    if (viewport instanceof Gtk.Viewport) viewport.set_scroll_to_focus(false);
     this.installZoomScroll();
+    this.installPan();
     this.statusBar = this.buildStatusBar();
   }
 
@@ -348,6 +358,43 @@ export class ZoomController {
       return true;
     });
     this.scrolled.add_controller(scroll);
+  }
+
+  // Right-click-drag pans the view, whatever tool is active (the secondary
+  // button never draws or selects on the canvas). The gesture rides the
+  // ScrolledWindow rather than the canvas: a GestureDrag reports offsets in its
+  // own widget's coordinate space, and the canvas's space translates as the
+  // content scrolls — so a pan measured there would scroll the very frame it
+  // measures against, folding each applied delta back into the next offset. The
+  // ScrolledWindow stays put while its child scrolls, so its offsets are pure
+  // pointer movement. Adjustment.set_value self-clamps to the scrollable range,
+  // so an over-drag at an edge simply stops.
+  private installPan(): void {
+    const pan = new Gtk.GestureDrag();
+    pan.set_button(Gdk.BUTTON_SECONDARY);
+    let startH = 0;
+    let startV = 0;
+    pan.connect('drag-begin', () => {
+      const h = this.scrolled.get_hadjustment();
+      const v = this.scrolled.get_vadjustment();
+      // Nothing to scroll (image fits): don't engage, so the grabbing hand
+      // doesn't flash on a no-op gesture.
+      if (h.get_upper() - h.get_page_size() <= 0 && v.get_upper() - v.get_page_size() <= 0) {
+        return;
+      }
+      startH = h.get_value();
+      startV = v.get_value();
+      this.canvas.beginPan();
+    });
+    pan.connect('drag-update', (_g, dx, dy) => {
+      if (!this.canvas.isPanning()) return;
+      this.scrolled.get_hadjustment().set_value(startH - dx);
+      this.scrolled.get_vadjustment().set_value(startV - dy);
+    });
+    pan.connect('drag-end', () => {
+      if (this.canvas.isPanning()) this.canvas.endPan();
+    });
+    this.scrolled.add_controller(pan);
   }
 
   // The pointer's position in the scrolled window's frame, queried live from

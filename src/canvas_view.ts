@@ -192,6 +192,12 @@ const CLONE_OFFSET_PX = 16;
 const NUDGE_SMALL_PX = 1;
 const NUDGE_LARGE_PX = 10;
 
+// Keyboard pan step, in widget pixels (the scroll adjustments are widget-space,
+// so a fixed step scrolls the same on-screen amount at any zoom). Used when an
+// arrow key isn't nudging a selection or placing. Plain = fine, Shift = coarse.
+const KEY_PAN_PX = 50;
+const KEY_PAN_LARGE_PX = 250;
+
 let CHECKER_PATTERN: Cairo.SurfacePattern | null = null;
 function getCheckerPattern(): Cairo.SurfacePattern {
   if (CHECKER_PATTERN) return CHECKER_PATTERN;
@@ -309,6 +315,12 @@ export const CanvasView = GObject.registerClass(
 
     private dragStartX: number = 0;
     private dragStartY: number = 0;
+
+    // True while a right-click-drag pan is in progress. The gesture itself lives
+    // on the ScrolledWindow (a frame that doesn't move as the content scrolls,
+    // so the drag offsets are real pointer movement — see ZoomController); the
+    // canvas only needs to know a pan is active so its hover/cursor logic holds.
+    private panning: boolean = false;
 
     // Selection state (select tool only). A set of action indices, in
     // insertion order (first-picked first — the style bar uses that order for
@@ -1821,13 +1833,24 @@ export const CanvasView = GObject.registerClass(
       // Other Ctrl/Alt chords belong to the window (zoom, z-order, canvas
       // rotate).
       if (ctrl || alt) return false;
+      return this.onPlainKey(keyval, arrow, isSpace, shift);
+    }
 
-      // Placement tools: Space drops a stamp / opens the editor at the center.
+    // Unmodified key routing (split out to keep onKeyPressed's branching modest).
+    // Placement tools place on Space; select-tool keys are handled separately;
+    // in every tool a bare arrow that isn't nudging a selection pans the canvas.
+    private onPlainKey(
+      keyval: number,
+      arrow: [number, number] | null,
+      isSpace: boolean,
+      shift: boolean
+    ): boolean {
       if (this.currentToolId === 'number' || this.currentToolId === 'text') {
-        return isSpace && !shift ? this.placeAtViewportCenter() : false;
+        if (isSpace && !shift) return this.placeAtViewportCenter();
+      } else if (this.currentToolId === 'select') {
+        return this.onSelectKey(keyval, arrow, isSpace, shift);
       }
-      if (this.currentToolId !== 'select') return false; // let arrows scroll, etc.
-      return this.onSelectKey(keyval, arrow, isSpace, shift);
+      return arrow ? this.panByKey(arrow[0], arrow[1], shift) : false;
     }
 
     // Select-tool keyboard navigation (split out of onKeyPressed to keep each
@@ -1836,7 +1859,7 @@ export const CanvasView = GObject.registerClass(
     //           brackets only — Ctrl+[/] is the window's z-order restack.
     //   Space   select the aimed candidate (Shift+Space toggles — a window
     //           binding, so leave it).
-    //   arrows  nudge the selection; fall through to scroll when none picked.
+    //   arrows  nudge the selection; pan the canvas when none picked.
     private onSelectKey(
       keyval: number,
       arrow: [number, number] | null,
@@ -1847,7 +1870,7 @@ export const CanvasView = GObject.registerClass(
       if (keyval === Gdk.KEY_bracketleft) return this.keyboardBrowseCandidate(-1);
       if (isSpace && !shift) return this.selectCandidate();
       if (arrow) {
-        if (this.selectedIndices.size === 0) return false;
+        if (this.selectedIndices.size === 0) return this.panByKey(arrow[0], arrow[1], shift);
         return this.nudgeSelection(arrow[0], arrow[1], shift);
       }
       return false;
@@ -1912,6 +1935,25 @@ export const CanvasView = GObject.registerClass(
         `nudge:${this.selectionKey()}`
       );
       this.queue_draw();
+      return true;
+    }
+
+    // Scroll (pan) the view one keyboard step when an arrow isn't nudging a
+    // selection or placing — the keyboard counterpart to right-drag panning.
+    // The step is widget pixels (set_value self-clamps to the scrollable range).
+    // False with no scrolled ancestor, so the arrow can fall through.
+    private panByKey(dx: number, dy: number, large: boolean): boolean {
+      const sw = this.scrolledAncestor();
+      if (!sw) return false;
+      const step = large ? KEY_PAN_LARGE_PX : KEY_PAN_PX;
+      if (dx !== 0) {
+        const h = sw.get_hadjustment();
+        h.set_value(h.get_value() + dx * step);
+      }
+      if (dy !== 0) {
+        const v = sw.get_vadjustment();
+        v.set_value(v.get_value() + dy * step);
+      }
       return true;
     }
 
@@ -2047,6 +2089,26 @@ export const CanvasView = GObject.registerClass(
       return [r.x + r.w / 2, r.y + r.h / 2];
     }
 
+    // Right-click-drag pan hooks, driven by ZoomController (which owns the
+    // ScrolledWindow the gesture rides). The canvas shows the grabbing hand and
+    // suspends its hover/cursor tracking for the duration; the actual scrolling
+    // is the ScrolledWindow's job.
+    beginPan(): void {
+      this.panning = true;
+      this.set_cursor_from_name('grabbing');
+    }
+
+    endPan(): void {
+      this.panning = false;
+      // Restore the tool's cursor; the next pointer motion refines it (resize
+      // handles, hover candidate) where the tool tracks hover.
+      this.set_cursor_from_name(cursorForTool(this.currentToolId));
+    }
+
+    isPanning(): boolean {
+      return this.panning;
+    }
+
     // Refresh the canvas's accessible description from the live tool/selection
     // state, so AT users hear what placing or arrowing will affect. Called on
     // every state change (tool switch, add/delete/move, selection change).
@@ -2085,6 +2147,9 @@ export const CanvasView = GObject.registerClass(
     // their cursor from `cursorForTool` (set in setTool / installPointer).
     private onPointerMotion(wx: number, wy: number): void {
       this.lastPointer = [wx, wy];
+      // Mid-pan (right-drag): keep the grabbing hand and don't re-resolve the
+      // hover candidate — the gesture is navigation, not aiming.
+      if (this.panning) return;
       // Select tool: track which action the next click will hit (the hover
       // candidate) so it can be outlined and dug into with Alt+scroll.
       if (this.currentToolId === 'select' && this.state.surface) {

@@ -35,9 +35,9 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Annotation files**: save an editable `.annoscr` file (the canvas image plus your annotations) from the primary menu, then reopen it later to add, change, or remove annotations.
 
-- **View**: Fit-to-window, 1:1, or a continuous zoom slider from 25% to 400%.
+- **View**: Fit-to-window, 1:1, or a continuous zoom slider from 25% to 400%; when zoomed in, right-click and drag to pan the canvas.
 
-- **Keyboard & accessibility**: the canvas is keyboard-drivable (walk, select, nudge, resize, rotate, and edit most annotations without the mouse), and every control carries an accessible label for screen readers. The complete shortcut list lives in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
+- **Keyboard & accessibility**: the canvas is keyboard-drivable (pan, walk, select, nudge, resize, rotate, and edit most annotations without the mouse), and every control carries an accessible label for screen readers. The complete shortcut list lives in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
 
 - **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, remember tool styles between sessions, default save folder and format, saving images without a location prompt, confirm before discarding, select-after-placement, close-after-saving/copying, and an undo-memory budget; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
 
@@ -225,7 +225,6 @@ Annoscr is in active development. Planned work:
 
 - **Improved style toolbar**: the horizontally scrollable style bar shown when many options are available is a stopgap.
 - **Marquee auto-scroll**: when a rubber-band selection reaches the edge of the viewport, scroll the canvas so the box can extend past what is currently visible.
-- **Drag to pan**: right-click and drag to pan the canvas.
 
 ## Contributing
 
