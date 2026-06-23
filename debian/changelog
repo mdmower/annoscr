@@ -1,3 +1,19 @@
+annoscr (1.2.0) unstable; urgency=medium
+
+  * Right-click and drag now pans the canvas with any tool, and the arrow
+    keys pan when nothing is selected (Shift for larger steps).
+  * Dragging a box across empty canvas with the select tool selects every
+    annotation fully inside it; Ctrl+A selects all, and Esc cancels an
+    in-progress box or clears the selection.
+  * A rubber-band selection or a selection move now auto-scrolls the canvas
+    when the pointer reaches a viewport edge, so it can reach annotations
+    and areas outside the visible region.
+  * Opening and dismissing the color picker no longer flattens a mixed-color
+    multi-selection to a single color; the shown color is applied only when
+    it is edited or confirmed with Enter.
+
+ -- Matt Mower <mdmower@cmphys.com>  Mon, 22 Jun 2026 12:00:00 -0700
+
 annoscr (1.1.0) unstable; urgency=medium
 
   * New preferences can close the window automatically after saving an image

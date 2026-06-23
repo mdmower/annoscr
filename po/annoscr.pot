@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 20:11-0700\n"
+"POT-Creation-Date: 2026-06-22 21:58-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -79,54 +79,54 @@ msgstr ""
 msgid "Annotate a screenshot. FILE is an image or .annoscr file to open."
 msgstr ""
 
-#: src/canvas_view.ts:504
+#: src/canvas_view.ts:533
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1490
+#: src/canvas_view.ts:1523
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1554
+#: src/canvas_view.ts:1587
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:1985
+#: src/canvas_view.ts:2018
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:2026 src/zoom_controller.ts:171
+#: src/canvas_view.ts:2059 src/zoom_controller.ts:171
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:2119
+#: src/canvas_view.ts:2282
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:2120
+#: src/canvas_view.ts:2283
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:2123
+#: src/canvas_view.ts:2286
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:2131 src/canvas_view.ts:2135
+#: src/canvas_view.ts:2294 src/canvas_view.ts:2298
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:2132
+#: src/canvas_view.ts:2295
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:2142
+#: src/canvas_view.ts:2305
 msgid "Annotation"
 msgstr ""
 
