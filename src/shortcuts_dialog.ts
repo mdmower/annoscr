@@ -94,9 +94,9 @@ const SECTIONS: Section[] = [
     title: N_('View'),
     items: [
       {keys: ['Ctrl', '0'], desc: N_('Fit to window')},
-      {keys: ['Ctrl', '1'], desc: N_('1∶1 zoom')},
+      {keys: ['Ctrl', '1'], desc: N_('1:1 zoom')},
       {keys: ['Ctrl', '+'], desc: N_('Zoom in')},
-      {keys: ['Ctrl', '−'], desc: N_('Zoom out')},
+      {keys: ['Ctrl', '-'], desc: N_('Zoom out')},
       {keys: ['Ctrl', 'Scroll'], desc: N_('Zoom at the pointer')},
       {keys: ['Arrow keys'], desc: N_('Pan the canvas (when nothing is selected)')},
     ],

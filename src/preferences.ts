@@ -230,7 +230,7 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
 
   const silentSaveRow = new Adw.SwitchRow({
     title: _('Save images without choosing a location'),
-    subtitle: _('Write straight to the folder and format above; “Save image as…” still asks'),
+    subtitle: _('Write straight to the folder and format above; "Save image as…" still asks'),
     active: s.saveWithoutDialog,
   });
   silentSaveRow.connect('notify::active', () => {

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 15:18-0700\n"
+"POT-Creation-Date: 2026-06-22 20:11-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -301,7 +301,7 @@ msgstr ""
 
 #: src/preferences.ts:233
 msgid ""
-"Write straight to the folder and format above; “Save image as…” still asks"
+"Write straight to the folder and format above; \"Save image as…\" still asks"
 msgstr ""
 
 #. Behavior
@@ -538,7 +538,7 @@ msgid "Fit to window"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:97
-msgid "1∶1 zoom"
+msgid "1:1 zoom"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:98
