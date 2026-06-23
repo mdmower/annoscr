@@ -2,6 +2,7 @@ import GObject from 'gi://GObject?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
+import GLib from 'gi://GLib?version=2.0';
 import Cairo from 'cairo';
 
 import {
@@ -198,6 +199,16 @@ const NUDGE_LARGE_PX = 10;
 const KEY_PAN_PX = 50;
 const KEY_PAN_LARGE_PX = 250;
 
+// Drag auto-scroll: while a marquee or selection-move drag's pointer sits within
+// this many widget pixels of a viewport edge, the view scrolls so the drag can
+// reach past what's currently visible. Speed ramps from 0 at the inner edge of
+// the band to the max (widget px/sec) at the boundary, and stays maxed past it.
+// Driven by a tick callback because a pointer held still over programmatically
+// scrolling content emits no motion/drag events, so nothing else would advance
+// the drag.
+const MARQUEE_EDGE_PX = 36;
+const MARQUEE_SCROLL_MAX = 1400;
+
 let CHECKER_PATTERN: Cairo.SurfacePattern | null = null;
 function getCheckerPattern(): Cairo.SurfacePattern {
   if (CHECKER_PATTERN) return CHECKER_PATTERN;
@@ -344,6 +355,24 @@ export const CanvasView = GObject.registerClass(
     // pointer actually moves, so a bare click clears without selecting.
     private bandStart: [number, number] | null = null;
     private bandCurrent: [number, number] | null = null;
+
+    // Drag auto-scroll (see MARQUEE_EDGE_PX). `autoScrollTickId` is the active
+    // GtkTickCallback id (0 = none); `autoScrollVel` is the scroll velocity in
+    // widget px/sec, recomputed on each band/move drag-update and held constant
+    // while the pointer is still (no events fire then, so the tick alone advances
+    // the drag); `autoScrollLastFrame` is the previous frame time (us, 0 = unset)
+    // for framerate-independent integration.
+    private autoScrollTickId: number = 0;
+    private autoScrollVel: [number, number] = [0, 0];
+    private autoScrollLastFrame: number = 0;
+    // Per-axis armed scroll direction (-1 low / 0 none / +1 high) and the
+    // pointer's previous VIEWPORT position, both reset per drag (`onSelectPress`).
+    // Direction is judged in viewport space (scroll-independent physical motion,
+    // so it never accumulates the scroll) and latched while the pointer stays in
+    // an edge band, so a hold sustains the scroll and a reverse engages on
+    // reaching the opposite edge rather than after undoing the scrolled distance.
+    private autoScrollArm: [number, number] = [0, 0];
+    private autoScrollPrevVP: [number, number] | null = null;
 
     // "Aim" state for digging through overlapping actions (select tool). The
     // hover candidate is the action the next click acts on, drawn with a
@@ -518,6 +547,8 @@ export const CanvasView = GObject.registerClass(
         );
       });
       this.connect('unrealize', () => {
+        // A live auto-scroll tick must not outlive the widget's frame clock.
+        this.stopAutoScroll();
         if (!this.darkHandlerId) return;
         Adw.StyleManager.get_default().disconnect(this.darkHandlerId);
         this.darkHandlerId = 0;
@@ -804,6 +835,7 @@ export const CanvasView = GObject.registerClass(
       if (this.currentToolId === toolId) return;
       this.currentToolId = toolId;
       this.liveStroke = null;
+      this.stopAutoScroll();
       this.selectedIndices.clear();
       this.moving = false;
       this.resetHoverDig();
@@ -1270,6 +1302,7 @@ export const CanvasView = GObject.registerClass(
     // band falls through to clearSelection.
     cancelBand(): boolean {
       if (!this.bandStart) return false;
+      this.stopAutoScroll();
       this.bandStart = null;
       this.bandCurrent = null;
       this.queue_draw();
@@ -2089,6 +2122,136 @@ export const CanvasView = GObject.registerClass(
       return [r.x + r.w / 2, r.y + r.h / 2];
     }
 
+    // Recompute the auto-scroll velocity from the pointer's position within the
+    // viewport. Each axis arms a scroll direction when the pointer is within
+    // MARQUEE_EDGE_PX of an edge and moving toward it (see armEdge); an armed
+    // edge with scrollable range left scrolls (speed ramped by depth) so the
+    // drag can reach past the visible region, else the tick stops. Called on
+    // every band or selection-move drag-update, so the armed direction + velocity
+    // stay put while the pointer is held still (no events fire as the content
+    // scrolls beneath it, so the tick alone keeps advancing the drag).
+    private updateAutoScroll(wx: number, wy: number): void {
+      const sw = this.scrolledAncestor();
+      if (!sw) {
+        this.stopAutoScroll();
+        return;
+      }
+      const h = sw.get_hadjustment();
+      const v = sw.get_vadjustment();
+      const r = this.visibleRect();
+      // Pointer position within the viewport, and the physical motion since the
+      // last update (viewport space cancels the scroll, so it never accumulates
+      // the way a content-space offset from the press would).
+      const px = wx - r.x;
+      const py = wy - r.y;
+      const prev = this.autoScrollPrevVP ?? [px, py];
+      this.autoScrollPrevVP = [px, py];
+      const ax = this.armEdge(this.autoScrollArm[0], px, r.w, px - prev[0]);
+      const ay = this.armEdge(this.autoScrollArm[1], py, r.h, py - prev[1]);
+      this.autoScrollArm = [ax, ay];
+      const vx = this.edgeVelocity(ax, px, r.w, h.get_value(), h.get_lower(), h.get_upper() - r.w);
+      const vy = this.edgeVelocity(ay, py, r.h, v.get_value(), v.get_lower(), v.get_upper() - r.h);
+      this.autoScrollVel = [vx, vy];
+      if (vx !== 0 || vy !== 0) this.startAutoScroll();
+      else this.stopAutoScroll();
+    }
+
+    // Update one axis's armed auto-scroll direction (-1 low / 0 none / +1 high).
+    // Arm toward an edge when the pointer is in that edge's band AND moving
+    // toward it (`inst`, physical viewport motion this update); keep it armed
+    // while the pointer stays in the band, so a held-still pointer or small
+    // jitter sustains the scroll (a ~MARQUEE_EDGE_PX hysteresis zone); disarm in
+    // the middle, which also re-enables arming the opposite edge on arrival.
+    private armEdge(arm: number, p: number, size: number, inst: number): number {
+      const inLow = p < MARQUEE_EDGE_PX;
+      const inHigh = size - p < MARQUEE_EDGE_PX;
+      if (inHigh && !inLow) return inst > 0 || arm === 1 ? 1 : 0;
+      if (inLow && !inHigh) return inst < 0 || arm === -1 ? -1 : 0;
+      return 0;
+    }
+
+    // Signed scroll speed (widget px/sec) for one axis from its armed direction,
+    // ramped by how deep the pointer is into the armed edge's band (full speed at
+    // the boundary). Zero if not armed or that edge is already at its scroll
+    // limit. `p` is the pointer's viewport offset, `size` the viewport extent,
+    // `value`/`lo`/`hi` the adjustment's current/min/max positions.
+    private edgeVelocity(
+      arm: number,
+      p: number,
+      size: number,
+      value: number,
+      lo: number,
+      hi: number
+    ): number {
+      const ramp = (d: number) =>
+        MARQUEE_SCROLL_MAX * Math.min(Math.max((MARQUEE_EDGE_PX - d) / MARQUEE_EDGE_PX, 0), 1);
+      if (arm < 0 && value > lo) return -ramp(p);
+      if (arm > 0 && value < hi) return ramp(size - p);
+      return 0;
+    }
+
+    private startAutoScroll(): void {
+      if (this.autoScrollTickId !== 0) return;
+      this.autoScrollLastFrame = 0;
+      this.autoScrollTickId = this.add_tick_callback((_w, clock) => this.autoScrollTick(clock));
+    }
+
+    // Per-frame auto-scroll step: scroll by velocity × frame-delta (so it's
+    // framerate-independent), then advance the live drag by the actual scrolled
+    // amount in image space (the band's corner, or a selection move's offset),
+    // since the held-still pointer emits no drag-update to do it. Stops when the
+    // drag ends or both axes have hit their scroll limit (a later drag-update
+    // with range restarts it).
+    private autoScrollTick(clock: Gdk.FrameClock): boolean {
+      const sw = this.scrolledAncestor();
+      const [vx, vy] = this.autoScrollVel;
+      if (!sw || (!this.bandStart && !this.moving) || (vx === 0 && vy === 0)) {
+        this.autoScrollTickId = 0;
+        return GLib.SOURCE_REMOVE;
+      }
+      const now = clock.get_frame_time();
+      if (this.autoScrollLastFrame === 0) {
+        // First frame: establish the baseline, scroll on the next one.
+        this.autoScrollLastFrame = now;
+        return GLib.SOURCE_CONTINUE;
+      }
+      const dt = (now - this.autoScrollLastFrame) / 1e6;
+      this.autoScrollLastFrame = now;
+      const h = sw.get_hadjustment();
+      const v = sw.get_vadjustment();
+      const beforeH = h.get_value();
+      const beforeV = v.get_value();
+      h.set_value(beforeH + vx * dt);
+      v.set_value(beforeV + vy * dt);
+      const ax = h.get_value() - beforeH;
+      const ay = v.get_value() - beforeV;
+      if (ax === 0 && ay === 0) {
+        this.autoScrollTickId = 0;
+        return GLib.SOURCE_REMOVE;
+      }
+      const scale = this.currentTransform().scale;
+      if (this.bandCurrent) {
+        // Marquee: extend the band's live corner (a real drag-update later
+        // recomputes it absolutely from the scroll-absorbing offset, so no
+        // double-count).
+        this.bandCurrent = [this.bandCurrent[0] + ax / scale, this.bandCurrent[1] + ay / scale];
+      } else if (this.moving) {
+        // Selection move: grow the move offset, so the dragged actions stay
+        // under the pointer as the content scrolls beneath it.
+        this.moveDx += ax / scale;
+        this.moveDy += ay / scale;
+      }
+      this.queue_draw();
+      return GLib.SOURCE_CONTINUE;
+    }
+
+    private stopAutoScroll(): void {
+      if (this.autoScrollTickId === 0) return;
+      this.remove_tick_callback(this.autoScrollTickId);
+      this.autoScrollTickId = 0;
+      this.autoScrollVel = [0, 0];
+    }
+
     // Right-click-drag pan hooks, driven by ZoomController (which owns the
     // ScrolledWindow the gesture rides). The canvas shows the grabbing hand and
     // suspends its hover/cursor tracking for the duration; the actual scrolling
@@ -2188,6 +2351,11 @@ export const CanvasView = GObject.registerClass(
       this.shiftToggleDrag = false;
       this.bandStart = null;
       this.bandCurrent = null;
+      // Fresh drag: clear auto-scroll arming and seed the viewport reference at
+      // the press, so the new drag's direction is judged from its own start.
+      const r0 = this.visibleRect();
+      this.autoScrollArm = [0, 0];
+      this.autoScrollPrevVP = [wx - r0.x, wy - r0.y];
 
       const candidate = this.resolveCandidate(ix, iy);
       if (isShift(gesture)) {
@@ -2388,6 +2556,7 @@ export const CanvasView = GObject.registerClass(
         // repaint. Armed only on an empty press, so no handle/move can be live.
         if (this.bandStart) {
           this.bandCurrent = this.widgetToImage(wx, wy);
+          this.updateAutoScroll(wx, wy);
           this.queue_draw();
           return;
         }
@@ -2430,7 +2599,13 @@ export const CanvasView = GObject.registerClass(
         if (!this.moving && Math.hypot(wx - this.dragStartX, wy - this.dragStartY) > 3) {
           this.moving = true;
         }
-        if (this.moving) this.queue_draw();
+        // Drag a selection toward a viewport edge to auto-scroll, so it can be
+        // moved into off-screen areas (only once actually moving, so a jiggle
+        // near an edge doesn't scroll).
+        if (this.moving) {
+          this.updateAutoScroll(wx, wy);
+          this.queue_draw();
+        }
         return;
       }
       if (this.currentToolId === 'resize') {
@@ -2462,6 +2637,9 @@ export const CanvasView = GObject.registerClass(
     }
 
     private onDragEnd(wx: number, wy: number, constrain: boolean): void {
+      // Any drag ending stops marquee auto-scroll (the band release below reads
+      // the final corner the tick left).
+      this.stopAutoScroll();
       // Capture and clear the commit-press latch: drag-end fires for every
       // primary press (clicks included), so it's reset before the next press
       // whatever order GestureClick and GestureDrag ran in.

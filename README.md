@@ -224,7 +224,6 @@ Pressing the shortcut launches Annoscr, which immediately captures through the d
 Annoscr is in active development. Planned work:
 
 - **Improved style toolbar**: the horizontally scrollable style bar shown when many options are available is a stopgap.
-- **Marquee auto-scroll**: when a rubber-band selection reaches the edge of the viewport, scroll the canvas so the box can extend past what is currently visible.
 
 ## Contributing
 
