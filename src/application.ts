@@ -208,6 +208,10 @@ export const AnnoscrApplication = GObject.registerClass(
     }
 
     vfunc_activate(): void {
+      // No window yet means this is a fresh launch (no instance was already
+      // running); a `--screenshot` capture cancelled in that case should abandon
+      // the launch rather than leave an empty window behind.
+      const freshLaunch = this.active_window === null;
       const win = (this.active_window ?? new AnnoscrWindow(this)) as InstanceType<
         typeof AnnoscrWindow
       >;
@@ -219,7 +223,7 @@ export const AnnoscrApplication = GObject.registerClass(
         this.initialCapture = false;
         // captureScreenshot presents the window itself once capture resolves,
         // so we skip the present() below to avoid flashing an empty window.
-        win.captureScreenshot();
+        win.captureScreenshot(freshLaunch);
         return;
       }
       win.present();

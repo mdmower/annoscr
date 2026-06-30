@@ -217,7 +217,7 @@ To grab and annotate a screenshot with a single keypress, bind `annoscr --screen
    - **Shortcut**: press your chosen combination, for example `Ctrl+Alt+A`.
 3. Click **Add**.
 
-Pressing the shortcut launches Annoscr, which immediately captures through the desktop portal (it may ask which screen or window to capture). To use the **Print** key itself, first clear GNOME's built-in screenshot binding under **Settings > Keyboard > Keyboard Shortcuts > Screenshots**, since it claims that key by default.
+Pressing the shortcut launches Annoscr, which immediately captures through the desktop portal (it may ask which screen or window to capture). Cancelling the capture exits without leaving a window behind. To use the **Print** key itself, first clear GNOME's built-in screenshot binding under **Settings > Keyboard > Keyboard Shortcuts > Screenshots**, since it claims that key by default.
 
 ## Roadmap
 

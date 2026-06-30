@@ -573,7 +573,12 @@ export const AnnoscrWindow = GObject.registerClass(
       return name !== null && name.toLowerCase().endsWith(DOC_EXTENSION);
     }
 
-    captureScreenshot(): void {
+    // abandonOnCancel is set when this window was created solely to host a fresh
+    // `annoscr --screenshot` launch (no instance was already running). In that
+    // case a cancelled or failed capture closes the never-shown window rather
+    // than leaving an empty welcome window behind; when Annoscr was already
+    // running, a cancel keeps the window and shows a toast instead.
+    captureScreenshot(abandonOnCancel = false): void {
       // Unmap the window first so Annoscr isn't in the shot when the user picks
       // a screen or full-screen region. The short delay gives the compositor
       // time to actually hide it before the portal's capture UI appears.
@@ -581,6 +586,15 @@ export const AnnoscrWindow = GObject.registerClass(
       GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
         takeScreenshot()
           .then((uri) => {
+            if (!uri && abandonOnCancel) {
+              // Fresh `--screenshot` launch with nothing captured: tear the
+              // window down so the app exits. destroy() (not close()) is
+              // required since gtk_window_close() no-ops on a window that was
+              // never realized, and this one stayed hidden for the capture, so
+              // close() would leave it registered and the process would hang.
+              this.destroy();
+              return;
+            }
             this.set_visible(true);
             this.present();
             if (uri) {
@@ -591,8 +605,22 @@ export const AnnoscrWindow = GObject.registerClass(
           })
           .catch((e: unknown) => {
             // A user cancel and a portal failure both land here (the portal
-            // reports them the same way); log the cause so a genuine failure
-            // is diagnosable even though the toast reads as a cancel.
+            // reports them the same way).
+            if (abandonOnCancel) {
+              // Fresh `--screenshot` launch: just go away (see the destroy()
+              // note above). A normal cancel shouldn't look like a crash, so
+              // log a single non-fatal line rather than the CRITICAL the
+              // running-instance path emits; a genuine failure stays visible.
+              console.log(
+                `annoscr: screenshot capture did not complete (${
+                  e instanceof Error ? e.message : String(e)
+                }); exiting`
+              );
+              this.destroy();
+              return;
+            }
+            // Log the cause so a genuine failure is diagnosable even though the
+            // toast reads as a cancel.
             console.error('takeScreenshot failed', e);
             this.set_visible(true);
             this.present();
