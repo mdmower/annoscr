@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 21:58-0700\n"
+"POT-Creation-Date: 2026-06-30 14:44-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -364,7 +364,7 @@ msgstr ""
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:33 src/window.ts:981
+#: src/shortcuts_dialog.ts:33 src/window.ts:1009
 msgid "Save image"
 msgstr ""
 
@@ -720,15 +720,15 @@ msgstr ""
 msgid "+ New group"
 msgstr ""
 
-#: src/text_editor.ts:329
+#: src/text_editor.ts:339
 msgid "Bold (Ctrl+B)"
 msgstr ""
 
-#: src/text_editor.ts:330
+#: src/text_editor.ts:340
 msgid "Italic (Ctrl+I)"
 msgstr ""
 
-#: src/text_editor.ts:333
+#: src/text_editor.ts:343
 msgid "Underline (Ctrl+U)"
 msgstr ""
 
@@ -829,93 +829,93 @@ msgstr ""
 msgid "Opening this image"
 msgstr ""
 
-#: src/window.ts:587
+#: src/window.ts:601
 msgid "Opening the screenshot"
 msgstr ""
 
-#: src/window.ts:599
+#: src/window.ts:627
 msgid "Screenshot cancelled"
 msgstr ""
 
-#: src/window.ts:614
+#: src/window.ts:642
 #, javascript-format
 msgid "Could not open \"%s\""
 msgstr ""
 
-#: src/window.ts:656
+#: src/window.ts:684
 msgid "Opening the dropped annotation file"
 msgstr ""
 
-#: src/window.ts:661
+#: src/window.ts:689
 msgid "Opening the dropped image"
 msgstr ""
 
-#: src/window.ts:895 src/window.ts:1035
+#: src/window.ts:923 src/window.ts:1063
 msgid "Could not save image"
 msgstr ""
 
-#: src/window.ts:907
+#: src/window.ts:935
 msgid "Image saved"
 msgstr ""
 
 #. Stayed open with no dialog shown — confirm with an in-window toast.
-#: src/window.ts:916
+#: src/window.ts:944
 #, javascript-format
 msgid "Saved %s"
 msgstr ""
 
-#: src/window.ts:950
+#: src/window.ts:978
 msgid "Show in Files"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:990
+#: src/window.ts:1018
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:1047
+#: src/window.ts:1075
 msgid "Save annotation file"
 msgstr ""
 
-#: src/window.ts:1061 src/window.ts:1115
+#: src/window.ts:1089 src/window.ts:1143
 msgid "Annotation file"
 msgstr ""
 
-#: src/window.ts:1102
+#: src/window.ts:1130
 msgid "Could not save annotation file"
 msgstr ""
 
-#: src/window.ts:1108
+#: src/window.ts:1136
 msgid "Opening an annotation file"
 msgstr ""
 
-#: src/window.ts:1114
+#: src/window.ts:1142
 msgid "Open annotation file"
 msgstr ""
 
-#: src/window.ts:1148
+#: src/window.ts:1176
 msgid "Could not open annotation file"
 msgstr ""
 
-#: src/window.ts:1164 src/window.ts:1170
+#: src/window.ts:1192 src/window.ts:1198
 msgid "Image copied to clipboard"
 msgstr ""
 
-#: src/window.ts:1174
+#: src/window.ts:1202
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:1219
+#: src/window.ts:1247
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:1245 src/window.ts:1277
+#: src/window.ts:1273 src/window.ts:1305
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:1257 src/window.ts:1274
+#: src/window.ts:1285 src/window.ts:1302
 msgid "Clipboard has no image to paste"
 msgstr ""
 

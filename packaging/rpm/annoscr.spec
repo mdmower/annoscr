@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        1.2.0
+Version:        1.2.1
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -82,6 +82,10 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Tue Jun 30 2026 Matt Mower <mdmower@cmphys.com> - 1.2.1-1
+- The text placement editor scales with the zoom level, so placing text on a zoomed-out image no longer opens an oversized card; the box-text editor centers on its shape.
+- Cancelling a command-line screenshot capture with no instance already running now exits cleanly instead of leaving an empty window.
+
 * Mon Jun 22 2026 Matt Mower <mdmower@cmphys.com> - 1.2.0-1
 - Right-click and drag pans the canvas with any tool, and the arrow keys pan when nothing is selected.
 - Drag a box across empty canvas to select every annotation fully inside it; Ctrl+A selects all and Esc clears the selection.

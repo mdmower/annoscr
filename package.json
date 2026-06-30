@@ -1,6 +1,6 @@
 {
   "name": "annoscr",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "Annotation tool for GNOME (GJS + GTK4 + Libadwaita).",
   "license": "GPL-3.0-or-later",

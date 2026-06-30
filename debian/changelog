@@ -1,3 +1,14 @@
+annoscr (1.2.1) unstable; urgency=medium
+
+  * The text placement editor now scales with the zoom level, so placing
+    text on a zoomed-out image no longer opens an oversized card, and the
+    box-text editor centers on its shape instead of spilling to one side.
+  * Cancelling a screenshot capture started from the command line with no
+    instance already running now exits cleanly instead of leaving an empty
+    window open.
+
+ -- Matt Mower <mdmower@cmphys.com>  Tue, 30 Jun 2026 12:00:00 -0700
+
 annoscr (1.2.0) unstable; urgency=medium
 
   * Right-click and drag now pans the canvas with any tool, and the arrow
