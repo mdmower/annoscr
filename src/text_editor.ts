@@ -161,11 +161,17 @@ const MARKUP_TAG_REVERSE: Record<string, TagName> = {
   u: 'underline',
 };
 
-// Default and minimum editor dimensions (widget pixels). Default is roughly
-// 2× the original 80 px hard minimum so new edits have comfortable room.
+// Editor dimensions (widget pixels). EDITOR_DEFAULT_WIDTH is the fresh-placement
+// width at 100% zoom; a placement scales it by the display zoom (floored at
+// EDITOR_MIN_WIDTH) so the card stays proportional to the on-screen text rather
+// than dwarfing it when zoomed out. EDITOR_MIN_HEIGHT is the resize/re-edit clamp.
 const EDITOR_DEFAULT_WIDTH = 160;
 const EDITOR_MIN_WIDTH = 80;
 const EDITOR_MIN_HEIGHT = 40;
+// A fresh one-line view may sit below EDITOR_MIN_HEIGHT (see oneLineHeight): a
+// heavily zoomed-out placement has a tiny display font, so the 40 px clamp would
+// open it in a box of whitespace.
+const EDITOR_ONE_LINE_MIN_HEIGHT = 24;
 
 // In box mode the editor card covers the shape's box plus this overlap on each
 // side, so the shape's outline tucks just under the card edge.
@@ -181,13 +187,17 @@ const VIEW_PAD_X = 18;
 const FRAME_CHROME_TOP = 2;
 const FRAME_CHROME_V = FRAME_CHROME_TOP + 1;
 
+// Horizontal frame border (left + right), used to estimate the card's effective
+// width when centering box mode over a shape narrower than the toolbar.
+const FRAME_CHROME_H = 2;
+
 // Starting (minimum) view height for a fresh edit: one line at the given font
 // size plus the view's vertical padding, so the frame opens proportional to the
 // font instead of at the theme's default line height. set_size_request sets a
 // MINIMUM, so the view still grows past this as more lines are typed.
 function oneLineHeight(fontSize?: number): number {
-  if (!fontSize) return EDITOR_MIN_HEIGHT;
-  return Math.max(EDITOR_MIN_HEIGHT, Math.round(fontSize * 1.4) + 8);
+  if (!fontSize) return EDITOR_ONE_LINE_MIN_HEIGHT;
+  return Math.max(EDITOR_ONE_LINE_MIN_HEIGHT, Math.round(fontSize * 1.4) + 8);
 }
 
 interface TextEditorCallbacks {
@@ -520,10 +530,16 @@ export class TextEditor {
     this.recenterBoxText();
     this.active = true;
     if (box) {
-      // widgetX/Y is the box top-left. Shift the frame up by the toolbar (+ chrome)
-      // so the toolbar sits above the box and the view area covers it; minus the
-      // overlap so the card's edges tuck just outside the shape outline.
-      this.frame.set_margin_start(Math.max(0, Math.floor(widgetX) - BOX_OVERLAP));
+      // widgetX/Y is the box top-left. Center the card on the box horizontally:
+      // for a shape narrower than the toolbar's minimum width (a small box at low
+      // zoom) the card can't shrink to fit, so split the overflow evenly instead
+      // of spilling it all to the right. Where the box is wide enough this
+      // reduces to a left edge tucked BOX_OVERLAP outside the outline. Shift the
+      // frame up by the toolbar (+ chrome) so the toolbar sits above the box and
+      // the view area covers it.
+      const [toolbarMinW] = this.toolbar.measure(Gtk.Orientation.HORIZONTAL, -1);
+      const cardW = Math.max(Math.round(box.boxW) + 2 * BOX_OVERLAP, toolbarMinW + FRAME_CHROME_H);
+      this.frame.set_margin_start(Math.max(0, Math.floor(widgetX + box.boxW / 2 - cardW / 2)));
       this.frame.set_margin_top(
         Math.max(0, Math.floor(widgetY) - BOX_OVERLAP - toolbarH - FRAME_CHROME_TOP)
       );
@@ -542,9 +558,10 @@ export class TextEditor {
   }
 
   // Standalone mode: size the view to a re-edit's stored frame — image-space,
-  // so scaled by the zoom for the same on-image footprint — or to a one-line
-  // default at the on-screen font size for a fresh placement (grows with
-  // content — see oneLineHeight).
+  // so scaled by the zoom for the same on-image footprint — or, for a fresh
+  // placement, to the default width and a one-line height, both at the on-screen
+  // font size (scaled by the zoom, floored for usability) so the card matches the
+  // text it's placing instead of dwarfing it when zoomed out. Grows with content.
   private applyStandaloneViewSize(editorSize?: EditorSize, fontSize?: number): void {
     if (editorSize) {
       this.view.set_size_request(
@@ -555,7 +572,7 @@ export class TextEditor {
       );
     } else {
       this.view.set_size_request(
-        EDITOR_DEFAULT_WIDTH,
+        Math.max(EDITOR_MIN_WIDTH, Math.round(EDITOR_DEFAULT_WIDTH * this.displayScale)),
         oneLineHeight(fontSize !== undefined ? fontSize * this.displayScale : undefined)
       );
     }
