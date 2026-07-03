@@ -27,6 +27,8 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Text labels**: give a rectangle or oval a centered caption; the text wraps to the box, aligns left / center / right, and rotates with the shape.
 
+- **Callouts**: flip the Callout switch on a selected rectangle or oval to fuse a pointer tail into its border, then drag the tail's tip to aim it at whatever the box is describing. Combined with a text label, the shape becomes a speech bubble; the tail follows the shape's fill, line style, and rotation.
+
 - **Number stamps**: numbered or lettered per group. Pick or reassign a stamp's group from the style bar, start a new group, and select a stamp to quickly identify all others in the group (if multiple groups exist).
 
 - **Transforms**: rotate the whole image, or resize to crop or expand the canvas.

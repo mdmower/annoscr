@@ -122,6 +122,11 @@ export class StyleBar {
   private cornerGroup!: Gtk.Box;
   private cornerLabel!: Gtk.Label;
   private cornerScale!: Gtk.Scale;
+  // Callout-tail switch (selected rect/oval only): toggles a pointer tail
+  // fused to the box outline; the tip is dragged by its own canvas handle.
+  private tailGroup!: Gtk.Box;
+  private tailLabel!: Gtk.Label;
+  private tailSwitch!: Gtk.Switch;
   // Group selector for the number stamp: choose the placement group (number
   // tool) or reassign the selected stamps (select tool). The model is rebuilt
   // each refresh from the canvas's live group list, with a trailing "+ New
@@ -306,6 +311,16 @@ export class StyleBar {
     this.cornerGroup = makeGroup(cornerSep, this.cornerLabel, this.cornerScale);
     styleBar.append(this.cornerGroup);
 
+    // Callout group (selected rect/oval only) — a switch toggling the pointer
+    // tail; there's deliberately no tool default (see replaceSelectedTail), so
+    // the group never shows in placement modes.
+    const tailSep = makeSep();
+    this.tailSwitch = new Gtk.Switch({valign: Gtk.Align.CENTER});
+    this.tailSwitch.connect('notify::active', () => this.onTailPicked());
+    this.tailLabel = new Gtk.Label({label: _('Callout'), css_classes: ['caption']});
+    this.tailGroup = makeGroup(tailSep, this.tailLabel, this.tailSwitch);
+    styleBar.append(this.tailGroup);
+
     // Arrowhead group (arrow only) — row 0 = open, row 1 = filled.
     const filledHeadSep = makeSep();
     this.filledHeadDropdown = Gtk.DropDown.new_from_strings([_('Open'), _('Filled')]);
@@ -408,6 +423,7 @@ export class StyleBar {
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
       {group: this.cornerGroup, sep: cornerSep},
+      {group: this.tailGroup, sep: tailSep},
       {group: this.filledHeadGroup, sep: filledHeadSep},
       {group: this.groupGroup, sep: groupSep},
       {group: this.variantGroup, sep: variantSep},
@@ -422,6 +438,7 @@ export class StyleBar {
     // free. (Swatches and align toggles are wired at their creation above.)
     setLabelledBy(this.widthScale, this.widthLabel);
     setLabelledBy(this.cornerScale, this.cornerLabel);
+    setLabelledBy(this.tailSwitch, this.tailLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);
     setLabelledBy(this.filledHeadDropdown, this.filledHeadLabel);
     setLabelledBy(this.groupDropdown, this.groupLabel);
@@ -802,6 +819,15 @@ export class StyleBar {
       this.selectionMixed((a) => a.getFilledHead())
     );
 
+    const tail = this.styleTargetTail();
+    this.tailGroup.set_visible(tail !== null);
+    if (tail !== null) this.tailSwitch.set_active(tail);
+    setCaption(
+      this.tailLabel,
+      _('Callout'),
+      this.selectionMixed((a) => a.getTail())
+    );
+
     this.refreshStampControls();
     this.refreshTextControls();
 
@@ -1159,6 +1185,16 @@ export class StyleBar {
     return this.canvas.getToolDash(tool);
   }
 
+  // Callout-tail state to display, or null when the control should hide (text
+  // edit, non-select tool, or no selected box shape). Select-mode only: the
+  // tail is per-shape geometry with no tool default. As with filledHead,
+  // `false` is a real value — compare against null.
+  private styleTargetTail(): boolean | null {
+    if (this.editor.isActive()) return null;
+    if (this.canvas.getTool() !== 'select') return null;
+    return this.selectionSummary((a) => a.getTail()).value;
+  }
+
   // Filled-arrowhead state to display, or null when no applicable target (text
   // edit, or a tool/selection with no arrowhead). `false` is a real value, so
   // callers must compare against null, not test truthiness.
@@ -1216,6 +1252,14 @@ export class StyleBar {
     } else if (defaultFilledHeadForTool(tool) !== null) {
       this.canvas.setToolFilledHead(tool, filled);
     }
+  }
+
+  // Select-mode only (the control is hidden otherwise); no tool default to
+  // write — see replaceSelectedTail.
+  private onTailPicked(): void {
+    if (this.updatingPicker || !this.tailSwitch) return;
+    if (this.canvas.getTool() !== 'select') return;
+    this.canvas.replaceSelectedTail(this.tailSwitch.get_active());
   }
 
   // Called from the color swatch's dialog on OK (with the chosen color); see

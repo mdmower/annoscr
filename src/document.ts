@@ -18,6 +18,7 @@ import {
   STAMP_RADIUS_MIN,
   SerializedAction,
   SerializedShapeText,
+  TailOffset,
   TEXT_STYLE,
   TRANSPARENT_FILL,
   TextAlign,
@@ -186,6 +187,15 @@ function sanitizeShapeText(v: unknown): SerializedShapeText | undefined {
   };
 }
 
+// A box shape's callout tail is decoration on the shape, like its text:
+// malformed input drops to "no tail" rather than rejecting the shape.
+function sanitizeTail(v: unknown): TailOffset | undefined {
+  if (!isRecord(v)) return undefined;
+  if (typeof v.dx !== 'number' || !Number.isFinite(v.dx)) return undefined;
+  if (typeof v.dy !== 'number' || !Number.isFinite(v.dy)) return undefined;
+  return {dx: v.dx, dy: v.dy};
+}
+
 // Pure-UX re-edit frame size; anything malformed just drops the field.
 function sanitizeEditorSize(v: unknown): EditorSize | undefined {
   if (!isRecord(v)) return undefined;
@@ -268,6 +278,7 @@ function sanitizeAction(raw: unknown): SerializedAction {
       return {type, ...sanitizeEndpoints(raw, type), filledHead: raw.filledHead === true};
     case 'rect': {
       const text = sanitizeShapeText(raw.text);
+      const tail = sanitizeTail(raw.tail);
       return {
         type,
         ...sanitizeEndpoints(raw, type),
@@ -275,16 +286,19 @@ function sanitizeAction(raw: unknown): SerializedAction {
         rotation: asAngle(raw.rotation),
         cornerRadius: asClampedNumber(raw.cornerRadius, CORNER_RADIUS_MIN, CORNER_RADIUS_MAX) ?? 0,
         ...(text ? {text} : {}),
+        ...(tail ? {tail} : {}),
       };
     }
     case 'oval': {
       const text = sanitizeShapeText(raw.text);
+      const tail = sanitizeTail(raw.tail);
       return {
         type,
         ...sanitizeEndpoints(raw, type),
         fill: asColor(raw.fill) ?? TRANSPARENT_FILL,
         rotation: asAngle(raw.rotation),
         ...(text ? {text} : {}),
+        ...(tail ? {tail} : {}),
       };
     }
     case 'text':

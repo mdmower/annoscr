@@ -275,16 +275,17 @@ function handleBaseAngle(id: HandleId): number {
     case 'tr':
       return -Math.PI / 4;
     default:
-      return 0; // p1/p2 — handled by the caller before this is reached
+      return 0; // p1/p2/tail — handled by the caller before this is reached
   }
 }
 
 // Cursor for a per-action resize handle on a box rotated by `rotation`. Box
 // handles map to one of the four directional resize cursors, snapped to the
 // handle's actual (rotated) outward direction so a tilted box gets sensible
-// cursors; endpoints aren't directional (free drag) → crosshair.
+// cursors; endpoints and the callout tail tip aren't directional (free drag)
+// → crosshair.
 function cursorForHandle(id: HandleId, rotation: number): string {
-  if (id === 'p1' || id === 'p2') return 'crosshair';
+  if (id === 'p1' || id === 'p2' || id === 'tail') return 'crosshair';
   if (rotation === 0) return cursorForResizeGrab(id);
   let a = handleBaseAngle(id) + rotation;
   a = ((a % Math.PI) + Math.PI) % Math.PI; // fold to [0, π); resize cursors are symmetric
@@ -1319,7 +1320,11 @@ export const CanvasView = GObject.registerClass(
       get: (a: Action) => T | null,
       apply: (a: Action, v: T) => Action,
       value: T,
-      key: string,
+      // Coalesce key, or null for discrete toggles. Coalescing exists to
+      // compress a picker drag into one entry; for a binary toggle it would
+      // instead collapse an on/off pair into a single no-op history entry
+      // (a state identical to its predecessor), leaving a dead undo step.
+      key: string | null,
       setToolDefault: (toolId: ToolId, v: T) => void
     ): boolean {
       const cur = this.state.actions;
@@ -1365,7 +1370,7 @@ export const CanvasView = GObject.registerClass(
           surface: this.state.surface,
           actions: next,
         },
-        `${key}:${this.selectionKey()}`
+        key === null ? null : `${key}:${this.selectionKey()}`
       );
       this.queue_draw();
       return true;
@@ -1469,6 +1474,20 @@ export const CanvasView = GObject.registerClass(
         (a, v) => a.withAlign(v),
         align,
         'align',
+        () => {}
+      );
+    }
+
+    // A callout tail is per-shape geometry, deliberately excluded from tool
+    // defaults (a new rect/oval always starts plain), so like Align the
+    // setToolDefault callback is a no-op. No coalesce key: each flip of the
+    // switch is its own undo step (see replaceSelectedProperty).
+    replaceSelectedTail(on: boolean): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getTail(),
+        (a, v) => a.withTail(v),
+        on,
+        null,
         () => {}
       );
     }

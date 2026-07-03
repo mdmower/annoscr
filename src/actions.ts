@@ -40,9 +40,10 @@ export type RotateDirection = 'cw' | 'ccw';
 
 // Handle ids for per-action resize (select tool). Box handles — corners (tl/tr/
 // bl/br) and edge midpoints (t/b/l/r) — cover rect/oval/number-stamp; endpoint
-// handles (p1/p2) cover line/arrow. Free-rotate uses its own gizmo on the same
-// grab/preview scaffolding rather than extending this set.
-export type HandleId = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2';
+// handles (p1/p2) cover line/arrow; 'tail' drags a callout tail's tip on a box
+// shape. Free-rotate uses its own gizmo on the same grab/preview scaffolding
+// rather than extending this set.
+export type HandleId = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2' | 'tail';
 
 // A single resize handle in image space, ready for the canvas to draw and
 // hit-test.
@@ -110,6 +111,12 @@ export interface Action {
   // value just maxes the rounding rather than overshooting.
   getCornerRadius(): number | null;
   withCornerRadius(radius: number): Action;
+  // Whether the box shape carries a callout tail (a pointer triangle fused to
+  // its outline), or null for actions that can't (only rect / oval can). The
+  // tail's position is geometry (dragged via its 'tail' handle), not part of
+  // this channel, and there's no per-tool default — new shapes start plain.
+  getTail(): boolean | null;
+  withTail(on: boolean): Action;
   // The action's editable font family (Pango font description string), or
   // null for actions that don't carry one. Only TextAction does today.
   getFontDesc(): string | null;
@@ -291,6 +298,13 @@ const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 // gizmo uses. Since 15° divides 90°, the snap lands on horizontal and vertical
 // as well as the diagonals.
 const ANGLE_SNAP = Math.PI / 12;
+// Miter limit for MITER-joined strokes (the box outlines). Cairo's default of
+// 10 lets an acute joint grow a spike up to 5x the stroke width before
+// flipping to a bevel — so a callout tail's tip visibly jumped between a long
+// spike and a flat cut as a drag nudged its angle across the threshold. A
+// limit of 2 bevels everything sharper than ~60°, rendering tips consistently
+// at any angle, while a square 90° corner (ratio ~1.41) stays a sharp miter.
+const STROKE_MITER_LIMIT = 2;
 // Transparent white: no visible plate until the user raises the opacity.
 const TEXT_BG_DEFAULT: ColorRGBA = [1, 1, 1, 0];
 export const TEXT_STYLE: TextStyle = {
@@ -322,6 +336,43 @@ export interface ShapeText {
 }
 
 const EMPTY_SHAPE_TEXT: ShapeText = {markup: '', style: SHAPE_TEXT_STYLE};
+
+// Optional callout tail carried by a box shape (rect / oval): the tip's offset
+// from the box center, stored in the box's LOCAL (unrotated) frame so the tail
+// rotates with the shape and rides along when the box moves or resizes. Only
+// the tip is stored — the visible triangle (base chord on the outline) is
+// derived from the box extents at draw time. Null = plain box.
+export interface TailOffset {
+  dx: number;
+  dy: number;
+}
+
+// The derived tail triangle in the box's local frame: the stored tip plus the
+// two base points where the tail meets the outline. Null when the tip sits
+// inside the shape (nothing to point at) — the box then draws plain, but the
+// stored tip (and its handle) survives so the user can pull it back out.
+interface TailTriangle {
+  tip: [number, number];
+  b1: [number, number];
+  b2: [number, number];
+}
+
+// Tail base half-width relative to the smaller box half-extent: proportional so
+// the tail reads as a pointer on any box size.
+const TAIL_BASE_RATIO = 0.3;
+
+function tailBaseHalfWidth(hW: number, hH: number): number {
+  return TAIL_BASE_RATIO * Math.min(hW, hH);
+}
+
+// Default tip for a freshly toggled-on tail: down-left of the box, past the
+// outline by roughly the smaller half-extent, so it's immediately visible and
+// grabbable at any box size.
+function defaultTail(hW: number, hH: number): TailOffset {
+  const u = Math.SQRT1_2; // 45° down-left
+  const dist = (Math.SQRT2 + 0.9) * Math.min(hW, hH);
+  return {dx: -u * dist, dy: u * dist};
+}
 
 // Inner padding for shape text as a fraction of the font size, so text doesn't
 // touch the box edge. Wrapping + alignment happen within (box width − 2·pad).
@@ -510,19 +561,21 @@ export interface SerializedArrow extends SerializedEndpoints {
   filledHead: boolean;
 }
 
-export interface SerializedRect extends SerializedEndpoints {
-  type: 'rect';
+// The box-shape fields shared by rect/oval — the fragment boxData() emits.
+interface SerializedBoxData {
   fill: ColorRGBA;
   rotation: number;
-  cornerRadius: number;
   text?: SerializedShapeText; // omitted when the box has no text
+  tail?: TailOffset; // omitted when the box has no callout tail
 }
 
-export interface SerializedOval extends SerializedEndpoints {
+export interface SerializedRect extends SerializedEndpoints, SerializedBoxData {
+  type: 'rect';
+  cornerRadius: number;
+}
+
+export interface SerializedOval extends SerializedEndpoints, SerializedBoxData {
   type: 'oval';
-  fill: ColorRGBA;
-  rotation: number;
-  text?: SerializedShapeText;
 }
 
 export interface SerializedText {
@@ -622,6 +675,12 @@ abstract class BaseAction implements Action {
     return null;
   }
   withCornerRadius(_radius: number): Action {
+    return this;
+  }
+  getTail(): boolean | null {
+    return null;
+  }
+  withTail(_on: boolean): Action {
     return this;
   }
   getFontDesc(): string | null {
@@ -1764,14 +1823,23 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     protected readonly rotation: number,
     // Optional centered text inside the box. Defaults to none so existing
     // call sites (live strokes, plain placement) are unaffected.
-    protected readonly text: ShapeText = EMPTY_SHAPE_TEXT
+    protected readonly text: ShapeText = EMPTY_SHAPE_TEXT,
+    // Optional callout tail (tip offset from center, local frame); see
+    // TailOffset. Defaults to none, like text.
+    protected readonly tail: TailOffset | null = null
   ) {
     super(x1, y1, x2, y2, style);
   }
 
   // Build the outline path centered at the origin in the local frame, spanning
-  // ±halfW × ±halfH. The base sets up the translate/rotate and the fill/stroke.
+  // ±halfW × ±halfH, fusing in the callout tail when one is drawable. The base
+  // sets up the translate/rotate and the fill/stroke.
   protected abstract buildPath(cr: Cairo.Context, halfW: number, halfH: number): void;
+
+  // The tail triangle in the local frame, or null when there's no tail or it's
+  // degenerate (see TailTriangle). Subclasses derive the base chord from their
+  // own outline (straight edge span vs ellipse arc).
+  protected abstract tailTriangle(): TailTriangle | null;
 
   // Construct a new instance of the concrete type with all state.
   protected abstract make(
@@ -1782,14 +1850,15 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     style: Style,
     fill: ColorRGBA,
     rotation: number,
-    text: ShapeText
+    text: ShapeText,
+    tail: TailOffset | null
   ): Action;
 
   private center(): [number, number] {
     return [(this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2];
   }
 
-  private halfExtents(): [number, number] {
+  protected halfExtents(): [number, number] {
     return [Math.abs(this.x2 - this.x1) / 2, Math.abs(this.y2 - this.y1) / 2];
   }
 
@@ -1836,12 +1905,14 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   }
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return this.make(x1, y1, x2, y2, style, this.fill, this.rotation, this.text);
+    return this.make(x1, y1, x2, y2, style, this.fill, this.rotation, this.text, this.tail);
   }
 
   getBounds(): Bounds {
     const pad = this.boundsPad();
-    if (this.rotation === 0) return endpointBounds(this.x1, this.y1, this.x2, this.y2, pad);
+    if (this.rotation === 0 && !this.tail) {
+      return endpointBounds(this.x1, this.y1, this.x2, this.y2, pad);
+    }
     const [cx, cy] = this.center();
     const minX = Math.min(this.x1, this.x2);
     const maxX = Math.max(this.x1, this.x2);
@@ -1857,13 +1928,54 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       [maxX, maxY],
       [minX, maxY],
     ]) {
-      const [rx, ry] = rotateAboutPoint(px, py, cx, cy, this.rotation);
+      const [rx, ry] =
+        this.rotation === 0 ? [px, py] : rotateAboutPoint(px, py, cx, cy, this.rotation);
       if (rx < bx1) bx1 = rx;
       if (rx > bx2) bx2 = rx;
       if (ry < by1) by1 = ry;
       if (ry > by2) by2 = ry;
     }
+    if (this.tail) {
+      // The STORED tip, even when the triangle is degenerate and hidden: the
+      // 'tail' handle sits there regardless and must stay inside the bounds
+      // that size the fixed-zoom scroll extent, or it couldn't be reached to
+      // drag back. The base chord lies on the outline, inside the corner AABB
+      // already. A drawn tip is widened further by its miter spike.
+      const [rx, ry] = rotateAboutPoint(
+        cx + this.tail.dx,
+        cy + this.tail.dy,
+        cx,
+        cy,
+        this.rotation
+      );
+      const spike = this.tailSpikePad();
+      if (rx - spike < bx1) bx1 = rx - spike;
+      if (rx + spike > bx2) bx2 = rx + spike;
+      if (ry - spike < by1) by1 = ry - spike;
+      if (ry + spike > by2) by2 = ry + spike;
+    }
     return {x1: bx1 - pad, y1: by1 - pad, x2: bx2 + pad, y2: by2 + pad};
+  }
+
+  // Extra bounds padding at a drawn tail's tip beyond the uniform width/2
+  // stroke pad: the MITER join at the sharp vertex extends past the tip by
+  // (width/2)/sin(halfAngle). Past STROKE_MITER_LIMIT the join falls back to
+  // a bevel, which the uniform pad already covers (so does a hidden tail,
+  // which strokes nothing).
+  private tailSpikePad(): number {
+    const tri = this.tailTriangle();
+    if (!tri) return 0;
+    const v1x = tri.b1[0] - tri.tip[0];
+    const v1y = tri.b1[1] - tri.tip[1];
+    const v2x = tri.b2[0] - tri.tip[0];
+    const v2y = tri.b2[1] - tri.tip[1];
+    const n1 = Math.hypot(v1x, v1y);
+    const n2 = Math.hypot(v2x, v2y);
+    if (n1 === 0 || n2 === 0) return 0;
+    const cosA = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (n1 * n2)));
+    const sinHalf = Math.sqrt((1 - cosA) / 2);
+    if (sinHalf * STROKE_MITER_LIMIT < 1) return 0;
+    return (this.style.width / 2) * (1 / sinHalf - 1);
   }
 
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
@@ -1871,6 +1983,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     const [hW, hH] = this.halfExtents();
     const [ncx, ncy] = rotatePoint(cx, cy, direction, oldW, oldH);
     const dr = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
+    // The tail offset is local-frame, so the rotation delta absorbed into
+    // `rotation` carries it around with the box unchanged.
     return this.make(
       ncx - hW,
       ncy - hH,
@@ -1879,7 +1993,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.style,
       this.fill,
       normalizeAngle(this.rotation + dr),
-      this.text
+      this.text,
+      this.tail
     );
   }
 
@@ -1896,7 +2011,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.style,
       fill,
       this.rotation,
-      this.text
+      this.text,
+      this.tail
     );
   }
 
@@ -1913,7 +2029,33 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.style,
       this.fill,
       normalizeAngle(rotation),
-      this.text
+      this.text,
+      this.tail
+    );
+  }
+
+  // ---- Callout tail ----
+
+  getTail(): boolean {
+    return this.tail !== null;
+  }
+
+  // Toggling on seeds a default tip scaled to the box; toggling off forgets
+  // the position (undo restores it, and a re-toggle re-seeds the default).
+  withTail(on: boolean): Action {
+    if (on === (this.tail !== null)) return this;
+    const [hW, hH] = this.halfExtents();
+    const tail = on ? defaultTail(hW, hH) : null;
+    return this.make(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.style,
+      this.fill,
+      this.rotation,
+      this.text,
+      tail
     );
   }
 
@@ -1930,10 +2072,17 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
 
   // Set (or clear, with empty markup) the box's text. Used by the commit path.
   withText(markup: string, style: TextStyle): Action {
-    return this.make(this.x1, this.y1, this.x2, this.y2, this.style, this.fill, this.rotation, {
-      markup,
-      style,
-    });
+    return this.make(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.style,
+      this.fill,
+      this.rotation,
+      {markup, style},
+      this.tail
+    );
   }
 
   // The text-style channels are exposed (non-null) ONLY when the box has text,
@@ -1987,13 +2136,20 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     const [hW, hH] = this.halfExtents();
     const pad = this.boundsPad();
     const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
-    return Math.abs(lx - cx) <= hW + pad && Math.abs(ly - cy) <= hH + pad;
+    if (Math.abs(lx - cx) <= hW + pad && Math.abs(ly - cy) <= hH + pad) return true;
+    // A drawable tail is part of the shape: hit-test its triangle (in the same
+    // local frame; center-relative) so clicking the tail selects the box.
+    const tri = this.tailTriangle();
+    return tri !== null && pointInTriangle(lx - cx, ly - cy, tri.tip, tri.b1, tri.b2);
   }
 
   getResizeHandles(): ResizeHandle[] {
     const local = boxResizeHandles(this.x1, this.y1, this.x2, this.y2);
-    if (this.rotation === 0) return local;
     const [cx, cy] = this.center();
+    // The tail handle sits at the STORED tip (not the drawable triangle), so a
+    // tip swallowed by a box resize can still be pulled back out.
+    if (this.tail) local.push({id: 'tail', x: cx + this.tail.dx, y: cy + this.tail.dy});
+    if (this.rotation === 0) return local;
     return local.map((h) => {
       const [rx, ry] = rotateAboutPoint(h.x, h.y, cx, cy, this.rotation);
       return {id: h.id, x: rx, y: ry};
@@ -2001,6 +2157,25 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   }
 
   resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
+    if (handle === 'tail') {
+      if (!this.tail) return this;
+      const [cx, cy] = this.center();
+      // Cursor into the local frame; Shift snaps the tip's angle about the
+      // center, matching the line/arrow endpoint constraint.
+      const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
+      const [nx, ny] = constrain ? constrainAngle(cx, cy, lx, ly, ANGLE_SNAP) : [lx, ly];
+      return this.make(
+        this.x1,
+        this.y1,
+        this.x2,
+        this.y2,
+        this.style,
+        this.fill,
+        this.rotation,
+        this.text,
+        {dx: nx - cx, dy: ny - cy}
+      );
+    }
     const [x1, y1, x2, y2] = resizeOrientedBox(
       this.x1,
       this.y1,
@@ -2012,21 +2187,270 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       iy,
       constrain
     );
-    return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation, this.text);
+    // The tail rides along: its center offset is kept, so resizing shifts the
+    // tip with the box (and can swallow it — the triangle then hides until the
+    // tip is dragged back out).
+    return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation, this.text, this.tail);
   }
 
-  // Shared serialized box fields (fill, rotation, and embedded text when
-  // present); subclasses prepend their type tag and add any extra state.
-  protected boxData(): {fill: ColorRGBA; rotation: number; text?: SerializedShapeText} {
-    const data: {fill: ColorRGBA; rotation: number; text?: SerializedShapeText} = {
+  // Shared serialized box fields (fill, rotation, and embedded text / callout
+  // tail when present); subclasses prepend their type tag and any extra state.
+  protected boxData(): SerializedBoxData {
+    const data: SerializedBoxData = {
       fill: this.fill,
       rotation: this.rotation,
     };
     if (this.text.markup) {
       data.text = {markup: this.text.markup, style: {...this.text.style}};
     }
+    if (this.tail) data.tail = {...this.tail};
     return data;
   }
+}
+
+// Rotate the vector (x, y) by `angle` radians (CW, screen y-down).
+function rotateVec(x: number, y: number, angle: number): [number, number] {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return [x * cos - y * sin, x * sin + y * cos];
+}
+
+// Whether the local point (dx, dy) lies inside the rounded rect of half-extents
+// (hW, hH) with corner radius r: inside the AABB and not in one of the four
+// corner notches beyond the corner circle.
+function insideRoundedRect(dx: number, dy: number, hW: number, hH: number, r: number): boolean {
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (ax > hW || ay > hH) return false;
+  const qx = ax - (hW - r);
+  const qy = ay - (hH - r);
+  if (qx <= 0 || qy <= 0) return true;
+  return qx * qx + qy * qy <= r * r;
+}
+
+// One piece of a rounded rect's outline: a corner arc or a straight edge
+// (either may be zero-length: r = 0 empties the arcs, full rounding empties
+// the edges).
+interface PerimeterArc {
+  kind: 'arc';
+  len: number;
+  r: number;
+  cx: number;
+  cy: number;
+  a1: number;
+  a2: number;
+}
+interface PerimeterLine {
+  kind: 'line';
+  len: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+type PerimeterPiece = PerimeterArc | PerimeterLine;
+
+// The rounded rect's outline as a clockwise (screen y-down) arc-length
+// parametrization in the box's local frame, starting at the top-right arc.
+// Positions on it are plain arc lengths, so the tail base can anchor anywhere
+// on the outline — straight edge or corner arc — the way the oval's single
+// curve allows, instead of being confined to a straight span.
+function roundedRectPerimeter(hW: number, hH: number, r: number): PerimeterPiece[] {
+  const arcLen = (Math.PI / 2) * r;
+  const spanW = 2 * (hW - r);
+  const spanH = 2 * (hH - r);
+  const arc = (cx: number, cy: number, a1: number, a2: number): PerimeterArc => ({
+    kind: 'arc',
+    len: arcLen,
+    r,
+    cx,
+    cy,
+    a1,
+    a2,
+  });
+  const line = (x1: number, y1: number, x2: number, y2: number, len: number): PerimeterLine => ({
+    kind: 'line',
+    len,
+    x1,
+    y1,
+    x2,
+    y2,
+  });
+  return [
+    arc(hW - r, -hH + r, -Math.PI / 2, 0), // top-right
+    line(hW, -hH + r, hW, hH - r, spanH), // right
+    arc(hW - r, hH - r, 0, Math.PI / 2), // bottom-right
+    line(hW - r, hH, -hW + r, hH, spanW), // bottom
+    arc(-hW + r, hH - r, Math.PI / 2, Math.PI), // bottom-left
+    line(-hW, hH - r, -hW, -hH + r, spanH), // left
+    arc(-hW + r, -hH + r, Math.PI, (3 * Math.PI) / 2), // top-left
+    line(-hW + r, -hH, hW - r, -hH, spanW), // top
+  ];
+}
+
+// The point at fraction t (0..1) along one piece.
+function piecePointAt(p: PerimeterPiece, t: number): [number, number] {
+  if (p.kind === 'line') return [p.x1 + (p.x2 - p.x1) * t, p.y1 + (p.y2 - p.y1) * t];
+  const a = p.a1 + (p.a2 - p.a1) * t;
+  return [p.cx + p.r * Math.cos(a), p.cy + p.r * Math.sin(a)];
+}
+
+// The point at (wrapped) arc length s along the outline.
+function perimeterPointAt(pieces: PerimeterPiece[], total: number, s: number): [number, number] {
+  let sw = ((s % total) + total) % total;
+  for (const p of pieces) {
+    if (sw <= p.len && p.len > 0) return piecePointAt(p, sw / p.len);
+    sw -= p.len;
+  }
+  // Float spill past the last piece wraps to the walk origin.
+  return piecePointAt(pieces[0], 0);
+}
+
+// Where the center→tip ray crosses a corner arc, as an arc length within that
+// piece's range: the far intersection of the ray with the corner circle,
+// clamped onto the arc's angular span (float safety at the span boundaries).
+function arcExitLength(p: PerimeterArc, dx: number, dy: number): number {
+  const a = dx * dx + dy * dy;
+  const b = -2 * (dx * p.cx + dy * p.cy);
+  const c = p.cx * p.cx + p.cy * p.cy - p.r * p.r;
+  const disc = Math.max(0, b * b - 4 * a * c);
+  const t = (-b + Math.sqrt(disc)) / (2 * a);
+  let theta = Math.atan2(t * dy - p.cy, t * dx - p.cx);
+  if (theta < p.a1) theta += 2 * Math.PI; // atan2 range vs the top-left arc's span past π
+  theta = Math.min(Math.max(theta, p.a1), p.a2);
+  return (theta - p.a1) * p.r;
+}
+
+// Arc length at which the center→tip ray exits the outline. The dominant
+// normalized component picks the AABB edge the ray leaves through; a crossing
+// beyond that edge's straight span lies on the adjacent corner arc instead
+// (unreachable when r = 0, since the span then covers the whole edge). The
+// outline is star-shaped from the center, so the crossing is unique.
+function rayExitLength(
+  pieces: PerimeterPiece[],
+  starts: number[],
+  hW: number,
+  hH: number,
+  r: number,
+  dx: number,
+  dy: number
+): number {
+  const atArc = (i: number): number => starts[i] + arcExitLength(pieces[i] as PerimeterArc, dx, dy);
+  if (Math.abs(dx) / hW >= Math.abs(dy) / hH) {
+    if (dx > 0) {
+      const yc = (dy * hW) / dx;
+      if (Math.abs(yc) <= hH - r) return starts[1] + (yc + hH - r); // right edge, top→bottom
+      return atArc(yc > 0 ? 2 : 0);
+    }
+    const yc = (dy * hW) / -dx;
+    if (Math.abs(yc) <= hH - r) return starts[5] + (hH - r - yc); // left edge, bottom→top
+    return atArc(yc > 0 ? 4 : 6);
+  }
+  if (dy > 0) {
+    const xc = (dx * hH) / dy;
+    if (Math.abs(xc) <= hW - r) return starts[3] + (hW - r - xc); // bottom edge, right→left
+    return atArc(xc > 0 ? 2 : 4);
+  }
+  const xc = (dx * hH) / -dy;
+  if (Math.abs(xc) <= hW - r) return starts[7] + (xc + hW - r); // top edge, left→right
+  return atArc(xc > 0 ? 0 : 6);
+}
+
+// The tail's attachment on a rect outline: the perimeter pieces plus the exit
+// arc length and base half-width, from which the two base anchors are
+// sExit ± base. Null only when the tip is inside the shape (no orientation to
+// attach at) — any outline position is attachable, including corner arcs.
+interface RectTailAnchors {
+  pieces: PerimeterPiece[];
+  total: number;
+  sExit: number;
+  base: number;
+}
+
+function rectTailAnchors(
+  hW: number,
+  hH: number,
+  cornerRadius: number,
+  tail: TailOffset
+): RectTailAnchors | null {
+  const {dx, dy} = tail;
+  const r = Math.max(0, Math.min(cornerRadius, hW, hH));
+  if (insideRoundedRect(dx, dy, hW, hH, r)) return null;
+  const pieces = roundedRectPerimeter(hW, hH, r);
+  const starts: number[] = [];
+  let total = 0;
+  for (const p of pieces) {
+    starts.push(total);
+    total += p.len;
+  }
+  const sExit = rayExitLength(pieces, starts, hW, hH, r, dx, dy);
+  // The proportional base always fits a sane outline; the total/8 clamp only
+  // guards pathological aspect ratios from wrapping the anchors past halfway.
+  const base = Math.min(tailBaseHalfWidth(hW, hH), total / 8);
+  return {pieces, total, sExit, base};
+}
+
+// Append the outline from arc length s, walking `dist` clockwise, starting
+// with a moveTo. Pieces the ends land in are emitted partially; zero-length
+// pieces pass through silently. The iteration cap covers dist ≤ total plus a
+// wrap of the piece ring (float slack can't extend it — every positive-length
+// piece consumes its full remainder).
+function emitPerimeterWalk(
+  cr: Cairo.Context,
+  pieces: PerimeterPiece[],
+  total: number,
+  s: number,
+  dist: number
+): void {
+  const [sx, sy] = perimeterPointAt(pieces, total, s);
+  cr.moveTo(sx, sy);
+  let offset = ((s % total) + total) % total;
+  let i = 0;
+  while (i < pieces.length - 1 && offset > pieces[i].len) {
+    offset -= pieces[i].len;
+    i++;
+  }
+  let remaining = Math.min(dist, total);
+  for (let n = 0; n < 2 * pieces.length + 2 && remaining > 1e-9; n++) {
+    const p = pieces[i];
+    const take = Math.min(p.len - offset, remaining);
+    if (take > 1e-9) {
+      const t0 = offset / p.len;
+      const t1 = (offset + take) / p.len;
+      if (p.kind === 'line') {
+        const [x, y] = piecePointAt(p, t1);
+        cr.lineTo(x, y);
+      } else {
+        cr.arc(p.cx, p.cy, p.r, p.a1 + (p.a2 - p.a1) * t0, p.a1 + (p.a2 - p.a1) * t1);
+      }
+      remaining -= take;
+    }
+    i = (i + 1) % pieces.length;
+    offset = 0;
+  }
+}
+
+// The fused callout outline: the perimeter from one base anchor the long way
+// around to the other, then the detour to the tip. One closed path, so fill
+// and (dashed) stroke treat box + tail as a single outline with clean joins.
+function calloutRectPath(cr: Cairo.Context, an: RectTailAnchors, tail: TailOffset): void {
+  emitPerimeterWalk(cr, an.pieces, an.total, an.sExit + an.base, an.total - 2 * an.base);
+  cr.lineTo(tail.dx, tail.dy);
+  cr.closePath();
+}
+
+// The parameter angles of an oval tail's base chord on the unit circle (of the
+// scaled parametrization (hW·cos t, hH·sin t)), or null when the tip is inside
+// the ellipse. The chord half-angle approximates the shared base width via the
+// parametrization's local speed, clamped to stay a modest arc.
+function ovalTailChord(hW: number, hH: number, tail: TailOffset): {t1: number; t2: number} | null {
+  const nx = tail.dx / hW;
+  const ny = tail.dy / hH;
+  if (nx * nx + ny * ny <= 1) return null;
+  const tc = Math.atan2(ny, nx);
+  const speed = Math.hypot(hW * Math.sin(tc), hH * Math.cos(tc));
+  const half = Math.min(Math.max(tailBaseHalfWidth(hW, hH) / speed, 0.08), 0.6);
+  return {t1: tc - half, t2: tc + half};
 }
 
 class RectAction extends RotatableBoxAction {
@@ -2039,18 +2463,37 @@ class RectAction extends RotatableBoxAction {
     fill: ColorRGBA,
     rotation: number = 0,
     text: ShapeText = EMPTY_SHAPE_TEXT,
-    private readonly cornerRadius: number = 0
+    private readonly cornerRadius: number = 0,
+    tail: TailOffset | null = null
   ) {
-    super(x1, y1, x2, y2, style, fill, rotation, text);
+    super(x1, y1, x2, y2, style, fill, rotation, text, tail);
   }
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
-    roundedRectPath(cr, -halfW, -halfH, 2 * halfW, 2 * halfH, this.cornerRadius);
+    const tail = this.tail;
+    const an = tail ? rectTailAnchors(halfW, halfH, this.cornerRadius, tail) : null;
+    if (!tail || !an) {
+      roundedRectPath(cr, -halfW, -halfH, 2 * halfW, 2 * halfH, this.cornerRadius);
+      return;
+    }
+    calloutRectPath(cr, an, tail);
+  }
+
+  protected tailTriangle(): TailTriangle | null {
+    if (!this.tail) return null;
+    const [hW, hH] = this.halfExtents();
+    const an = rectTailAnchors(hW, hH, this.cornerRadius, this.tail);
+    if (!an) return null;
+    return {
+      tip: [this.tail.dx, this.tail.dy],
+      b1: perimeterPointAt(an.pieces, an.total, an.sExit - an.base),
+      b2: perimeterPointAt(an.pieces, an.total, an.sExit + an.base),
+    };
   }
 
   // Thread cornerRadius through make so every base edit that rebuilds the box
-  // (fill / rotation / resize / text, plus color / width / dash via rebuild)
-  // carries the radius forward.
+  // (fill / rotation / resize / text / tail, plus color / width / dash via
+  // rebuild) carries the radius forward.
   protected make(
     x1: number,
     y1: number,
@@ -2059,9 +2502,10 @@ class RectAction extends RotatableBoxAction {
     style: Style,
     fill: ColorRGBA,
     rotation: number,
-    text: ShapeText
+    text: ShapeText,
+    tail: TailOffset | null
   ): Action {
-    return new RectAction(x1, y1, x2, y2, style, fill, rotation, text, this.cornerRadius);
+    return new RectAction(x1, y1, x2, y2, style, fill, rotation, text, this.cornerRadius, tail);
   }
 
   getCornerRadius(): number {
@@ -2078,7 +2522,8 @@ class RectAction extends RotatableBoxAction {
       this.fill,
       this.rotation,
       this.text,
-      radius
+      radius,
+      this.tail
     );
   }
 
@@ -2133,20 +2578,44 @@ class OvalAction extends RotatableBoxAction {
     style: Style,
     fill: ColorRGBA,
     rotation: number = 0,
-    text: ShapeText = EMPTY_SHAPE_TEXT
+    text: ShapeText = EMPTY_SHAPE_TEXT,
+    tail: TailOffset | null = null
   ) {
-    super(x1, y1, x2, y2, style, fill, rotation, text);
+    super(x1, y1, x2, y2, style, fill, rotation, text, tail);
   }
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
     // Scale-and-arc trick: build the path under a scaled CTM, then restore so
     // the line width isn't scaled with the ellipse axes (stroking happens in the
     // base after the outer restore, in unscaled space).
+    const chord = this.tail ? ovalTailChord(halfW, halfH, this.tail) : null;
     cr.save();
     cr.scale(halfW, halfH);
     cr.newSubPath();
-    cr.arc(0, 0, 1, 0, 2 * Math.PI);
+    if (chord) {
+      // Arc the long way around from one base point to the other; the tail
+      // detour below closes the loop into one outline.
+      cr.arc(0, 0, 1, chord.t2, chord.t1);
+    } else {
+      cr.arc(0, 0, 1, 0, 2 * Math.PI);
+    }
     cr.restore();
+    if (chord && this.tail) {
+      cr.lineTo(this.tail.dx, this.tail.dy);
+      cr.closePath();
+    }
+  }
+
+  protected tailTriangle(): TailTriangle | null {
+    if (!this.tail) return null;
+    const [hW, hH] = this.halfExtents();
+    const chord = ovalTailChord(hW, hH, this.tail);
+    if (!chord) return null;
+    return {
+      tip: [this.tail.dx, this.tail.dy],
+      b1: [hW * Math.cos(chord.t1), hH * Math.sin(chord.t1)],
+      b2: [hW * Math.cos(chord.t2), hH * Math.sin(chord.t2)],
+    };
   }
 
   protected make(
@@ -2157,9 +2626,10 @@ class OvalAction extends RotatableBoxAction {
     style: Style,
     fill: ColorRGBA,
     rotation: number,
-    text: ShapeText
+    text: ShapeText,
+    tail: TailOffset | null
   ): Action {
-    return new OvalAction(x1, y1, x2, y2, style, fill, rotation, text);
+    return new OvalAction(x1, y1, x2, y2, style, fill, rotation, text, tail);
   }
 
   serialize(): SerializedAction {
@@ -2389,7 +2859,8 @@ export function deserializeAction(data: SerializedAction): Action {
         data.fill,
         normalizeAngle(data.rotation),
         deserializeShapeText(data.text),
-        data.cornerRadius
+        data.cornerRadius,
+        data.tail ?? null
       );
     case 'oval':
       return new OvalAction(
@@ -2400,7 +2871,8 @@ export function deserializeAction(data: SerializedAction): Action {
         {color: data.color, width: data.width, dash: data.dash},
         data.fill,
         normalizeAngle(data.rotation),
-        deserializeShapeText(data.text)
+        deserializeShapeText(data.text),
+        data.tail ?? null
       );
     case 'text':
       return new TextAction(
@@ -2471,6 +2943,9 @@ function applyStrokeStyle(cr: Cairo.Context, style: Style, cap: number, join: nu
   cr.setSourceRGBA(r, g, b, a);
   cr.setLineWidth(style.width);
   cr.setLineJoin(join);
+  // Set unconditionally (like the dash array below) so stroke state never
+  // depends on what drew earlier. Only MITER joins consult it.
+  cr.setMiterLimit(STROKE_MITER_LIMIT);
   // Dashed/dotted strokes force butt caps: a round cap extends each dash by
   // width/2 per end, which closes a width-length gap and turns dots into
   // pills. Solid strokes keep the caller's chosen cap. Always (re)set the dash
@@ -2626,7 +3101,25 @@ function resizeBox(
   return [minX, minY, maxX, maxY];
 }
 
+// Whether (px, py) lies inside the triangle (a, b, c): same-side sign test on
+// the three edge cross products (zero counts as inside, so boundary points hit).
+function pointInTriangle(
+  px: number,
+  py: number,
+  a: [number, number],
+  b: [number, number],
+  c: [number, number]
+): boolean {
+  const s1 = (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
+  const s2 = (c[0] - b[0]) * (py - b[1]) - (c[1] - b[1]) * (px - b[0]);
+  const s3 = (a[0] - c[0]) * (py - c[1]) - (a[1] - c[1]) * (px - c[0]);
+  const hasNeg = s1 < 0 || s2 < 0 || s3 < 0;
+  const hasPos = s1 > 0 || s2 > 0 || s3 > 0;
+  return !(hasNeg && hasPos);
+}
+
 // Rotate (px, py) by `angle` radians (CW, screen y-down) about (cx, cy).
+// Delegates to rotateVec so the rotation convention lives in one place.
 function rotateAboutPoint(
   px: number,
   py: number,
@@ -2634,11 +3127,8 @@ function rotateAboutPoint(
   cy: number,
   angle: number
 ): [number, number] {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const dx = px - cx;
-  const dy = py - cy;
-  return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+  const [rx, ry] = rotateVec(px - cx, py - cy, angle);
+  return [cx + rx, cy + ry];
 }
 
 // Resize a rotated box. The stored (x1,y1,x2,y2) is the box's UNROTATED extent;
