@@ -1,3 +1,14 @@
+annoscr (1.3.0) unstable; urgency=medium
+
+  * Rectangles and ovals can now grow a callout tail, turning a shape into a
+    speech-bubble style pointer at the annotation. Select a rectangle or oval
+    and turn on the Callout switch to add one.
+  * Drag the callout tail's tip to aim it anywhere around the shape; hold
+    Shift to snap its angle to 15° increments. The tail rotates and resizes
+    along with its shape.
+
+ -- Matt Mower <mdmower@cmphys.com>  Thu, 02 Jul 2026 12:00:00 -0700
+
 annoscr (1.2.1) unstable; urgency=medium
 
   * The text placement editor now scales with the zoom level, so placing

@@ -31,6 +31,14 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.3.0" date="2026-07-02">
+      <description its:translate="no">
+        <ul>
+          <li>Rectangles and ovals can now grow a callout tail, turning a shape into a speech-bubble style pointer. Select a rectangle or oval and turn on the Callout switch to add one.</li>
+          <li>Drag the callout tail's tip to aim it anywhere around the shape; hold Shift to snap its angle. The tail rotates and resizes along with its shape.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.2.1" date="2026-06-30">
       <description its:translate="no">
         <ul>

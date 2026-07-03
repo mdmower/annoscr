@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        1.2.1
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -82,6 +82,10 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Thu Jul 02 2026 Matt Mower <mdmower@cmphys.com> - 1.3.0-1
+- Rectangles and ovals can now grow a callout tail, turning a shape into a speech-bubble style pointer. Turn on the Callout switch for a selected rectangle or oval to add one.
+- Drag the callout tail's tip to aim it anywhere around the shape; hold Shift to snap its angle. The tail rotates and resizes along with its shape.
+
 * Tue Jun 30 2026 Matt Mower <mdmower@cmphys.com> - 1.2.1-1
 - The text placement editor scales with the zoom level, so placing text on a zoomed-out image no longer opens an oversized card; the box-text editor centers on its shape.
 - Cancelling a command-line screenshot capture with no instance already running now exits cleanly instead of leaving an empty window.
