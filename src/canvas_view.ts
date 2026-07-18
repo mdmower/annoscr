@@ -49,7 +49,7 @@ import {
   styleValuesEqual,
 } from './actions.js';
 import {resizeSurface, rotateSurface} from './image_transforms.js';
-import {renderToSurface} from './exporter.js';
+import {renderToSurface, sampleSurfacePixel} from './exporter.js';
 import type {EditorSize, RotateDirection, TextAlign, TextStyle} from './actions.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
 import {announce, setAccessibleDescription, setAccessibleLabel} from './a11y.js';
@@ -208,6 +208,14 @@ const KEY_PAN_LARGE_PX = 250;
 // the drag.
 const MARQUEE_EDGE_PX = 36;
 const MARQUEE_SCROLL_MAX = 1400;
+
+// The eyedropper loupe: an odd source-pixel count keeps the target pixel
+// centered; the per-pixel magnification is chosen so the loupe lands around
+// 120 px across. Both are screen-space constants — sampling is about image
+// pixels, so the canvas zoom deliberately doesn't change what the loupe shows.
+const LOUPE_GRID = 11;
+const LOUPE_PIXEL_PX = 11;
+const LOUPE_RADIUS = (LOUPE_GRID * LOUPE_PIXEL_PX) / 2;
 
 let CHECKER_PATTERN: Cairo.SurfacePattern | null = null;
 function getCheckerPattern(): Cairo.SurfacePattern {
@@ -397,6 +405,19 @@ export const CanvasView = GObject.registerClass(
     // after the tool switch), so those checks alone can't stop them. Reset in
     // onDragEnd (fires for every primary press) so it never leaks.
     private suppressSelectThisPress: boolean = false;
+
+    // Pending color-sample request (the in-canvas eyedropper). While non-null
+    // the canvas is in color-sampling mode: the next primary press inside the
+    // image samples the composited pixel under it, invokes this callback, and
+    // is consumed. One-shot — completing exits the mode; Escape, a press
+    // outside the image, a tool switch, or an image load cancels it.
+    private colorSampleHandler: ((color: ColorRGBA) => void) | null = null;
+
+    // Composite (image + annotations) cached for the duration of a sampling
+    // session so the loupe doesn't recomposite per frame; keyed by state
+    // reference so an undo/redo mid-mode rebuilds it. Freed on mode exit.
+    private sampleComposite: Cairo.ImageSurface | null = null;
+    private sampleCompositeState: CanvasState | null = null;
 
     // Raw resize region while in resize mode (image-space coords; may extend
     // outside current image bounds in any direction).
@@ -632,6 +653,8 @@ export const CanvasView = GObject.registerClass(
 
     private resetTransientState(): void {
       this.liveStroke = null;
+      this.colorSampleHandler = null;
+      this.clearSampleComposite();
       this.selectedIndices.clear();
       this.editingActionIndex = -1;
       this.moving = false;
@@ -834,6 +857,7 @@ export const CanvasView = GObject.registerClass(
 
     setTool(toolId: ToolId): void {
       if (this.currentToolId === toolId) return;
+      this.cancelColorSample();
       this.currentToolId = toolId;
       this.liveStroke = null;
       this.stopAutoScroll();
@@ -1316,6 +1340,78 @@ export const CanvasView = GObject.registerClass(
       return cur[index];
     }
 
+    // Enter color-sampling mode (the eyedropper): the next primary press
+    // inside the image reads the composited pixel under it and invokes
+    // onPick with its color. See colorSampleHandler for the exits.
+    beginColorSample(onPick: (color: ColorRGBA) => void): void {
+      if (!this.state.surface) return;
+      this.colorSampleHandler = onPick;
+      // The loupe is the mode indicator; the pointer keeps the plain arrow
+      // (a crosshair would read as a drawing tool's aim).
+      this.set_cursor_from_name('default');
+      announce(this, _('Click the image to pick a color'));
+      this.queue_draw();
+    }
+
+    // Cancel a pending color sample. Returns true when one was pending, so
+    // the window's Escape handler consumes the key and stops there.
+    cancelColorSample(): boolean {
+      if (!this.colorSampleHandler) return false;
+      this.colorSampleHandler = null;
+      this.clearSampleComposite();
+      this.set_cursor_from_name(cursorForTool(this.currentToolId));
+      announce(this, _('Color pick canceled'));
+      this.queue_draw();
+      return true;
+    }
+
+    // Finish a pending color sample at a widget-space press position. A press
+    // outside the image cancels (the letterbox has nothing to sample) rather
+    // than clamping to an edge pixel. Samples the composite of image and
+    // annotations — what is displayed — so a color can be matched from an
+    // existing annotation, not only the source image.
+    private completeColorSample(wx: number, wy: number): void {
+      const s = this.state.surface;
+      const handler = this.colorSampleHandler;
+      if (!s || !handler) return;
+      const [ix, iy] = this.widgetToImage(wx, wy);
+      const px = Math.floor(ix);
+      const py = Math.floor(iy);
+      if (px < 0 || py < 0 || px >= s.getWidth() || py >= s.getHeight()) {
+        this.cancelColorSample();
+        return;
+      }
+      const composite = this.sampledComposite();
+      this.colorSampleHandler = null;
+      this.clearSampleComposite();
+      this.set_cursor_from_name(cursorForTool(this.currentToolId));
+      this.queue_draw();
+      const color = composite && sampleSurfacePixel(composite, px, py);
+      if (!color) return;
+      handler(color);
+      announce(this, _('Color picked'));
+    }
+
+    // The surface the eyedropper samples and the loupe magnifies: image +
+    // annotations composited once per sampling session (same cost as an
+    // export), not per pointer motion.
+    private sampledComposite(): Cairo.ImageSurface | null {
+      const s = this.state.surface;
+      if (!s) return null;
+      if (!this.sampleComposite || this.sampleCompositeState !== this.state) {
+        this.sampleComposite = renderToSurface(s, this.state.actions);
+        this.sampleCompositeState = this.state;
+      }
+      return this.sampleComposite;
+    }
+
+    // Drop the cached composite (a full-resolution copy) as soon as the
+    // sampling session ends rather than waiting for the next session.
+    private clearSampleComposite(): void {
+      this.sampleComposite = null;
+      this.sampleCompositeState = null;
+    }
+
     private replaceSelectedProperty<T>(
       get: (a: Action) => T | null,
       apply: (a: Action, v: T) => Action,
@@ -1775,7 +1871,9 @@ export const CanvasView = GObject.registerClass(
       motion.connect('motion', (_c, x, y) => this.onPointerMotion(x, y));
       motion.connect('leave', () => {
         this.lastPointer = null;
-        if (this.hoverCandidate !== -1) {
+        // Redraw if a hover outline or a sampling loupe was showing — both
+        // are anchored to the pointer that just left.
+        if (this.hoverCandidate !== -1 || this.colorSampleHandler) {
           this.hoverCandidate = -1;
           this.queue_draw();
         }
@@ -1813,6 +1911,15 @@ export const CanvasView = GObject.registerClass(
         // Take focus so the keyboard path (select/nudge/place) works after a
         // click without a separate Tab to the canvas.
         if (!this.has_focus) this.grab_focus();
+        // A pending color sample consumes this press entirely: sample (or
+        // cancel, outside the image) and never select/place/edit. The latch
+        // keeps the paired GestureDrag inert whichever order the two
+        // gestures dispatch in (see onDragBegin).
+        if (this.colorSampleHandler) {
+          this.suppressSelectThisPress = true;
+          this.completeColorSample(x, y);
+          return;
+        }
         if (n_press === 2 && this.currentToolId === 'select') {
           this.onSelectDoubleClick(x, y);
           return;
@@ -2282,9 +2389,12 @@ export const CanvasView = GObject.registerClass(
 
     endPan(): void {
       this.panning = false;
-      // Restore the tool's cursor; the next pointer motion refines it (resize
-      // handles, hover candidate) where the tool tracks hover.
-      this.set_cursor_from_name(cursorForTool(this.currentToolId));
+      // Restore the tool's cursor (or the sampling arrow — panning to the
+      // target pixel mid-sample is fine); the next pointer motion refines it
+      // (resize handles, hover candidate) where the tool tracks hover.
+      this.set_cursor_from_name(
+        this.colorSampleHandler ? 'default' : cursorForTool(this.currentToolId)
+      );
     }
 
     isPanning(): boolean {
@@ -2332,6 +2442,13 @@ export const CanvasView = GObject.registerClass(
       // Mid-pan (right-drag): keep the grabbing hand and don't re-resolve the
       // hover candidate — the gesture is navigation, not aiming.
       if (this.panning) return;
+      // Color-sampling mode: freeze the hover candidate (the pointer is
+      // aiming at a pixel, not an annotation) and repaint so the loupe
+      // follows the pointer.
+      if (this.colorSampleHandler) {
+        this.queue_draw();
+        return;
+      }
       // Select tool: track which action the next click will hit (the hover
       // candidate) so it can be outlined and dug into with Alt+scroll.
       if (this.currentToolId === 'select' && this.state.surface) {
@@ -2503,10 +2620,13 @@ export const CanvasView = GObject.registerClass(
 
     private onDragBegin(wx: number, wy: number, gesture: Gtk.GestureDrag): void {
       if (!this.state.surface) return;
+      // A consumed press must not start any gesture — no draw, selection,
+      // move, or resize. That's a press the GestureClick controller already
+      // spent (committing a text edit, or completing a color sample — the
+      // latch), or one with a color sample still pending because this begin
+      // dispatched before the click handler ran (gesture order isn't fixed).
+      if (this.suppressSelectThisPress || this.colorSampleHandler !== null) return;
       if (this.currentToolId === 'select') {
-        // This press already committed an edit (handled in the GestureClick
-        // controller); don't let its drag-begin select/move too.
-        if (this.suppressSelectThisPress) return;
         // A text action is mid-re-edit (hidden, live editor in its place).
         // Suspend canvas selection until the edit commits/cancels so a press
         // can't select+delete another action and leave editingActionIndex
@@ -3374,6 +3494,45 @@ export const CanvasView = GObject.registerClass(
       }
 
       cr.restore();
+
+      // Widget space again: the sampling loupe is a constant on-screen size,
+      // independent of the canvas zoom.
+      this.drawSampleLoupe(cr, t, widgetW);
+    }
+
+    // The eyedropper's magnifier: while a color sample is pending and the
+    // pointer is over the image, draw a loupe near the pointer showing the
+    // composited pixels around the target, plus its hex readout. Placement
+    // prefers above-right of the pointer, flipping per axis to stay inside
+    // the visible viewport (the widget can extend far beyond it at high
+    // zoom, so clamping against widget bounds alone would let the loupe
+    // land off-screen).
+    private drawSampleLoupe(cr: Cairo.Context, t: Transform, w: number): void {
+      if (!this.colorSampleHandler || !this.lastPointer) return;
+      const s = this.state.surface;
+      if (!s) return;
+      const [wx, wy] = this.lastPointer;
+      const px = Math.floor((wx - t.offsetX) / t.scale);
+      const py = Math.floor((wy - t.offsetY) / t.scale);
+      if (px < 0 || py < 0 || px >= s.getWidth() || py >= s.getHeight()) return;
+      const composite = this.sampledComposite();
+      if (!composite) return;
+      const color = sampleSurfacePixel(composite, px, py);
+      if (!color) return;
+
+      const sw = this.scrolledAncestor();
+      const vx = sw ? sw.get_hadjustment().get_value() : 0;
+      const vy = sw ? sw.get_vadjustment().get_value() : 0;
+      const vw = sw ? sw.get_hadjustment().get_page_size() : w;
+
+      const off = LOUPE_RADIUS + 24;
+      const margin = LOUPE_RADIUS + 8;
+      let cx = wx + off;
+      let cy = wy - off;
+      if (cx + margin > vx + vw) cx = wx - off;
+      if (cy - margin < vy) cy = wy + off;
+
+      drawColorLoupe(cr, composite, px, py, cx, cy, color);
     }
   }
 );
@@ -3594,6 +3753,82 @@ function drawOrientedCandidateBox(cr: Cairo.Context, ob: OrientedBounds, scale: 
   cr.rotate(ob.angle);
   cr.rectangle(-ob.halfW - pad, -ob.halfH - pad, 2 * (ob.halfW + pad), 2 * (ob.halfH + pad));
   cr.stroke();
+  cr.restore();
+}
+
+// The magnifier drawn while the eyedropper is pending: a circular loupe at
+// (cx, cy) in WIDGET space showing the composite's pixels around (px, py)
+// with NEAREST filtering (a crisp pixel grid, no smoothing), the target
+// pixel outlined in the center, and a hex readout pill below. Pure drawing —
+// placement/flipping is the caller's job. Toy text API, as for the badges.
+export function drawColorLoupe(
+  cr: Cairo.Context,
+  composite: Cairo.ImageSurface,
+  px: number,
+  py: number,
+  cx: number,
+  cy: number,
+  color: ColorRGBA
+): void {
+  cr.save();
+
+  // Magnified pixels, clipped to the circle. The neutral backdrop shows as
+  // "beyond the image edge" when the target sits near a border.
+  cr.save();
+  cr.arc(cx, cy, LOUPE_RADIUS, 0, 2 * Math.PI);
+  cr.clip();
+  cr.setSourceRGB(0.5, 0.5, 0.5);
+  cr.paint();
+  cr.translate(cx, cy);
+  cr.scale(LOUPE_PIXEL_PX, LOUPE_PIXEL_PX);
+  cr.translate(-(px + 0.5), -(py + 0.5));
+  cr.setSourceSurface(composite, 0, 0);
+  (cr.getSource() as Cairo.SurfacePattern).setFilter(Cairo.Filter.NEAREST);
+  cr.paint();
+  cr.restore();
+
+  // Target-pixel outline: dark under light so it reads on any color.
+  cr.setDash([], 0);
+  cr.rectangle(cx - LOUPE_PIXEL_PX / 2, cy - LOUPE_PIXEL_PX / 2, LOUPE_PIXEL_PX, LOUPE_PIXEL_PX);
+  cr.setSourceRGBA(0, 0, 0, 0.8);
+  cr.setLineWidth(3);
+  cr.strokePreserve();
+  cr.setSourceRGBA(1, 1, 1, 0.95);
+  cr.setLineWidth(1.5);
+  cr.stroke();
+
+  // Ring around the loupe, same dark-under-light scheme.
+  cr.arc(cx, cy, LOUPE_RADIUS + 1, 0, 2 * Math.PI);
+  cr.setSourceRGBA(0, 0, 0, 0.8);
+  cr.setLineWidth(3);
+  cr.strokePreserve();
+  cr.setSourceRGBA(1, 1, 1, 0.95);
+  cr.setLineWidth(1.5);
+  cr.stroke();
+
+  // Hex readout pill, centered below. Six digits: the pick applies RGB and
+  // keeps the swatch's opacity, so alpha would be misleading here.
+  const hexByte = (v: number): string =>
+    Math.round(v * 255)
+      .toString(16)
+      .padStart(2, '0');
+  const label = `#${hexByte(color[0])}${hexByte(color[1])}${hexByte(color[2])}`;
+  cr.selectFontFace('Monospace', Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
+  cr.setFontSize(12);
+  const te = cr.textExtents(label);
+  const padX = 6;
+  const padY = 3;
+  const boxW = te.width + 2 * padX;
+  const boxH = te.height + 2 * padY;
+  const bx = cx - boxW / 2;
+  const by = cy + LOUPE_RADIUS + 8;
+  roundedRectPath(cr, bx, by, boxW, boxH, 4);
+  cr.setSourceRGBA(0, 0, 0, 0.75);
+  cr.fill();
+  cr.setSourceRGBA(1, 1, 1, 0.97);
+  cr.moveTo(bx + padX - te.xBearing, by + padY - te.yBearing);
+  cr.showText(label);
+
   cr.restore();
 }
 

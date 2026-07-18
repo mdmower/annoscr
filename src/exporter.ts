@@ -2,7 +2,7 @@ import GLib from 'gi://GLib?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
 import Cairo from 'cairo';
 
-import type {Action} from './actions.js';
+import type {Action, ColorRGBA} from './actions.js';
 
 export type ImageFormat = 'png' | 'jpeg';
 
@@ -53,6 +53,24 @@ export function renderToSurface(
   }
   out.flush();
   return out;
+}
+
+// Read a single pixel of a surface as a ColorRGBA. Same GJS constraint as the
+// encoders below: cairo's own pixel accessors aren't exposed, so the read goes
+// through the deprecated pixbuf bridge (which un-premultiplies for us).
+// Returns null when the read fails or the coordinate is outside the surface.
+export function sampleSurfacePixel(
+  surface: Cairo.ImageSurface,
+  x: number,
+  y: number
+): ColorRGBA | null {
+  if (x < 0 || y < 0 || x >= surface.getWidth() || y >= surface.getHeight()) return null;
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  const pixbuf = Gdk.pixbuf_get_from_surface(surface, x, y, 1, 1);
+  if (!pixbuf) return null;
+  const p = pixbuf.get_pixels();
+  const alpha = pixbuf.get_has_alpha() ? p[3] / 255 : 1;
+  return [p[0] / 255, p[1] / 255, p[2] / 255, alpha];
 }
 
 export function saveSurface(surface: Cairo.ImageSurface, path: string, format: ImageFormat): void {

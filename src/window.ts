@@ -819,6 +819,8 @@ export const AnnoscrWindow = GObject.registerClass(
         return this.canvas.editSelectedText();
       });
       this.bindShortcut(controller, 'Escape', () => {
+        // A pending eyedropper sample cancels first, whatever the tool.
+        if (this.canvas.cancelColorSample()) return true;
         if (this.canvas.getTool() === 'resize') {
           this.toolbar.exitResizeMode(false);
           return true;

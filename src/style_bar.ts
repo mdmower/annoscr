@@ -588,6 +588,17 @@ export class StyleBar {
     });
     setLabelledBy(hexEntry, hexLabel);
     hexRow.append(hexEntry);
+    // In-canvas eyedropper: closes the popover and puts the canvas into
+    // color-sampling mode. The picked pixel sets RGB and keeps the current
+    // opacity — a composited pixel is opaque-blended, so its alpha isn't
+    // recoverable (and a pick should never silently zero a fill's opacity).
+    const pickBtn = new Gtk.Button({
+      icon_name: 'color-select-symbolic',
+      tooltip_text: _('Pick a color from the image'),
+      valign: Gtk.Align.CENTER,
+    });
+    labelFromTooltip(pickBtn);
+    hexRow.append(pickBtn);
     box.append(hexRow);
 
     const opacityRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
@@ -621,6 +632,11 @@ export class StyleBar {
       area.queue_draw();
       onChosen(c);
     };
+
+    pickBtn.connect('clicked', () => {
+      popover.popdown();
+      this.canvas.beginColorSample((c) => commit([c[0], c[1], c[2], current[3]]));
+    });
 
     // Reflect `current` into the entry + slider without re-triggering commits.
     const syncControls = (): void => {
