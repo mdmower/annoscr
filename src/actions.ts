@@ -1729,8 +1729,19 @@ class ArrowAction extends TwoEndpointAction {
   }
 
   draw(cr: Cairo.Context, _scale: number): void {
+    // The arrow is one logical ink built from several Cairo operations (the
+    // shaft and head stroke separately since only the shaft dashes, and a
+    // filled head adds a fill under its stroke), so a translucent color would
+    // double-blend where they overlap. Composite the operations opaquely in a
+    // group, then paint the merged result once at the color's alpha. Opaque
+    // arrows skip the intermediate group surface.
+    const [r, g, b, alpha] = this.style.color;
+    const grouped = alpha < 1;
+    if (grouped) cr.pushGroup();
+
     // Shaft honours the dash style; stroke it on its own.
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
+    if (grouped) cr.setSourceRGBA(r, g, b, 1);
     cr.moveTo(this.x1, this.y1);
     cr.lineTo(this.x2, this.y2);
     cr.stroke();
@@ -1757,6 +1768,11 @@ class ArrowAction extends TwoEndpointAction {
     } else {
       // Open winged head: two strokes meeting at the tip.
       cr.stroke();
+    }
+
+    if (grouped) {
+      cr.popGroupToSource();
+      cr.paintWithAlpha(alpha);
     }
   }
 
