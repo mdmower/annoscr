@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-17 22:22-0700\n"
+"POT-Creation-Date: 2026-07-18 07:56-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -79,66 +79,66 @@ msgstr ""
 msgid "Annotate a screenshot. FILE is an image or .annoscr file to open."
 msgstr ""
 
-#: src/canvas_view.ts:541
+#: src/canvas_view.ts:555
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1335
+#: src/canvas_view.ts:1352
 msgid "Click the image to pick a color"
 msgstr ""
 
-#: src/canvas_view.ts:1344
+#: src/canvas_view.ts:1363
 msgid "Color pick canceled"
 msgstr ""
 
-#: src/canvas_view.ts:1369
+#: src/canvas_view.ts:1392
 msgid "Color picked"
 msgstr ""
 
-#: src/canvas_view.ts:1595
+#: src/canvas_view.ts:1638
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1659
+#: src/canvas_view.ts:1702
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:2099
+#: src/canvas_view.ts:2144
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:2140 src/zoom_controller.ts:171
+#: src/canvas_view.ts:2185 src/zoom_controller.ts:171
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:2366
+#: src/canvas_view.ts:2411
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:2367
+#: src/canvas_view.ts:2412
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:2370
+#: src/canvas_view.ts:2415
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:2378 src/canvas_view.ts:2382
+#: src/canvas_view.ts:2423 src/canvas_view.ts:2427
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:2379
+#: src/canvas_view.ts:2424
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:2389
+#: src/canvas_view.ts:2434
 msgid "Annotation"
 msgstr ""
 

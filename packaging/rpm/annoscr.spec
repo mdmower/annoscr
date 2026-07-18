@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        1.3.0
+Version:        1.4.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -82,6 +82,11 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Sat Jul 18 2026 Matt Mower <mdmower@cmphys.com> - 1.4.0-1
+- Each color popover (Color, Fill, and Text color) gains an eyedropper that picks a color straight from the image, with a magnifier loupe and hex readout; annotations are included in the sample.
+- A new Default tool preference chooses which tool is active when the app starts.
+- Translucent arrows now render with uniform opacity; the shaft and head no longer darken where they overlap.
+
 * Thu Jul 02 2026 Matt Mower <mdmower@cmphys.com> - 1.3.0-1
 - Rectangles and ovals can now grow a callout tail, turning a shape into a speech-bubble style pointer. Turn on the Callout switch for a selected rectangle or oval to add one.
 - Drag the callout tail's tip to aim it anywhere around the shape; hold Shift to snap its angle. The tail rotates and resizes along with its shape.

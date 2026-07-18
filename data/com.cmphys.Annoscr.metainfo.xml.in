@@ -31,6 +31,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.4.0" date="2026-07-18">
+      <description its:translate="no">
+        <ul>
+          <li>Each color popover (Color, Fill, and Text color) gains an eyedropper that picks a color straight from the image: click it, then click the image to sample the pixel under the pointer, annotations included. A magnifier loupe with a hex readout follows the pointer; Esc cancels.</li>
+          <li>A new Default tool preference chooses which tool is active when the app starts.</li>
+          <li>Translucent arrows now render with uniform opacity; the shaft and head no longer darken where they overlap.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-07-02">
       <description its:translate="no">
         <ul>

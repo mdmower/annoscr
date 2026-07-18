@@ -70,13 +70,13 @@ Pre-built, signed packages for Debian/Ubuntu, Fedora, and Arch are on the [relea
 
 ```sh
 # Debian / Ubuntu
-sudo apt install ./annoscr_1.3.0_all.deb
+sudo apt install ./annoscr_1.4.0_all.deb
 
 # Fedora / openSUSE
-sudo dnf install ./annoscr-1.3.0-1.fc41.noarch.rpm
+sudo dnf install ./annoscr-1.4.0-1.fc41.noarch.rpm
 
 # Arch (import the signing key first; see Verifying downloads)
-sudo pacman -U ./annoscr-1.3.0-1-any.pkg.tar.zst
+sudo pacman -U ./annoscr-1.4.0-1-any.pkg.tar.zst
 ```
 
 To build from source instead, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -144,9 +144,9 @@ sha256sum -c SHA256SUMS
 Each artifact also carries its own detached signature (`.asc` for the `.deb` and `.rpm`, `.sig` for the Arch package) if you'd rather check one directly:
 
 ```sh
-gpg --verify annoscr_1.3.0_all.deb.asc annoscr_1.3.0_all.deb
+gpg --verify annoscr_1.4.0_all.deb.asc annoscr_1.4.0_all.deb
 
-gpg --verify annoscr-1.3.0-1-any.pkg.tar.zst.sig annoscr-1.3.0-1-any.pkg.tar.zst
+gpg --verify annoscr-1.4.0-1-any.pkg.tar.zst.sig annoscr-1.4.0-1-any.pkg.tar.zst
 ```
 
 ### Arch keyring
@@ -161,7 +161,7 @@ sudo pacman-key --add annoscr-signing-key.asc
 sudo pacman-key --lsign-key 7B5B62F9C73C2BC9E451A82F39B4E90009822511
 
 # install
-sudo pacman -U ./annoscr-1.3.0-1-any.pkg.tar.zst
+sudo pacman -U ./annoscr-1.4.0-1-any.pkg.tar.zst
 ```
 
 ## Usage
