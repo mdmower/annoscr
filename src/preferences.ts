@@ -3,6 +3,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 
 import {ColorScheme, UndoMemory, getSettings, updateSettings} from './settings.js';
+import {TOOLS} from './window_constants.js';
 import {labelFromTooltip} from './a11y.js';
 import {_, N_} from './i18n.js';
 
@@ -64,6 +65,22 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
 
   // Tools
   const tools = new Adw.PreferencesGroup({title: _('Tools')});
+  // Row order mirrors the tool palette (TOOLS), so the dropdown reads the same
+  // as the toolbar.
+  const defaultToolRow = new Adw.ComboRow({
+    title: _('Default tool'),
+    subtitle: _('The tool selected when the app starts'),
+    model: Gtk.StringList.new(TOOLS.map((t) => _(t.label))),
+    selected: Math.max(
+      0,
+      TOOLS.findIndex((t) => t.id === s.defaultTool)
+    ),
+  });
+  defaultToolRow.connect('notify::selected', () => {
+    const tool = TOOLS[defaultToolRow.get_selected()]?.id ?? 'pen';
+    updateSettings({defaultTool: tool});
+  });
+  tools.add(defaultToolRow);
   const rememberRow = new Adw.SwitchRow({
     title: _('Remember tool styles between sessions'),
     subtitle: _("Restore each tool's color, width, fill, and font on the next launch"),
@@ -84,7 +101,7 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
   const fontsGroup = new Adw.PreferencesGroup({
     title: _('Text fonts'),
     description: _(
-      'Choose which font families appear in the text font menu, in order — the first is the default. Leave empty to use an automatic selection.'
+      'Choose which font families appear in the text font menu, in order; the first is the default. Leave empty to use an automatic selection.'
     ),
   });
   // Working copy; settings (and the persisted JSON) only ever see fresh copies.

@@ -190,6 +190,9 @@ export const AnnoscrWindow = GObject.registerClass(
       header.pack_end(rotateLeftBtn);
 
       this.canvas = new CanvasView();
+      // Start on the preferred tool. Must precede the ToolBar so its toggle
+      // buttons initialize to the canvas's tool.
+      this.canvas.setTool(getSettings().defaultTool);
 
       this.editor = new TextEditor({
         onCommit: (

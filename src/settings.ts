@@ -11,6 +11,7 @@ import {
   STAMP_RADIUS_MIN,
   StampVariant,
   TOOL_IDS,
+  ToolId,
   WIDTH_MAX,
   WIDTH_MIN,
 } from './actions.js';
@@ -79,6 +80,10 @@ export interface ToolStylesSnapshot {
 
 export interface AnnoscrSettings {
   colorScheme: ColorScheme;
+  // The tool active when the app starts. Any palette tool; 'resize' is a mode
+  // with its own Apply/Cancel bar, not a palette tool, so it's excluded.
+  // Loading another image mid-session keeps whatever tool is current.
+  defaultTool: ToolId;
   rememberToolStyles: boolean;
   // Empty string = fall back to the XDG Pictures directory (default behavior).
   defaultSaveFolder: string;
@@ -117,6 +122,7 @@ export interface AnnoscrSettings {
 
 const DEFAULTS: AnnoscrSettings = {
   colorScheme: 'system',
+  defaultTool: 'pen',
   rememberToolStyles: true,
   defaultSaveFolder: '',
   defaultSaveFormat: 'png',
@@ -163,6 +169,12 @@ function asStringArray(v: unknown): string[] | undefined {
 
 function asColorScheme(v: unknown): ColorScheme {
   return v === 'light' || v === 'dark' || v === 'system' ? v : DEFAULTS.colorScheme;
+}
+
+function asDefaultTool(v: unknown): ToolId {
+  return typeof v === 'string' && v !== 'resize' && TOOL_ID_SET.has(v)
+    ? (v as ToolId)
+    : DEFAULTS.defaultTool;
 }
 
 function asUndoMemory(v: unknown): UndoMemory {
@@ -225,6 +237,7 @@ function sanitize(raw: unknown): AnnoscrSettings {
   if (!isRecord(raw)) return {...DEFAULTS};
   const out: AnnoscrSettings = {
     colorScheme: asColorScheme(raw.colorScheme),
+    defaultTool: asDefaultTool(raw.defaultTool),
     rememberToolStyles: asBool(raw.rememberToolStyles) ?? DEFAULTS.rememberToolStyles,
     defaultSaveFolder: asString(raw.defaultSaveFolder) ?? DEFAULTS.defaultSaveFolder,
     defaultSaveFormat: asFormat(raw.defaultSaveFormat),
