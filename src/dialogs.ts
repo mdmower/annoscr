@@ -20,6 +20,7 @@ export function showAbout(parent: Gtk.Widget): void {
     developer_name: 'Matt Mower',
     license_type: Gtk.License.GPL_3_0,
     comments: _('A lightweight screenshot annotation tool for GNOME.'),
+    website: 'https://github.com/mdmower/annoscr',
   });
   about.present(parent);
 }
