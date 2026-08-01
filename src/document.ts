@@ -18,6 +18,7 @@ import {
   STAMP_RADIUS_MIN,
   SerializedAction,
   SerializedShapeText,
+  CurveOffset,
   TailOffset,
   TEXT_STYLE,
   TRANSPARENT_FILL,
@@ -196,6 +197,15 @@ function sanitizeTail(v: unknown): TailOffset | undefined {
   return {dx: v.dx, dy: v.dy};
 }
 
+// A segment's bend is shape decoration like the callout tail: malformed input
+// drops to a straight line rather than rejecting the annotation.
+function sanitizeCurve(v: unknown): CurveOffset | undefined {
+  if (!isRecord(v)) return undefined;
+  if (typeof v.along !== 'number' || !Number.isFinite(v.along)) return undefined;
+  if (typeof v.perp !== 'number' || !Number.isFinite(v.perp)) return undefined;
+  return {along: v.along, perp: v.perp};
+}
+
 // Pure-UX re-edit frame size; anything malformed just drops the field.
 function sanitizeEditorSize(v: unknown): EditorSize | undefined {
   if (!isRecord(v)) return undefined;
@@ -257,6 +267,14 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
   };
 }
 
+// Line and arrow share the endpoint fields and the optional bend; only the
+// arrowhead flag sets them apart.
+function sanitizeSegment(raw: Record<string, unknown>, type: 'line' | 'arrow'): SerializedAction {
+  const curve = sanitizeCurve(raw.curve);
+  const base = {...sanitizeEndpoints(raw, type), ...(curve ? {curve} : {})};
+  return type === 'arrow' ? {type, ...base, filledHead: raw.filledHead === true} : {type, ...base};
+}
+
 function sanitizeAction(raw: unknown): SerializedAction {
   if (!isRecord(raw)) throw new DocumentError('Annotation entry is not an object');
   const type = raw.type;
@@ -273,9 +291,8 @@ function sanitizeAction(raw: unknown): SerializedAction {
           WIDTH_MIN,
       };
     case 'line':
-      return {type, ...sanitizeEndpoints(raw, type)};
     case 'arrow':
-      return {type, ...sanitizeEndpoints(raw, type), filledHead: raw.filledHead === true};
+      return sanitizeSegment(raw, type);
     case 'rect': {
       const text = sanitizeShapeText(raw.text);
       const tail = sanitizeTail(raw.tail);

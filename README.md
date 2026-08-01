@@ -20,6 +20,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
     - Rectangles and ovals can be constrained to squares and circles, respectively.
     - Lines and arrows can be constrained to 15° angle increments.
     - Rotations can be constrained to 15° increments.
+  - Bend a line or arrow by dragging the round handle at its middle; the arrowhead follows the curve, and Straighten (in the selection menu) undoes it.
   - Re-edit a text annotation by double-clicking it.
   - Dig through stacked annotations.
   - Undo / redo throughout.

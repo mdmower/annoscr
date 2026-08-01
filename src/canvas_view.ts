@@ -108,6 +108,10 @@ function isShift(gesture: Gtk.GestureDrag): boolean {
   return (gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) !== 0;
 }
 
+function isAlt(gesture: Gtk.GestureDrag): boolean {
+  return (gesture.get_current_event_state() & Gdk.ModifierType.ALT_MASK) !== 0;
+}
+
 // Unit [dx, dy] for an arrow keyval (including the keypad arrows), or null for
 // any other key. Drives both the keyboard nudge and candidate browse.
 function arrowDirection(keyval: number): [number, number] | null {
@@ -164,6 +168,20 @@ const HISTORY_CAP = 100;
 
 // Widget-space hit tolerance for resize edge/corner grabs.
 const HANDLE_HIT_PX = 8;
+
+// Widget-space radius within which a dragged curve handle is pulled onto the
+// straight position, so a bend can be undone by hand. The action's own collapse
+// threshold is a fraction of an image pixel — exact, but far too small to aim
+// at on screen, and smaller still the further out you zoom. Alt bypasses this:
+// on a long segment an apex offset of a few widget px is a real, gentle arc
+// rather than noise, so there has to be a way to hold one.
+//
+// Sized for perceptibility rather than precision. The magnet has no resistance,
+// so the only feedback is the bow collapsing as the zone is entered — which has
+// to be a visible jump, not a couple of pixels straightening out. Matched to the
+// handle's own hit region (HANDLE_HIT_PX), so the zone that snaps the handle
+// straight is the same size as the zone that grabs it.
+const CURVE_DETENT_PX = 8;
 
 // Rotate gizmo: the handle sits this many widget px past the selection box edge
 // (along the action's "up" direction), on a short connector stick. Shift snaps
@@ -283,17 +301,17 @@ function handleBaseAngle(id: HandleId): number {
     case 'tr':
       return -Math.PI / 4;
     default:
-      return 0; // p1/p2/tail — handled by the caller before this is reached
+      return 0; // p1/p2/curve/tail — handled by the caller before this is reached
   }
 }
 
 // Cursor for a per-action resize handle on a box rotated by `rotation`. Box
 // handles map to one of the four directional resize cursors, snapped to the
 // handle's actual (rotated) outward direction so a tilted box gets sensible
-// cursors; endpoints and the callout tail tip aren't directional (free drag)
-// → crosshair.
+// cursors; endpoints, the curve control point and the callout tail tip aren't
+// directional (free drag) → crosshair.
 function cursorForHandle(id: HandleId, rotation: number): string {
-  if (id === 'p1' || id === 'p2' || id === 'tail') return 'crosshair';
+  if (id === 'p1' || id === 'p2' || id === 'curve' || id === 'tail') return 'crosshair';
   if (rotation === 0) return cursorForResizeGrab(id);
   let a = handleBaseAngle(id) + rotation;
   a = ((a % Math.PI) + Math.PI) % Math.PI; // fold to [0, π); resize cursors are symmetric
@@ -1588,6 +1606,20 @@ export const CanvasView = GObject.registerClass(
       );
     }
 
+    // Drop the bend from every selected line/arrow. Like the callout tail, a
+    // curve is per-segment geometry with no tool default (a newly drawn segment
+    // is always straight), so the setToolDefault callback is a no-op and there's
+    // no coalesce key — each straighten is its own undo step.
+    straightenSelected(): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getCurve(),
+        (a, v) => a.withCurve(v),
+        false,
+        null,
+        () => {}
+      );
+    }
+
     private notifyStateChange(): void {
       this.updateSizeRequest();
       this.updateAccessibleState();
@@ -1898,7 +1930,7 @@ export const CanvasView = GObject.registerClass(
         this.onDragBegin(x, y, g);
       });
       drag.connect('drag-update', (g, dx, dy) => {
-        this.onDragUpdate(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
+        this.onDragUpdate(this.dragStartX + dx, this.dragStartY + dy, isShift(g), isAlt(g));
       });
       drag.connect('drag-end', (g, dx, dy) => {
         this.onDragEnd(this.dragStartX + dx, this.dragStartY + dy, isShift(g));
@@ -2683,7 +2715,7 @@ export const CanvasView = GObject.registerClass(
       this.queue_draw();
     }
 
-    private onDragUpdate(wx: number, wy: number, constrain: boolean): void {
+    private onDragUpdate(wx: number, wy: number, constrain: boolean, bypassDetent: boolean): void {
       if (this.currentToolId === 'select') {
         // A press consumed by an editor commit must not move the selection
         // either — the commit may have left the fresh text selected, and
@@ -2705,13 +2737,10 @@ export const CanvasView = GObject.registerClass(
         if (this.actionGrab) {
           const i = this.soleSelectedIndex();
           if (i < 0) return;
-          const [ix, iy] = this.widgetToImage(wx, wy);
-          this.actionPreview = this.state.actions[i].resizeByHandle(
-            this.actionGrab,
-            ix,
-            iy,
-            constrain
-          );
+          const action = this.state.actions[i];
+          const [wxi, wyi] = this.widgetToImage(wx, wy);
+          const [ix, iy] = this.curveDetent(action, wxi, wyi, bypassDetent);
+          this.actionPreview = action.resizeByHandle(this.actionGrab, ix, iy, constrain);
           this.queue_draw();
           return;
         }
@@ -3019,6 +3048,24 @@ export const CanvasView = GObject.registerClass(
       return null;
     }
 
+    // Pull a dragged curve handle onto the straight position when the cursor is
+    // within CURVE_DETENT_PX of it, giving the drag a detent that collapses the
+    // bend; any other handle, or a held Alt, passes the cursor through
+    // unchanged. The target is read off the straightened action rather than
+    // recomputed from the endpoints, so where the apex sits when straight stays
+    // defined in exactly one place.
+    private curveDetent(action: Action, ix: number, iy: number, bypass: boolean): [number, number] {
+      if (bypass || this.actionGrab !== 'curve') return [ix, iy];
+      const target = action
+        .withCurve(false)
+        .getResizeHandles()
+        ?.find((h) => h.id === 'curve');
+      if (!target) return [ix, iy];
+      const tol = CURVE_DETENT_PX / this.currentTransform().scale;
+      if (Math.abs(ix - target.x) > tol || Math.abs(iy - target.y) > tol) return [ix, iy];
+      return [target.x, target.y];
+    }
+
     // Whether two actions have identical resize-handle positions — i.e. the
     // same geometry. Used to skip a resize drag that ended where it started
     // (or a click on a handle without a drag), which would otherwise push a
@@ -3318,7 +3365,7 @@ export const CanvasView = GObject.registerClass(
         this.actionGrab && this.actionPreview ? this.actionPreview : this.state.actions[i];
       const handles = action.getResizeHandles();
       if (!handles) return;
-      for (const h of handles) drawResizeHandle(cr, h.x, h.y, scale);
+      for (const h of handles) drawResizeHandle(cr, h.x, h.y, scale, h.id === 'curve');
     }
 
     // The rotate gizmo (a connector stick + round handle) for the lone selected
@@ -3650,13 +3697,27 @@ function drawSelectionBox(
 // A per-action resize handle: a small white square with a blue border (same
 // blue as the selection box), centered on (x, y). Sized in widget pixels via
 // 1/scale so it's a constant on-screen size at any zoom, and matched to
-// HANDLE_HIT_PX so the visible square is also the hit target.
-function drawResizeHandle(cr: Cairo.Context, x: number, y: number, scale: number): void {
+// HANDLE_HIT_PX so the visible square is also the hit target. `round` draws the
+// disc used for a segment's curve control point, so it reads as a different
+// kind of control from the square geometry handles it sits between (and matches
+// the rotate gizmo's round grip).
+function drawResizeHandle(
+  cr: Cairo.Context,
+  x: number,
+  y: number,
+  scale: number,
+  round = false
+): void {
   const half = HANDLE_HIT_PX / 2 / scale;
   cr.save();
   cr.setDash([], 0);
   cr.setLineJoin(Cairo.LineJoin.MITER);
-  cr.rectangle(x - half, y - half, 2 * half, 2 * half);
+  if (round) {
+    cr.newSubPath();
+    cr.arc(x, y, half, 0, 2 * Math.PI);
+  } else {
+    cr.rectangle(x - half, y - half, 2 * half, 2 * half);
+  }
   cr.setSourceRGBA(1, 1, 1, 1);
   cr.fillPreserve();
   cr.setSourceRGBA(0.0, 0.5, 1.0, 0.95);

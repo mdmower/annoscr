@@ -40,10 +40,12 @@ export type RotateDirection = 'cw' | 'ccw';
 
 // Handle ids for per-action resize (select tool). Box handles — corners (tl/tr/
 // bl/br) and edge midpoints (t/b/l/r) — cover rect/oval/number-stamp; endpoint
-// handles (p1/p2) cover line/arrow; 'tail' drags a callout tail's tip on a box
-// shape. Free-rotate uses its own gizmo on the same grab/preview scaffolding
-// rather than extending this set.
-export type HandleId = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2' | 'tail';
+// handles (p1/p2) cover line/arrow, which also expose 'curve' to bend the
+// segment; 'tail' drags a callout tail's tip on a box shape. Free-rotate uses
+// its own gizmo on the same grab/preview scaffolding rather than extending this
+// set.
+export type HandleId =
+  'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2' | 'curve' | 'tail';
 
 // A single resize handle in image space, ready for the canvas to draw and
 // hit-test.
@@ -117,6 +119,13 @@ export interface Action {
   // this channel, and there's no per-tool default — new shapes start plain.
   getTail(): boolean | null;
   withTail(on: boolean): Action;
+  // Whether the segment is bent into a curve, or null for actions that can't be
+  // (only line / arrow can). Like the callout tail this is presence-only: the
+  // bend itself is geometry dragged via the 'curve' handle, with no per-tool
+  // default, so a newly drawn line/arrow always starts straight. Setting it
+  // false straightens; true is a no-op, since a bend is dragged, not switched on.
+  getCurve(): boolean | null;
+  withCurve(on: boolean): Action;
   // The action's editable font family (Pango font description string), or
   // null for actions that don't carry one. Only TextAction does today.
   getFontDesc(): string | null;
@@ -347,6 +356,126 @@ export interface TailOffset {
   dy: number;
 }
 
+// Optional bend carried by a line / arrow: the offset of the curve's own
+// midpoint (its apex) from the straight segment's midpoint, stored in the
+// segment's LOCAL frame —
+// `along` runs toward p2, `perp` is 90° clockwise from it (y-down). Local
+// storage means the bow swings with the segment when an endpoint is dragged and
+// survives image rotation untransformed, the same reasoning as TailOffset.
+// Null = a plain straight segment.
+export interface CurveOffset {
+  along: number;
+  perp: number;
+}
+
+// Below this offset (image px) a dragged apex is treated as landing back on the
+// midpoint and the curve is dropped, so a bend can be undone by hand as well as
+// through Straighten.
+const CURVE_STRAIGHT_EPS = 0.5;
+
+// The segment's local frame: the p1→p2 unit vector and its clockwise normal, or
+// null when the endpoints coincide and there's no direction to derive.
+function segmentFrame(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): {ux: number; uy: number; nx: number; ny: number} | null {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return null;
+  const ux = dx / len;
+  const uy = dy / len;
+  return {ux, uy, nx: -uy, ny: ux};
+}
+
+// A point offset from the segment's midpoint by `curve` scaled by k, in the
+// segment's local frame — the midpoint itself when straight. k = 1 is the apex,
+// the point the curve actually passes through at t = 0.5 (where the handle
+// sits); k = 2 is the Bezier control point, because a quadratic's midpoint lands
+// exactly halfway between the chord midpoint and its control point. Storing the
+// apex rather than the control point is what makes the handle track the cursor
+// instead of the ink lagging at half the drag distance. A degenerate segment has
+// no local frame, so the offset falls back to image-space axes rather than
+// collapsing the handle onto the endpoints.
+function curvePoint(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  curve: CurveOffset | null,
+  k: number
+): [number, number] {
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  if (!curve) return [mx, my];
+  const along = k * curve.along;
+  const perp = k * curve.perp;
+  const f = segmentFrame(x1, y1, x2, y2);
+  if (!f) return [mx + along, my + perp];
+  return [mx + f.ux * along + f.nx * perp, my + f.uy * along + f.ny * perp];
+}
+
+// Inverse of curvePoint at k = 1: the local-frame offset that puts the curve's
+// apex at (px, py).
+function curveFromApexPoint(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  px: number,
+  py: number
+): CurveOffset {
+  const dx = px - (x1 + x2) / 2;
+  const dy = py - (y1 + y2) / 2;
+  const f = segmentFrame(x1, y1, x2, y2);
+  if (!f) return {along: dx, perp: dy};
+  return {along: dx * f.ux + dy * f.uy, perp: dx * f.nx + dy * f.ny};
+}
+
+// Exact extent of a quadratic Bezier along one axis: the two endpoints, plus
+// the stationary point of B'(t) when it falls strictly inside the span. Used
+// instead of the control-polygon hull, which would overshoot the visible bow by
+// roughly a factor of two and leave the hit area floating off the ink.
+function quadAxisExtent(p0: number, q: number, p2: number): [number, number] {
+  let lo = Math.min(p0, p2);
+  let hi = Math.max(p0, p2);
+  const denom = p0 - 2 * q + p2;
+  if (Math.abs(denom) > 1e-9) {
+    const t = (p0 - q) / denom;
+    if (t > 0 && t < 1) {
+      const s = 1 - t;
+      const v = s * s * p0 + 2 * s * t * q + t * t * p2;
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+  }
+  return [lo, hi];
+}
+
+// Append a quadratic Bezier to the current path. Cairo only has the cubic
+// curveTo, and a quadratic (P0, Q, P2) is exactly the cubic with control points
+// P0 + 2/3·(Q−P0) and P2 + 2/3·(Q−P2).
+function quadCurveTo(
+  cr: Cairo.Context,
+  x0: number,
+  y0: number,
+  qx: number,
+  qy: number,
+  x2: number,
+  y2: number
+): void {
+  cr.curveTo(
+    x0 + (2 / 3) * (qx - x0),
+    y0 + (2 / 3) * (qy - y0),
+    x2 + (2 / 3) * (qx - x2),
+    y2 + (2 / 3) * (qy - y2),
+    x2,
+    y2
+  );
+}
+
 // The derived tail triangle in the box's local frame: the stored tip plus the
 // two base points where the tail meets the outline. Null when the tip sits
 // inside the shape (nothing to point at) — the box then draws plain, but the
@@ -554,11 +683,13 @@ export interface SerializedStroke {
 
 export interface SerializedLine extends SerializedEndpoints {
   type: 'line';
+  curve?: CurveOffset; // omitted when the segment is straight
 }
 
 export interface SerializedArrow extends SerializedEndpoints {
   type: 'arrow';
   filledHead: boolean;
+  curve?: CurveOffset; // omitted when the segment is straight
 }
 
 // The box-shape fields shared by rect/oval — the fragment boxData() emits.
@@ -681,6 +812,12 @@ abstract class BaseAction implements Action {
     return null;
   }
   withTail(_on: boolean): Action {
+    return this;
+  }
+  getCurve(): boolean | null {
+    return null;
+  }
+  withCurve(_on: boolean): Action {
     return this;
   }
   getFontDesc(): string | null {
@@ -1615,22 +1752,138 @@ abstract class TwoEndpointAction extends BaseAction {
   }
 }
 
+// ---------- Curvable segments (line / arrow) ----------
+
+// Shared base for the two segment shapes, which can each be bent into a
+// quadratic Bezier by dragging a third handle at the control point. A null
+// curve is a plain straight segment, so the handle sits on the midpoint and the
+// shapes behave exactly as before until it's dragged. Subclasses supply their
+// own draw plus a `makeCurved` constructor, so rebuild() re-threads the curve
+// through every with*/translate/rotate path.
+abstract class CurvableLineAction extends TwoEndpointAction {
+  constructor(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    protected readonly curve: CurveOffset | null = null
+  ) {
+    super(x1, y1, x2, y2, style);
+  }
+
+  protected abstract makeCurved(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    curve: CurveOffset | null
+  ): Action;
+
+  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
+    return this.makeCurved(x1, y1, x2, y2, style, this.curve);
+  }
+
+  // The Bezier control point in image space; the midpoint when straight.
+  protected control(): [number, number] {
+    return curvePoint(this.x1, this.y1, this.x2, this.y2, this.curve, 2);
+  }
+
+  // Where the curve's apex sits — on the ink, and where the drag handle goes.
+  private apex(): [number, number] {
+    return curvePoint(this.x1, this.y1, this.x2, this.y2, this.curve, 1);
+  }
+
+  // Stroke the segment onto the current path: a straight line, or the quadratic
+  // through the control point.
+  protected pathSegment(cr: Cairo.Context): void {
+    cr.moveTo(this.x1, this.y1);
+    if (!this.curve) {
+      cr.lineTo(this.x2, this.y2);
+      return;
+    }
+    const [qx, qy] = this.control();
+    quadCurveTo(cr, this.x1, this.y1, qx, qy, this.x2, this.y2);
+  }
+
+  // Widen a bounds to cover a curved shaft, using the Bezier's exact per-axis
+  // extrema so the box tracks the visible bow rather than the control point.
+  protected expandToCurve(b: Bounds): Bounds {
+    if (!this.curve) return b;
+    const [qx, qy] = this.control();
+    const [lox, hix] = quadAxisExtent(this.x1, qx, this.x2);
+    const [loy, hiy] = quadAxisExtent(this.y1, qy, this.y2);
+    const pad = this.boundsPad();
+    return {
+      x1: Math.min(b.x1, lox - pad),
+      y1: Math.min(b.y1, loy - pad),
+      x2: Math.max(b.x2, hix + pad),
+      y2: Math.max(b.y2, hiy + pad),
+    };
+  }
+
+  getBounds(): Bounds {
+    return this.expandToCurve(super.getBounds());
+  }
+
+  getCurve(): boolean {
+    return this.curve !== null;
+  }
+
+  // Only false does anything: a bend is made by dragging the apex handle, not by
+  // setting a flag, so there is nothing to switch on. The boolean shape exists
+  // because the broadcast path pairs a getter with a setter.
+  withCurve(on: boolean): Action {
+    if (on) return this;
+    return this.makeCurved(this.x1, this.y1, this.x2, this.y2, this.style, null);
+  }
+
+  getResizeHandles(): ResizeHandle[] {
+    const [ax, ay] = this.apex();
+    return [...super.getResizeHandles(), {id: 'curve', x: ax, y: ay}];
+  }
+
+  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
+    if (handle !== 'curve') return super.resizeByHandle(handle, ix, iy, constrain);
+    const dragged = curveFromApexPoint(this.x1, this.y1, this.x2, this.y2, ix, iy);
+    // Shift pins the apex to the perpendicular bisector, giving a symmetric bow
+    // instead of one leaning toward an endpoint.
+    const next = constrain ? {along: 0, perp: dragged.perp} : dragged;
+    const straight =
+      Math.abs(next.along) < CURVE_STRAIGHT_EPS && Math.abs(next.perp) < CURVE_STRAIGHT_EPS;
+    return this.makeCurved(this.x1, this.y1, this.x2, this.y2, this.style, straight ? null : next);
+  }
+
+  // The curve rides in the segment's local frame, so it needs no field of its
+  // own on disk beyond the offset itself; omitted entirely when straight.
+  protected curveData(): {curve?: CurveOffset} {
+    return this.curve ? {curve: this.curve} : {};
+  }
+}
+
 // ---------- Line ----------
 
-class LineAction extends TwoEndpointAction {
+class LineAction extends CurvableLineAction {
   draw(cr: Cairo.Context, _scale: number): void {
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
-    cr.moveTo(this.x1, this.y1);
-    cr.lineTo(this.x2, this.y2);
+    this.pathSegment(cr);
     cr.stroke();
   }
 
-  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return new LineAction(x1, y1, x2, y2, style);
+  protected makeCurved(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    curve: CurveOffset | null
+  ): Action {
+    return new LineAction(x1, y1, x2, y2, style, curve);
   }
 
   serialize(): SerializedAction {
-    return {type: 'line', ...this.endpointData()};
+    return {type: 'line', ...this.endpointData(), ...this.curveData()};
   }
 }
 
@@ -1685,16 +1938,17 @@ class LineLiveStroke extends EndpointLiveStroke {
 
 // ---------- Arrow ----------
 
-class ArrowAction extends TwoEndpointAction {
+class ArrowAction extends CurvableLineAction {
   constructor(
     x1: number,
     y1: number,
     x2: number,
     y2: number,
     style: Style,
-    private readonly filledHead: boolean = false
+    private readonly filledHead: boolean = false,
+    curve: CurveOffset | null = null
   ) {
-    super(x1, y1, x2, y2, style);
+    super(x1, y1, x2, y2, style, curve);
   }
 
   getFilledHead(): boolean {
@@ -1702,19 +1956,35 @@ class ArrowAction extends TwoEndpointAction {
   }
 
   withFilledHead(filled: boolean): Action {
-    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, this.style, filled);
+    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, this.style, filled, this.curve);
   }
 
   // The two arrowhead arm tips. Both draw() and getBounds() need them, so the
   // geometry lives in one place. The arms run back from the tip (x2, y2) at
-  // ±headAngle off the shaft direction.
+  // ±headAngle off the shaft's direction where it arrives at the tip — for a
+  // curved shaft that's the Bezier's end tangent (2·(P2 − Q) at t = 1), so the
+  // head stays aligned with the ink instead of with the chord.
   private arrowheadArms(): [[number, number], [number, number]] {
-    const dx = this.x2 - this.x1;
-    const dy = this.y2 - this.y1;
-    const angle = Math.atan2(dy, dx);
+    const chord = Math.hypot(this.x2 - this.x1, this.y2 - this.y1);
+    const [qx, qy] = this.control();
+    // Curved: the head follows the end tangent, 2·(P2 − Q). That vector is zero
+    // when the control point lands exactly on the tip, where atan2 would return
+    // an arbitrary angle rather than no answer — fall back to the chord so the
+    // head still points somewhere sensible.
+    const tangent = this.curve ? Math.hypot(this.x2 - qx, this.y2 - qy) : 0;
+    const angle =
+      tangent > 1e-6
+        ? Math.atan2(this.y2 - qy, this.x2 - qx)
+        : Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
     // Cap the head at the shaft length so a short arrow's head shrinks with it
-    // rather than projecting back past the tail.
-    const headLen = Math.min(this.style.width * 5, Math.hypot(dx, dy));
+    // rather than projecting back past the tail. A curved shaft is longer than
+    // its chord; the mean of the chord and the control polygon brackets the
+    // true arc length closely enough for the cap.
+    const shaftLen = this.curve
+      ? (chord + Math.hypot(qx - this.x1, qy - this.y1) + Math.hypot(this.x2 - qx, this.y2 - qy)) /
+        2
+      : chord;
+    const headLen = Math.min(this.style.width * 5, shaftLen);
     const headAngle = Math.PI / 6;
     return [
       [
@@ -1742,8 +2012,7 @@ class ArrowAction extends TwoEndpointAction {
     // Shaft honours the dash style; stroke it on its own.
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
     if (grouped) cr.setSourceRGBA(r, g, b, 1);
-    cr.moveTo(this.x1, this.y1);
-    cr.lineTo(this.x2, this.y2);
+    this.pathSegment(cr);
     cr.stroke();
 
     // Arrowhead is always solid — a dashed head reads as broken. Clear any
@@ -1777,27 +2046,40 @@ class ArrowAction extends TwoEndpointAction {
   }
 
   // Tight box around the actual ink: both endpoints plus the two arrowhead arm
-  // tips, padded by half the stroke width for the round caps. Unlike a uniform
-  // pad this leaves no dead space on the tail end or past the tip.
+  // tips, padded by half the stroke width for the round caps, then widened to
+  // cover a curved shaft's reach. Unlike a uniform pad this leaves no dead
+  // space on the tail end or past the tip.
   getBounds(): Bounds {
     const [arm1, arm2] = this.arrowheadArms();
     const xs = [this.x1, this.x2, arm1[0], arm2[0]];
     const ys = [this.y1, this.y2, arm1[1], arm2[1]];
     const pad = this.style.width / 2;
-    return {
+    return this.expandToCurve({
       x1: Math.min(...xs) - pad,
       y1: Math.min(...ys) - pad,
       x2: Math.max(...xs) + pad,
       y2: Math.max(...ys) + pad,
-    };
+    });
   }
 
-  protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return new ArrowAction(x1, y1, x2, y2, style, this.filledHead);
+  protected makeCurved(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    style: Style,
+    curve: CurveOffset | null
+  ): Action {
+    return new ArrowAction(x1, y1, x2, y2, style, this.filledHead, curve);
   }
 
   serialize(): SerializedAction {
-    return {type: 'arrow', ...this.endpointData(), filledHead: this.filledHead};
+    return {
+      type: 'arrow',
+      ...this.endpointData(),
+      filledHead: this.filledHead,
+      ...this.curveData(),
+    };
   }
 }
 
@@ -2851,11 +3133,14 @@ export function deserializeAction(data: SerializedAction): Action {
         data.type
       );
     case 'line':
-      return new LineAction(data.x1, data.y1, data.x2, data.y2, {
-        color: data.color,
-        width: data.width,
-        dash: data.dash,
-      });
+      return new LineAction(
+        data.x1,
+        data.y1,
+        data.x2,
+        data.y2,
+        {color: data.color, width: data.width, dash: data.dash},
+        data.curve ?? null
+      );
     case 'arrow':
       return new ArrowAction(
         data.x1,
@@ -2863,7 +3148,8 @@ export function deserializeAction(data: SerializedAction): Action {
         data.x2,
         data.y2,
         {color: data.color, width: data.width, dash: data.dash},
-        data.filledHead
+        data.filledHead,
+        data.curve ?? null
       );
     case 'rect':
       return new RectAction(

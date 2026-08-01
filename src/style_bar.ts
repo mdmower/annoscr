@@ -147,8 +147,14 @@ export class StyleBar {
   // Add/Edit-text lives as a row in the selection-actions menu (below). Refs so
   // refresh can show it (lone rect/oval only) and relabel it (Add vs Edit).
   private addTextBtn!: Gtk.Button;
-  private addTextSep!: Gtk.Separator;
   private addTextLabel!: Gtk.Label;
+  // Select-mode action: drops the bend from selected curved line/arrow segments.
+  // Shown only when the selection actually contains one, so a straight-segment
+  // selection isn't offered a no-op.
+  private straightenBtn!: Gtk.Button;
+  // Separates the two type-specific rows above from the universal ones below;
+  // visible whenever either of them is.
+  private typedActionsSep!: Gtk.Separator;
   // Text-style controls — each its own inline group, self-hiding when its
   // property doesn't apply (Text color / Font+Size for any text; Align for shape
   // text only). The bar scrolls horizontally when the full set overflows.
@@ -491,8 +497,11 @@ export class StyleBar {
       });
     });
     box.append(this.addTextBtn);
-    this.addTextSep = new Gtk.Separator({margin_top: 4, margin_bottom: 4});
-    box.append(this.addTextSep);
+    // Straighten follows it as the other type-specific row; shown in
+    // refreshTypedActions when the selection holds a curved segment.
+    this.straightenBtn = row(_('Straighten'), () => this.canvas.straightenSelected());
+    this.typedActionsSep = new Gtk.Separator({margin_top: 4, margin_bottom: 4});
+    box.append(this.typedActionsSep);
     row(_('Duplicate (Ctrl+D)'), () => this.canvas.cloneSelected());
     box.append(new Gtk.Separator({margin_top: 4, margin_bottom: 4}));
     row(_('Bring to front (Ctrl+Shift+])'), () => this.canvas.reorderSelected('front'));
@@ -779,7 +788,7 @@ export class StyleBar {
       !this.editor.isActive() &&
       this.canvas.getSelectedActions().length > 0;
     this.actionsGroup.set_visible(selectAction);
-    this.refreshAddTextButton(selectAction);
+    this.refreshTypedActions(selectAction);
 
     const color = this.styleTargetColor();
     this.colorGroup.set_visible(color !== null);
@@ -910,18 +919,21 @@ export class StyleBar {
     setCaption(this.alignLabel, _('Align'), alignMixed);
   }
 
-  // The Add/Edit-text row (in the selection-actions menu) shows for a lone
-  // selected rect/oval (select mode, not editing); its label reflects whether the
-  // shape already has text.
-  private refreshAddTextButton(selectAction: boolean): void {
+  // The two type-specific rows of the selection-actions menu: Add/Edit text for
+  // a lone rect/oval (its label reflecting whether the shape already has text),
+  // and Straighten when the selection holds a bent segment. Their shared
+  // separator shows whenever either row does.
+  private refreshTypedActions(selectAction: boolean): void {
     const sel = this.canvas.getSelectedActions();
     const loneShape = selectAction && sel.length === 1 && isShapeAction(sel[0]);
     this.addTextBtn.set_visible(loneShape);
-    this.addTextSep.set_visible(loneShape);
     if (loneShape) {
       const hasText = (getShapeTextEditState(sel[0])?.markup ?? '') !== '';
       this.addTextLabel.set_label(hasText ? _('Edit text') : _('Add text'));
     }
+    const curved = selectAction && sel.some((a) => a.getCurve() === true);
+    this.straightenBtn.set_visible(curved);
+    this.typedActionsSep.set_visible(loneShape || curved);
   }
 
   // The Group selector and per-group Variant control (both number-stamp only).

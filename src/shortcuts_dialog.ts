@@ -55,6 +55,7 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', 'Arrow keys'], desc: N_('Resize selection (resizable items)')},
       {keys: ['Alt', '←'], alt: ['Alt', '→'], desc: N_('Rotate selection 15° (rotatable items)')},
       {keys: [','], alt: ['.'], desc: N_('Aim through items under the pointer (select tool)')},
+      {keys: ['Alt', 'Drag'], desc: N_('Bend a line or arrow without snapping to straight')},
       {keys: ['Enter'], desc: N_('Edit selected text (select tool)')},
     ],
   },
