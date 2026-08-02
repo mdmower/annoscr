@@ -1371,6 +1371,10 @@ export const CanvasView = GObject.registerClass(
       this.queue_draw();
     }
 
+    isColorSampling(): boolean {
+      return this.colorSampleHandler !== null;
+    }
+
     // Cancel a pending color sample. Returns true when one was pending, so
     // the window's Escape handler consumes the key and stops there.
     cancelColorSample(): boolean {

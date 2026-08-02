@@ -420,6 +420,7 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.installActions(app);
       this.installDropTarget();
+      this.installColorSampleCancel();
       this.installShortcuts();
       this.installCloseGuard();
     }
@@ -808,6 +809,31 @@ export const AnnoscrWindow = GObject.registerClass(
         return true;
       });
       this.add_controller(dropTarget);
+    }
+
+    // A press anywhere outside the canvas view (header, tool palette, style
+    // bar, status bar, recent strip) cancels a pending eyedropper sample. The
+    // loupe only tracks the pointer over the canvas, so a mode left live while
+    // the user works elsewhere is invisible, and the next canvas click would
+    // pick a color instead of doing what the tool says. Presses inside the
+    // scroller - the canvas, its scrollbars, the text editor overlaid on it -
+    // keep the mode: they're aiming, scrolling, or editing in place.
+    private installColorSampleCancel(): void {
+      const canvasArea = this.zoom.getScrolled();
+      const press = new Gtk.GestureClick();
+      press.set_button(0); // any button
+      // Capture phase so the press is seen before the widget under it acts.
+      press.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+      press.connect('pressed', (gesture, _n, x, y) => {
+        // Observe only: denying the sequence leaves the pressed widget its
+        // click (a claim in the capture phase would cancel every gesture below).
+        gesture.set_state(Gtk.EventSequenceState.DENIED);
+        if (!this.canvas.isColorSampling()) return;
+        const target = this.pick(x, y, Gtk.PickFlags.DEFAULT);
+        if (target && (target === canvasArea || target.is_ancestor(canvasArea))) return;
+        this.canvas.cancelColorSample();
+      });
+      this.add_controller(press);
     }
 
     private installShortcuts(): void {
