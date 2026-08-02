@@ -189,6 +189,7 @@ async function documentImageStream(
 export class RecentStrip {
   private readonly stack: Gtk.Stack;
   private readonly store: Gio.ListStore;
+  private readonly listView: Gtk.ListView;
   private readonly onOpen: (entry: RecentEntry) => void;
   // Thumbnails decoded this session. Nothing is cached on disk; this only stops
   // scrolling back and forth from decoding the same file twice.
@@ -228,6 +229,7 @@ export class RecentStrip {
       single_click_activate: false,
       css_classes: ['annoscr-recent-list'],
     });
+    this.listView = listView;
 
     const scroller = new Gtk.ScrolledWindow({
       hscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
@@ -353,18 +355,31 @@ export class RecentStrip {
     });
     button.add_controller(secondary);
 
-    // The keyboard counterpart to the right-click menu, on the two keys GTK uses
-    // for it elsewhere. With no pointer to aim at, it opens centered.
-    const popupMenu = Gtk.CallbackAction.new(() => {
-      this.showContextMenu(listItem);
-      return true;
-    });
-    const menuKeys = new Gtk.ShortcutController({scope: Gtk.ShortcutScope.LOCAL});
-    for (const keys of ['Menu', '<Shift>F10']) {
+    // Keyboard counterparts to the pointer. These are LOCAL to the focused
+    // thumbnail and run before the window's own controller, so Delete forgets
+    // the aimed file rather than reaching the canvas selection.
+    const itemKeys = new Gtk.ShortcutController({scope: Gtk.ShortcutScope.LOCAL});
+    const bind = (keys: string, run: () => boolean): void => {
       const trigger = Gtk.ShortcutTrigger.parse_string(keys);
-      if (trigger) menuKeys.add_shortcut(new Gtk.Shortcut({trigger, action: popupMenu}));
+      if (!trigger) return;
+      itemKeys.add_shortcut(new Gtk.Shortcut({trigger, action: Gtk.CallbackAction.new(run)}));
+    };
+    // The right-click menu, on the two keys GTK uses for it elsewhere. With no
+    // pointer to aim at, it opens centered.
+    for (const keys of ['Menu', '<Shift>F10']) {
+      bind(keys, () => {
+        this.showContextMenu(listItem);
+        return true;
+      });
     }
-    button.add_controller(menuKeys);
+    // The menu's own two entries, reachable without opening it. Delete and
+    // Backspace are the app's delete keys throughout; Ctrl+Alt+O is what Files
+    // binds to opening a recent item's location.
+    for (const keys of ['Delete', 'BackSpace']) {
+      bind(keys, () => this.forgetItem(listItem));
+    }
+    bind('<Control><Alt>o', () => this.revealItem(listItem));
+    button.add_controller(itemKeys);
 
     // Without this the row and its button would both be tab stops. Focus alone
     // never opens anything: activation stays on GtkButton's own Enter/Space.
@@ -386,12 +401,14 @@ export class RecentStrip {
     // Rebuilt per press rather than at bind time: the path is the action
     // target, and item widgets are recycled across different files.
     const model = new Gio.Menu();
-    // Same label as the save notification's button, which took its wording from
-    // the desktop portal - one action, one name.
-    const reveal = Gio.MenuItem.new(_('Show in Files'), null);
+    // Wording shared with the save notification's button, which took it from
+    // the desktop portal - one action, one name. Both entries name their key
+    // the way the selection-actions menu does; GTK renders no accel for a menu
+    // model whose action has none set application-wide.
+    const reveal = Gio.MenuItem.new(_('Show in Files (Ctrl+Alt+O)'), null);
     reveal.set_action_and_target_value('app.show-in-files', GLib.Variant.new_string(entry.path));
     model.append_item(reveal);
-    const drop = Gio.MenuItem.new(_('Forget'), null);
+    const drop = Gio.MenuItem.new(_('Forget (Delete)'), null);
     drop.set_action_and_target_value('recent.forget', GLib.Variant.new_string(entry.path));
     model.append_item(drop);
 
@@ -402,13 +419,37 @@ export class RecentStrip {
     state.menu.popup();
   }
 
+  // The two menu entries as key handlers. Both report "not handled" with no
+  // bound file, so the key falls through to the window rather than being eaten
+  // by a recycled item that currently shows nothing.
+  private forgetItem(listItem: Gtk.ListItem): boolean {
+    const entry = this.items.get(listItem)?.entry;
+    if (!entry) return false;
+    this.forgetEntry(entry.path);
+    return true;
+  }
+
+  private revealItem(listItem: Gtk.ListItem): boolean {
+    const entry = this.items.get(listItem)?.entry;
+    if (!entry) return false;
+    return this.stack.activate_action('app.show-in-files', GLib.Variant.new_string(entry.path));
+  }
+
   // Drop one entry. Nothing special-cases the image currently on the canvas:
   // forgetting it only removes the list entry, and saving puts it back through
   // the normal save path.
   private forgetEntry(path: string): void {
+    const position = getRecentFiles().findIndex((e) => e.path === path);
     forgetRecentFile(path);
     this.textures.delete(path);
     this.refresh();
+    // Rebuilding the model destroys the focused thumbnail, so hand focus to the
+    // item that took the freed slot (the new last one when the tail went) —
+    // otherwise a keyboard walk through the strip ends at the first Delete.
+    // The rebuild also resets the scroll, which scroll_to puts back.
+    const remaining = this.store.get_n_items();
+    if (position < 0 || remaining === 0) return;
+    this.listView.scroll_to(Math.min(position, remaining - 1), Gtk.ListScrollFlags.FOCUS, null);
   }
 
   private bindItem(listItem: Gtk.ListItem): void {

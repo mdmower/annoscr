@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-02 07:04-0700\n"
+"POT-Creation-Date: 2026-08-02 11:19-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -350,62 +350,64 @@ msgstr ""
 msgid "Remember recent files"
 msgstr ""
 
-#: src/preferences.ts:292
+#: src/preferences.ts:291
 #, javascript-format
 msgid ""
 "Remember up to %d opened images and annotation files. Turning this off "
 "clears history."
 msgstr ""
 
-#: src/preferences.ts:304
+#: src/preferences.ts:303
 msgid "Close after saving an image"
 msgstr ""
 
-#: src/preferences.ts:305
+#: src/preferences.ts:304
 msgid "Only when exporting a PNG or JPEG, not when saving an annotation file"
 msgstr ""
 
-#: src/preferences.ts:314
+#: src/preferences.ts:313
 msgid "Close after copying to the clipboard"
 msgstr ""
 
-#: src/preferences.ts:315
+#: src/preferences.ts:314
 msgid "Closes without prompting to save unsaved changes"
 msgstr ""
 
-#: src/preferences.ts:324
+#: src/preferences.ts:323
 msgid "Undo memory"
 msgstr ""
 
-#: src/preferences.ts:326
+#: src/preferences.ts:325
 msgid ""
 "Rotating or resizing the canvas keeps a full image copy per undo step; the "
 "oldest steps are dropped over this limit"
 msgstr ""
 
-#: src/recent_strip.ts:213
+#: src/recent_strip.ts:241
 msgid "Files you open will appear here"
 msgstr ""
 
-#: src/recent_strip.ts:223 src/window.ts:425
+#: src/recent_strip.ts:251 src/window.ts:431
 msgid "Recent files"
 msgstr ""
 
-#. Same label as the save notification's button, which took its wording from
-#. the desktop portal - one action, one name.
-#: src/recent_strip.ts:370 src/window.ts:1097
-msgid "Show in Files"
+#. Wording shared with the save notification's button, which took it from
+#. the desktop portal - one action, one name. Both entries name their key
+#. the way the selection-actions menu does; GTK renders no accel for a menu
+#. model whose action has none set application-wide.
+#: src/recent_strip.ts:408
+msgid "Show in Files (Ctrl+Alt+O)"
 msgstr ""
 
-#: src/recent_strip.ts:373
-msgid "Forget"
+#: src/recent_strip.ts:411
+msgid "Forget (Delete)"
 msgstr ""
 
 #: src/shortcuts_dialog.ts:28
 msgid "General"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:31 src/window.ts:632
+#: src/shortcuts_dialog.ts:31 src/window.ts:636
 msgid "Open image"
 msgstr ""
 
@@ -413,7 +415,7 @@ msgstr ""
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:33 src/window.ts:1128
+#: src/shortcuts_dialog.ts:33 src/window.ts:1127
 msgid "Save image"
 msgstr ""
 
@@ -425,15 +427,15 @@ msgstr ""
 msgid "Paste image"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:36 src/window.ts:170
+#: src/shortcuts_dialog.ts:36 src/window.ts:177
 msgid "Preferences"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:143 src/window.ts:171
+#: src/shortcuts_dialog.ts:37 src/shortcuts_dialog.ts:143 src/window.ts:178
 msgid "Keyboard shortcuts"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:38 src/window.ts:173
+#: src/shortcuts_dialog.ts:38 src/window.ts:180
 msgid "Quit"
 msgstr ""
 
@@ -787,15 +789,15 @@ msgstr ""
 msgid "+ New group"
 msgstr ""
 
-#: src/text_editor.ts:339
+#: src/text_editor.ts:340
 msgid "Bold (Ctrl+B)"
 msgstr ""
 
-#: src/text_editor.ts:340
+#: src/text_editor.ts:341
 msgid "Italic (Ctrl+I)"
 msgstr ""
 
-#: src/text_editor.ts:343
+#: src/text_editor.ts:344
 msgid "Underline (Ctrl+U)"
 msgstr ""
 
@@ -811,182 +813,186 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
-#: src/window.ts:115
+#: src/window.ts:122
 msgid "New blank canvas… (Ctrl+N)"
 msgstr ""
 
-#: src/window.ts:123
+#: src/window.ts:130
 msgid "Open image… (Ctrl+O)"
 msgstr ""
 
-#: src/window.ts:131
+#: src/window.ts:138
 msgid "Take screenshot… (Ctrl+Shift+S)"
 msgstr ""
 
-#: src/window.ts:139
+#: src/window.ts:146
 msgid "Save image (Ctrl+S)"
 msgstr ""
 
-#: src/window.ts:148
+#: src/window.ts:155
 msgid "Copy image to clipboard (Ctrl+C)"
 msgstr ""
 
-#: src/window.ts:162
+#: src/window.ts:169
 msgid "Save image as…"
 msgstr ""
 
-#: src/window.ts:167
+#: src/window.ts:174
 msgid "Open annotation file…"
 msgstr ""
 
-#: src/window.ts:168
+#: src/window.ts:175
 msgid "Save annotation file…"
 msgstr ""
 
-#: src/window.ts:172
+#: src/window.ts:179
 msgid "About Annoscr"
 msgstr ""
 
-#: src/window.ts:176
+#: src/window.ts:183
 msgid "Main menu"
 msgstr ""
 
-#: src/window.ts:187
+#: src/window.ts:194
 msgid "Resize canvas… (Ctrl+E)"
 msgstr ""
 
-#: src/window.ts:195
+#: src/window.ts:202
 msgid "Rotate right 90° (Ctrl+R)"
 msgstr ""
 
-#: src/window.ts:203
+#: src/window.ts:210
 msgid "Rotate left 90° (Ctrl+Shift+R)"
 msgstr ""
 
-#: src/window.ts:360
+#: src/window.ts:367
 msgid ""
 "Create a blank canvas, open an image, paste from the clipboard, or drop a "
 "file here."
 msgstr ""
 
-#: src/window.ts:431
+#: src/window.ts:437
 msgid "Show or hide recently opened files"
 msgstr ""
 
-#: src/window.ts:495
+#: src/window.ts:499
 msgid "File was moved or deleted"
 msgstr ""
 
-#: src/window.ts:568
+#: src/window.ts:572
 msgid "Closing the window"
 msgstr ""
 
-#: src/window.ts:626
+#: src/window.ts:630
 msgid "Opening a new image"
 msgstr ""
 
-#: src/window.ts:634
+#: src/window.ts:638
 msgid "Images"
 msgstr ""
 
 #. Guards an unsaved canvas before replacing it. Harmless at cold startup
 #. (confirmDiscard proceeds immediately when nothing is dirty); the guard
 #. matters now that `--new` can reach an already-running instance.
-#: src/window.ts:658 src/window.ts:664
+#: src/window.ts:662 src/window.ts:668
 msgid "Creating a blank canvas"
 msgstr ""
 
-#: src/window.ts:674
+#: src/window.ts:678
 msgid "Opening this annotation file"
 msgstr ""
 
-#: src/window.ts:678
+#: src/window.ts:682
 msgid "Opening this image"
 msgstr ""
 
-#: src/window.ts:716
+#: src/window.ts:720
 msgid "Opening the screenshot"
 msgstr ""
 
-#: src/window.ts:742
+#: src/window.ts:741
 msgid "Screenshot cancelled"
 msgstr ""
 
-#: src/window.ts:758
+#: src/window.ts:757
 #, javascript-format
 msgid "Could not open \"%s\""
 msgstr ""
 
-#: src/window.ts:800
+#: src/window.ts:799
 msgid "Opening the dropped annotation file"
 msgstr ""
 
-#: src/window.ts:805
+#: src/window.ts:804
 msgid "Opening the dropped image"
 msgstr ""
 
-#: src/window.ts:1041 src/window.ts:1182
+#: src/window.ts:1040 src/window.ts:1181
 msgid "Could not save image"
 msgstr ""
 
-#: src/window.ts:1054
+#: src/window.ts:1053
 msgid "Image saved"
 msgstr ""
 
 #. Stayed open with no dialog shown — confirm with an in-window toast.
-#: src/window.ts:1063
+#: src/window.ts:1062
 #, javascript-format
 msgid "Saved %s"
+msgstr ""
+
+#: src/window.ts:1096
+msgid "Show in Files"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:1137
+#: src/window.ts:1136
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:1194
+#: src/window.ts:1193
 msgid "Save annotation file"
 msgstr ""
 
-#: src/window.ts:1208 src/window.ts:1263
+#: src/window.ts:1207 src/window.ts:1261
 msgid "Annotation file"
 msgstr ""
 
-#: src/window.ts:1250
+#: src/window.ts:1248
 msgid "Could not save annotation file"
 msgstr ""
 
-#: src/window.ts:1256
+#: src/window.ts:1254
 msgid "Opening an annotation file"
 msgstr ""
 
-#: src/window.ts:1262
+#: src/window.ts:1260
 msgid "Open annotation file"
 msgstr ""
 
-#: src/window.ts:1297
+#: src/window.ts:1295
 msgid "Could not open annotation file"
 msgstr ""
 
-#: src/window.ts:1313 src/window.ts:1319
+#: src/window.ts:1311 src/window.ts:1317
 msgid "Image copied to clipboard"
 msgstr ""
 
-#: src/window.ts:1323
+#: src/window.ts:1321
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:1368
+#: src/window.ts:1366
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:1394 src/window.ts:1426
+#: src/window.ts:1392 src/window.ts:1424
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:1406 src/window.ts:1423
+#: src/window.ts:1404 src/window.ts:1421
 msgid "Clipboard has no image to paste"
 msgstr ""
 
