@@ -40,6 +40,18 @@ import {StyleBar} from './style_bar.js';
 import {setChosenFonts} from './font_catalogue.js';
 import {ZoomController} from './zoom_controller.js';
 import {ToolBar} from './tool_bar.js';
+import {RecentStrip} from './recent_strip.js';
+import {
+  RecentEntry,
+  RecentKind,
+  clearRecentFiles,
+  forgetRecentFile,
+  isStripVisible,
+  pruneMissingRecentFiles,
+  rememberOpenedFile,
+  rememberSavedFile,
+  setStripVisible,
+} from './recent_files.js';
 import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
 import {labelFromTooltip} from './a11y.js';
 import {_} from './i18n.js';
@@ -78,6 +90,11 @@ export const AnnoscrWindow = GObject.registerClass(
     // Constructed in the constructor; owns the tool selector + resize toolbar.
     private toolbar!: ToolBar;
     private toastOverlay!: Adw.ToastOverlay;
+    // Constructed in the constructor; owns the recent-files strip below the
+    // status bar and the status-bar button that shows/hides it.
+    private recentStrip!: RecentStrip;
+    private recentToggle!: Gtk.ToggleButton;
+    private recentToggleIcon!: Adw.ButtonContent;
 
     constructor(app: InstanceType<typeof AnnoscrApplication>) {
       const settings = getSettings();
@@ -352,12 +369,21 @@ export const AnnoscrWindow = GObject.registerClass(
       this.stack.set_visible_child_name('empty');
 
       this.styleBar = new StyleBar(this.canvas, this.editor);
+      this.recentStrip = new RecentStrip((entry) => this.openRecent(entry));
+
+      // The strip it reveals is directly below, and the status bar already holds
+      // the other view controls.
+      const statusBar = this.zoom.getStatusBar();
+      this.zoom.setStatusCenterWidget(this.buildRecentToggle());
 
       const toolbar = new Adw.ToolbarView();
       toolbar.add_top_bar(header);
       toolbar.add_top_bar(this.styleBar.getWidget());
       toolbar.set_content(this.stack);
-      toolbar.add_bottom_bar(this.zoom.getStatusBar());
+      toolbar.add_bottom_bar(statusBar);
+      // Bottom bars stack downward in the order they're added, so the strip
+      // lands below the status bar.
+      toolbar.add_bottom_bar(this.recentStrip.getWidget());
       this.toastOverlay = new Adw.ToastOverlay({child: toolbar});
       this.set_content(this.toastOverlay);
 
@@ -379,6 +405,9 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.restoreToolStyles();
       this.applyUndoMemory();
+      // Files deleted since the last session are dropped once, here.
+      pruneMissingRecentFiles();
+      this.applyRecentPreference();
       this.zoom.refresh();
       this.styleBar.refresh();
 
@@ -386,6 +415,84 @@ export const AnnoscrWindow = GObject.registerClass(
       this.installDropTarget();
       this.installShortcuts();
       this.installCloseGuard();
+    }
+
+    // A text button whose disclosure triangle points right while the strip is
+    // hidden and down while it's shown.
+    private buildRecentToggle(): Gtk.ToggleButton {
+      this.recentToggleIcon = new Adw.ButtonContent({
+        label: _('Recent files'),
+        icon_name: 'pan-end-symbolic',
+      });
+      this.recentToggle = new Gtk.ToggleButton({
+        child: this.recentToggleIcon,
+        css_classes: ['flat'],
+        tooltip_text: _('Show or hide recently opened files'),
+        active: isStripVisible(),
+      });
+      this.recentToggle.connect('toggled', () => {
+        setStripVisible(this.recentToggle.get_active());
+        this.applyRecentPreference();
+      });
+      return this.recentToggle;
+    }
+
+    // Switching the preference off also clears the list: having asked Annoscr to
+    // stop remembering, the user shouldn't be left with the remembered paths
+    // still on disk. Deliberately unconfirmed — the subtitle is what warns.
+    private onRecentPreferenceChanged(): void {
+      if (!getSettings().rememberRecentFiles) {
+        clearRecentFiles();
+        this.recentStrip.clearThumbnailCache();
+      }
+      this.applyRecentPreference();
+    }
+
+    // The preference gates the whole feature (strip and toggle both go away);
+    // the toggle only controls whether the strip is expanded.
+    private applyRecentPreference(): void {
+      const enabled = getSettings().rememberRecentFiles;
+      const shown = enabled && isStripVisible();
+      this.recentToggle.set_visible(enabled);
+      this.recentStrip.setVisible(shown);
+      this.recentToggleIcon.set_icon_name(shown ? 'pan-down-symbolic' : 'pan-end-symbolic');
+      if (shown) this.recentStrip.refresh();
+    }
+
+    // Screenshots arrive here too: the portal hands back a file:// URI, so they
+    // have a path like any other open.
+    private recordOpened(file: Gio.File, kind: RecentKind): void {
+      if (!getSettings().rememberRecentFiles) return;
+      const path = file.get_path();
+      // A non-local URI has no path to reopen from, so it can't be listed.
+      if (path === null) return;
+      // Reopening an already-listed file changes nothing, so leave the strip
+      // exactly as it is rather than rebuilding it under the pointer.
+      if (rememberOpenedFile(path, kind)) this.recentStrip.refresh();
+    }
+
+    // Record a just-saved file, which moves to the front of the strip whether
+    // it was already listed or not.
+    private recordSaved(path: string, kind: RecentKind): void {
+      if (!getSettings().rememberRecentFiles) return;
+      rememberSavedFile(path, kind);
+      // Always rebuild, even when the entry was already leftmost: the file's
+      // contents just changed, so its thumbnail has to be decoded again.
+      this.recentStrip.invalidateThumbnail(path);
+      this.recentStrip.refresh();
+    }
+
+    // Reopen through the same guarded entry point the file manager and command
+    // line use, so the unsaved-changes prompt and the image/document split apply.
+    private openRecent(entry: RecentEntry): void {
+      const file = Gio.File.new_for_path(entry.path);
+      if (!file.query_exists(null)) {
+        forgetRecentFile(entry.path);
+        this.recentStrip.refresh();
+        this.showToast(_('File was moved or deleted'));
+        return;
+      }
+      this.openFileChecked(file);
     }
 
     // Restore per-tool styles saved in a previous session, if the user opted in.
@@ -433,6 +540,7 @@ export const AnnoscrWindow = GObject.registerClass(
             this.styleBar.rebuildFontDropdown();
           },
           onUndoMemoryChanged: () => this.applyUndoMemory(),
+          onRecentFilesChanged: () => this.onRecentPreferenceChanged(),
         })
       );
       add('shortcuts', () => presentShortcuts(this));
@@ -451,6 +559,7 @@ export const AnnoscrWindow = GObject.registerClass(
         // Returning false lets the close proceed — flush prefs at those points.
         if (this.skipCloseConfirm || !this.canvas.isDirty()) {
           this.flushSettings();
+          this.recentStrip.shutdown();
           return false;
         }
         confirmDiscard(this, _('Closing the window'), this.canvas.isDirty(), () => {
@@ -636,6 +745,7 @@ export const AnnoscrWindow = GObject.registerClass(
     openFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
+        this.recordOpened(file, 'image');
       } catch (e) {
         // Covers both load/decode failures and I/O errors (missing file,
         // permission denied), so the message stays general rather than always
@@ -935,6 +1045,7 @@ export const AnnoscrWindow = GObject.registerClass(
     // the "Show in Files" button is offered only for a silent save, since a
     // dialog save already let the user pick (and see) the folder.
     private onImageSaved(path: string, silent: boolean, surface: Cairo.ImageSurface): void {
+      this.recordSaved(path, 'image');
       if (getSettings().closeAfterImageSave) {
         this.sendExportNotification({
           title: _('Image saved'),
@@ -1130,6 +1241,7 @@ export const AnnoscrWindow = GObject.registerClass(
           // Track the saved path so a later re-save offers it (Save-As behavior:
           // saving to a new name switches the working document to that name).
           this.currentDocPath = path;
+          this.recordSaved(path, 'document');
         } catch (e) {
           console.error('save annotation file failed', e);
           this.showToast(_('Could not save annotation file'));
@@ -1174,6 +1286,7 @@ export const AnnoscrWindow = GObject.registerClass(
         this.setDocument(surface, actions);
         // Remember the opened file so a re-save offers the same name/folder.
         this.currentDocPath = file.get_path();
+        this.recordOpened(file, 'document');
       } catch (e) {
         // parseDocument's DocumentError and any I/O error both land here; the
         // specific cause is logged, the user sees one general message.

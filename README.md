@@ -36,13 +36,15 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Image I/O**: open a file, paste, drag-and-drop, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard.
 
+- **Recent files**: a strip of thumbnails below the status bar remembers the images and annotation files you open, so getting back to an earlier screenshot is one click. Show or hide it from the status bar, right-click a thumbnail to reveal it in Files or forget it, and turn the whole thing off (which also clears the list) in Preferences.
+
 - **Annotation files**: save an editable `.annoscr` file (the canvas image plus your annotations) from the primary menu, then reopen it later to add, change, or remove annotations.
 
 - **View**: Fit-to-window, 1:1, or a continuous zoom slider from 25% to 400%; when zoomed in, right-click and drag to pan the canvas.
 
 - **Keyboard & accessibility**: the canvas is keyboard-drivable (pan, walk, select, nudge, resize, rotate, and edit most annotations without the mouse), and every control carries an accessible label for screen readers. The complete shortcut list lives in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
 
-- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, default tool at launch, remember tool styles between sessions, default save folder and format, saving images without a location prompt, confirm before discarding, select-after-placement, close-after-saving/copying, and an undo-memory budget; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
+- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, default tool at launch, remember tool styles between sessions, default save folder and format, saving images without a location prompt, confirm before discarding, select-after-placement, close-after-saving/copying, remembering recent files, and an undo-memory budget; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
 
 ## Requirements
 
@@ -227,6 +229,8 @@ Pressing the shortcut launches Annoscr, which immediately captures through the d
 Annoscr is in active development. Planned work:
 
 - **Improved style toolbar**: the horizontally scrollable style bar shown when many options are available is a stopgap.
+
+- **Annotation file format**: `.annoscr` is JSON with the image base64-encoded inside it, so reading any part of a file means parsing all of it, and the encoding inflates every image by a third. A container format with a small header and binary payloads would make partial reads (such as loading only the preview) cheap.
 
 ## Contributing
 

@@ -4,6 +4,7 @@ src/application.ts
 src/canvas_view.ts
 src/dialogs.ts
 src/preferences.ts
+src/recent_strip.ts
 src/shortcuts_dialog.ts
 src/style_bar.ts
 src/text_editor.ts

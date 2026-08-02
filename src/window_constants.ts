@@ -23,6 +23,19 @@ const WINDOW_CSS = `
     background-color: alpha(@window_fg_color, 0.08);
     font-size: 0.85em;
   }
+  .annoscr-recent-list {
+    background-color: transparent;
+    padding: 4px 8px;
+  }
+  .annoscr-recent-item {
+    padding: 2px;
+  }
+  .annoscr-recent-badge {
+    background-color: alpha(@window_bg_color, 0.8);
+    border-radius: 5px;
+    margin: 2px;
+    padding: 1px;
+  }
   .annoscr-canvas:focus-visible {
     outline: 2px solid @accent_color;
     outline-offset: -2px;

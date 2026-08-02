@@ -139,6 +139,28 @@ export function surfaceThumbnailPngBytes(surface: Cairo.ImageSurface, maxDim = 2
   return surfaceToPngBytes(thumb);
 }
 
+// Scale a surface to fit within maxW x maxH, never upscaling, keeping the source
+// aspect ratio, and encode as PNG. Separate from surfaceThumbnailPngBytes, whose
+// square letterboxing exists only for GNOME's notification icon slot.
+export function surfaceFitPngBytes(
+  surface: Cairo.ImageSurface,
+  maxW: number,
+  maxH: number
+): GLib.Bytes {
+  const w = surface.getWidth();
+  const h = surface.getHeight();
+  const scale = Math.min(1, maxW / w, maxH / h);
+  const tw = Math.max(1, Math.round(w * scale));
+  const th = Math.max(1, Math.round(h * scale));
+  const thumb = new Cairo.ImageSurface(Cairo.Format.ARGB32, tw, th);
+  const cr = new Cairo.Context(thumb);
+  cr.scale(scale, scale);
+  cr.setSourceSurface(surface, 0, 0);
+  cr.paint();
+  thumb.flush();
+  return surfaceToPngBytes(thumb);
+}
+
 // Put pre-encoded PNG bytes on the clipboard as image/png. Pre-encoding (vs.
 // providing a Gdk.Texture and letting GTK serialize on demand) avoids a
 // deadlock when this same process pastes the clipboard back: the synchronous

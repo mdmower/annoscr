@@ -32,7 +32,7 @@ import {
   numberStampStyle,
   serializeActions,
 } from './actions.js';
-import {fileTimestamp, surfaceToPngBytes} from './exporter.js';
+import {fileTimestamp, renderToSurface, surfaceFitPngBytes, surfaceToPngBytes} from './exporter.js';
 import {
   asClampedNumber,
   asColor,
@@ -64,10 +64,21 @@ const DOC_VERSION = 1;
 // not surfaced verbatim), so it isn't translated.
 export class DocumentError extends Error {}
 
+// Longest edges of the stored preview: four times the recent-files strip's
+// display size, leaving pixels to spare on a HiDPI display or in a taller strip.
+// Costs a couple of percent on a document embedding a full-resolution image.
+const THUMB_MAX_W = 768;
+const THUMB_MAX_H = 432;
+
 interface DocumentEnvelope {
   format: string;
   version: number;
   appVersion?: string;
+  // The composited preview, written before the full-resolution image on
+  // purpose: a reader wanting only the preview reaches it without walking past
+  // megabytes of base64. Optional (additive, no version bump), so a document
+  // saved without one still loads and readers fall back to `image`.
+  thumbnail?: {encoding: string; data: string};
   image: {encoding: string; data: string};
   // Untrusted until sanitizeSerializedActions validates each entry.
   actions?: unknown;
@@ -87,6 +98,14 @@ export function serializeDocument(
     format: DOC_FORMAT,
     version: DOC_VERSION,
     appVersion: APP_VERSION,
+    // Composited, not the bare source: a document built on a blank fill would
+    // otherwise preview as a featureless rectangle.
+    thumbnail: {
+      encoding: 'png-base64',
+      data: GLib.base64_encode(
+        surfaceFitPngBytes(renderToSurface(surface, actions), THUMB_MAX_W, THUMB_MAX_H).get_data()
+      ),
+    },
     image: {
       encoding: 'png-base64',
       data: GLib.base64_encode(surfaceToPngBytes(surface).get_data()),

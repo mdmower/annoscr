@@ -5,7 +5,8 @@ import Adw from 'gi://Adw?version=1';
 import {ColorScheme, UndoMemory, getSettings, updateSettings} from './settings.js';
 import {TOOLS} from './window_constants.js';
 import {labelFromTooltip} from './a11y.js';
-import {_, N_} from './i18n.js';
+import {_, N_, formatN} from './i18n.js';
+import {RECENT_LIMIT} from './recent_files.js';
 
 const COLOR_SCHEMES: ColorScheme[] = ['system', 'light', 'dark'];
 // N_-marked (module-level); translated at dialog-build time with _() below.
@@ -40,6 +41,9 @@ export interface PreferencesCallbacks {
   onFontsChanged?: () => void;
   // The undo-memory preset changed; the caller re-applies it to the canvas.
   onUndoMemoryChanged?: () => void;
+  // Recent-file remembering was switched on or off; the caller shows or hides
+  // the strip and its toggle.
+  onRecentFilesChanged?: () => void;
 }
 
 export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCallbacks): void {
@@ -277,6 +281,23 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
     updateSettings({selectAfterPlacement: selectAfterRow.get_active()});
   });
   behavior.add(selectAfterRow);
+
+  const recentFilesRow = new Adw.SwitchRow({
+    title: _('Remember recent files'),
+    // The cap is stated here rather than being a second preference, so it comes
+    // from the constant that enforces it. Switching the row off clears the list
+    // and isn't confirmed, so this subtitle is the only warning.
+    subtitle: formatN(
+      _('Remember up to %d opened images and annotation files. Turning this off clears history.'),
+      RECENT_LIMIT
+    ),
+    active: s.rememberRecentFiles,
+  });
+  recentFilesRow.connect('notify::active', () => {
+    updateSettings({rememberRecentFiles: recentFilesRow.get_active()});
+    callbacks?.onRecentFilesChanged?.();
+  });
+  behavior.add(recentFilesRow);
 
   const closeAfterSaveRow = new Adw.SwitchRow({
     title: _('Close after saving an image'),

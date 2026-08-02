@@ -103,6 +103,10 @@ export interface AnnoscrSettings {
   // doesn't mark the canvas saved, auto-closing skips the discard prompt.
   closeAfterImageCopy: boolean;
   undoMemory: UndoMemory;
+  // Remember files opened from disk (images, annotation files, and captured
+  // screenshots) and offer them in the recent-files strip. The list itself is
+  // machine-local state and lives outside this file; see recent_files.ts.
+  rememberRecentFiles: boolean;
   // Last window geometry, restored on launch. Position is intentionally absent:
   // GTK4 exposes no toplevel-positioning API (the compositor owns placement on
   // Wayland), so only size + maximized state are ours to persist. While
@@ -132,6 +136,7 @@ const DEFAULTS: AnnoscrSettings = {
   closeAfterImageSave: false,
   closeAfterImageCopy: false,
   undoMemory: 'normal',
+  rememberRecentFiles: true,
   windowWidth: 960,
   windowHeight: 640,
   windowMaximized: false,
@@ -247,6 +252,7 @@ function sanitize(raw: unknown): AnnoscrSettings {
     closeAfterImageSave: asBool(raw.closeAfterImageSave) ?? DEFAULTS.closeAfterImageSave,
     closeAfterImageCopy: asBool(raw.closeAfterImageCopy) ?? DEFAULTS.closeAfterImageCopy,
     undoMemory: asUndoMemory(raw.undoMemory),
+    rememberRecentFiles: asBool(raw.rememberRecentFiles) ?? DEFAULTS.rememberRecentFiles,
     windowWidth:
       asClampedNumber(raw.windowWidth, WINDOW_SIZE_MIN, WINDOW_SIZE_MAX) ?? DEFAULTS.windowWidth,
     windowHeight:

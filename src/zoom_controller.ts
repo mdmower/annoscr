@@ -22,7 +22,7 @@ const ANCHOR_RETIRE_MS = 150;
 // the keyboard zoom shortcuts to setFit/zoomToCenter/zoomStepDetent.
 export class ZoomController {
   private scrolled: Gtk.ScrolledWindow;
-  private statusBar: Gtk.Box;
+  private statusBar: Gtk.CenterBox;
   private statusLabel!: Gtk.Label;
   private zoomLabel!: Gtk.Label;
   private zoomSlider!: Gtk.Scale;
@@ -66,14 +66,20 @@ export class ZoomController {
     return this.scrolled;
   }
 
-  getStatusBar(): Gtk.Box {
+  getStatusBar(): Gtk.CenterBox {
     return this.statusBar;
   }
 
-  private buildStatusBar(): Gtk.Box {
-    const box = new Gtk.Box({
+  // Park a widget in the middle of the status bar. Gtk.CenterBox keeps it
+  // centered on the whole bar while there's room and slides it to sit between
+  // the dimensions label and the zoom controls once they close in.
+  setStatusCenterWidget(widget: Gtk.Widget): void {
+    this.statusBar.set_center_widget(widget);
+  }
+
+  private buildStatusBar(): Gtk.CenterBox {
+    const box = new Gtk.CenterBox({
       orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 6,
       margin_start: 12,
       margin_end: 12,
       margin_top: 4,
@@ -82,10 +88,9 @@ export class ZoomController {
     this.statusLabel = new Gtk.Label({
       label: '',
       halign: Gtk.Align.START,
-      hexpand: true,
       css_classes: ['dim-label', 'caption'],
     });
-    box.append(this.statusLabel);
+    box.set_start_widget(this.statusLabel);
 
     const fitBtn = new Gtk.Button({
       label: _('Fit'),
@@ -151,7 +156,7 @@ export class ZoomController {
     this.zoomControls.append(zoomBtnBox);
     this.zoomControls.append(this.zoomSlider);
     this.zoomControls.append(this.zoomLabel);
-    box.append(this.zoomControls);
+    box.set_end_widget(this.zoomControls);
 
     return box;
   }

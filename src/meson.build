@@ -23,6 +23,8 @@ ts_sources = files(
   'shortcuts_dialog.ts',
   'screenshot.ts',
   'font_catalogue.ts',
+  'recent_files.ts',
+  'recent_strip.ts',
 )
 
 ts_outputs = [
@@ -50,6 +52,8 @@ ts_outputs = [
   'shortcuts_dialog.js',
   'screenshot.js',
   'font_catalogue.js',
+  'recent_files.js',
+  'recent_strip.js',
 ]
 
 version_js = custom_target('version-js',
