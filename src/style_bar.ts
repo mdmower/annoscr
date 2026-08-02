@@ -1,5 +1,6 @@
 import Gtk from 'gi://Gtk?version=4.0';
 import GLib from 'gi://GLib?version=2.0';
+import Pango from 'gi://Pango?version=1.0';
 import Cairo from 'cairo';
 
 import {CanvasView} from './canvas_view.js';
@@ -42,6 +43,43 @@ import {
 // backgrounds (Adwaita orange 4).
 const MIX_DOT_COLOR = '#e66100';
 
+// Fixed width of the vertical (left/right dock) properties panel — the
+// side-dock counterpart of the horizontal bar's fixed height: groups showing
+// and hiding never shift the canvas edge.
+const DOCK_WIDTH = 240;
+
+// Cap on the font dropdown's button label, in characters (GtkLabel can cap
+// its natural width only in characters, not pixels): the strip's button hugs
+// a short family name and stops growing here for a long one. Tuned by eye.
+const FONT_BUTTON_MAX_CHARS = 22;
+
+// A dropdown factory whose label ellipsizes. An unellipsized label's minimum
+// width is its full text, so a selected long font family would force the
+// fixed-width dock wider (DOCK_WIDTH is only a floor). Ellipsize is a
+// GtkLabel property (GTK CSS has no text-overflow), so capping the button
+// side takes a custom factory owning that label. max_width_chars caps the
+// NATURAL width too: the strip's scroller allocates children their natural
+// width, so this is what stops a long name from stretching the strip's
+// button while short names still hug.
+function ellipsizingFactory(): Gtk.SignalListItemFactory {
+  const factory = new Gtk.SignalListItemFactory();
+  factory.connect('setup', (_f, obj) => {
+    (obj as Gtk.ListItem).set_child(
+      new Gtk.Label({
+        xalign: 0,
+        ellipsize: Pango.EllipsizeMode.END,
+        max_width_chars: FONT_BUTTON_MAX_CHARS,
+      })
+    );
+  });
+  factory.connect('bind', (_f, obj) => {
+    const item = obj as Gtk.ListItem;
+    const label = item.get_child() as Gtk.Label;
+    label.set_label(item.get_item<Gtk.StringObject>().get_string());
+  });
+  return factory;
+}
+
 // Set a control's caption. When the selected actions disagree on the property,
 // a compact superscript dot trails the caption (rather than a "(mixed)" suffix
 // that widens the group). The dot is visual-only: an explicit accessible label
@@ -81,18 +119,22 @@ function drawSwatch(cr: Cairo.Context, w: number, h: number, color: ColorRGBA): 
   cr.stroke();
 }
 
-// The top style bar: per-tool/selection style pickers (color, fill, width,
+// The style bar: per-tool/selection style pickers (color, fill, width,
 // dash, stamp variant, font, font size). Owns its widgets and the picker
 // signal handlers; reads tool/selection/editor state through the canvas and
 // editor refs and writes style changes back through them. The window holds one
-// instance, adds getWidget() to its toolbar, and calls refresh() whenever the
-// canvas state changes (tool switch, selection change, edit lifecycle).
+// instance, docks getWidget() on the edge the styleBarPosition setting names
+// (horizontal strip on top/bottom, vertical properties panel on left/right —
+// see setVertical), and calls refresh() whenever the canvas state changes
+// (tool switch, selection change, edit lifecycle).
 export class StyleBar {
-  // A horizontal scroller wrapping the bar so the (variable-width) control set
-  // never forces the window wider — it scrolls instead of resizing the window
-  // between tools. Overlay scrollbars don't take layout height, so the canvas
-  // doesn't shift.
+  // A scroller wrapping the bar so the variable-size control set never forces
+  // the window larger — it scrolls (horizontally as a strip, vertically as a
+  // panel) instead of resizing the window between tools. Overlay scrollbars
+  // don't take layout space, so the canvas doesn't shift.
   private widget: Gtk.ScrolledWindow;
+  // True in the vertical properties-panel layout (left/right dock).
+  private vertical = false;
   // Color/Fill are custom swatch buttons. Clicking one opens a popover with an
   // inline hex entry + opacity slider (drag opacity to 0 for transparent / no
   // fill) and a "Palette…" button into the full system Gtk.ColorDialog
@@ -152,6 +194,10 @@ export class StyleBar {
   // Shown only when the selection actually contains one, so a straight-segment
   // selection isn't offered a no-op.
   private straightenBtn!: Gtk.Button;
+  // The renumber footnote under Duplicate + z-order. Stamps are the only
+  // actions those moves renumber, so it shows only when the selection holds
+  // a number stamp.
+  private renumberNote!: Gtk.Label;
   // Separates the two type-specific rows above from the universal ones below;
   // visible whenever either of them is.
   private typedActionsSep!: Gtk.Separator;
@@ -196,6 +242,11 @@ export class StyleBar {
       // Don't let the bar's natural width propagate to (and grow) the window.
       propagate_natural_width: false,
       propagate_natural_height: true,
+      // Explicit (sets hexpand-set): the panel layout's full-width controls
+      // carry hexpand, which would otherwise propagate up through the
+      // scroller and make a side dock split the window's spare width with
+      // the canvas instead of holding DOCK_WIDTH.
+      hexpand: false,
     });
   }
 
@@ -203,27 +254,64 @@ export class StyleBar {
     return this.widget;
   }
 
+  // Rebuild the bar as the horizontal strip (top/bottom dock) or the vertical
+  // properties panel (left/right dock). All controls are recreated; refresh()
+  // restores group visibility and values on the fresh widgets.
+  setVertical(vertical: boolean): void {
+    if (vertical === this.vertical) return;
+    this.vertical = vertical;
+    this.widget.set_policy(
+      vertical ? Gtk.PolicyType.NEVER : Gtk.PolicyType.AUTOMATIC,
+      vertical ? Gtk.PolicyType.AUTOMATIC : Gtk.PolicyType.NEVER
+    );
+    // The panel is fixed-width (groups showing/hiding must not shift the
+    // canvas edge) and must not propagate its natural height, which would
+    // force the window taller than its tallest control set.
+    this.widget.set_propagate_natural_height(!vertical);
+    this.widget.set_size_request(vertical ? DOCK_WIDTH : -1, -1);
+    this.widget.set_child(this.build());
+    this.refresh();
+  }
+
   private build(): Gtk.Box {
-    const styleBar = new Gtk.Box({
-      orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 6,
-      margin_start: 12,
-      margin_end: 12,
-      margin_top: 4,
-      margin_bottom: 4,
-      // Fixed height so the bar always occupies the same space regardless
-      // of which groups are visible. Without this, hiding/showing groups
-      // resizes the canvas and shifts the image.
-      height_request: WIDTH_MAX + 4,
-    });
+    const vertical = this.vertical;
+    const styleBar = vertical
+      ? new Gtk.Box({
+          orientation: Gtk.Orientation.VERTICAL,
+          spacing: 6,
+          margin_start: 10,
+          margin_end: 10,
+          margin_top: 6,
+          margin_bottom: 10,
+        })
+      : new Gtk.Box({
+          orientation: Gtk.Orientation.HORIZONTAL,
+          spacing: 6,
+          margin_start: 12,
+          margin_end: 12,
+          margin_top: 4,
+          margin_bottom: 4,
+          // Fixed height so the bar always occupies the same space regardless
+          // of which groups are visible. Without this, hiding/showing groups
+          // resizes the canvas and shifts the image. (The vertical panel's
+          // counterpart is the fixed DOCK_WIDTH on the scroller.)
+          height_request: WIDTH_MAX + 4,
+        });
 
     const makeSep = (): Gtk.Separator =>
-      new Gtk.Separator({
-        orientation: Gtk.Orientation.VERTICAL,
-        margin_start: 8,
-        margin_end: 8,
-      });
+      vertical
+        ? new Gtk.Separator({
+            orientation: Gtk.Orientation.HORIZONTAL,
+            margin_top: 4,
+            margin_bottom: 4,
+          })
+        : new Gtk.Separator({
+            orientation: Gtk.Orientation.VERTICAL,
+            margin_start: 8,
+            margin_end: 8,
+          });
 
+    // Horizontal strip: one row of [separator, caption, controls].
     const makeGroup = (sep: Gtk.Separator, ...children: Gtk.Widget[]): Gtk.Box => {
       const g = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
       g.append(sep);
@@ -231,18 +319,61 @@ export class StyleBar {
       return g;
     };
 
+    // Vertical panel: every group is a column that starts with its separator
+    // (the first-visible-separator logic in refresh() relies on the separator
+    // living inside the group), so hiding a group hides its divider too.
+    const makeColumn = (sep: Gtk.Separator, ...rows: Gtk.Widget[]): Gtk.Box => {
+      const g = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 6});
+      g.append(sep);
+      for (const r of rows) g.append(r);
+      return g;
+    };
+
+    // Caption sharing a row with a compact control (swatch, switch, short
+    // dropdown, the align cluster): caption left, control at the right edge.
+    const makeRowGroup = (
+      sep: Gtk.Separator,
+      label: Gtk.Label,
+      ...controls: Gtk.Widget[]
+    ): Gtk.Box => {
+      if (!vertical) return makeGroup(sep, label, ...controls);
+      label.set_xalign(0);
+      label.set_hexpand(true);
+      const row = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
+      row.append(label);
+      for (const c of controls) row.append(c);
+      return makeColumn(sep, row);
+    };
+
+    // Caption heading full-width controls (sliders, the font dropdown):
+    // caption above, controls below spanning the panel width.
+    const makeStackGroup = (
+      sep: Gtk.Separator,
+      label: Gtk.Label,
+      ...controls: Gtk.Widget[]
+    ): Gtk.Box => {
+      if (!vertical) return makeGroup(sep, label, ...controls);
+      label.set_xalign(0);
+      return makeColumn(sep, label, ...controls);
+    };
+
     // Selection-actions menu — Duplicate + z-order behind one overflow button so
     // they don't crowd the bar. The keyboard shortcuts (Ctrl+D, Ctrl+[ / ] …)
     // still work directly. Leads the bar, left of the per-property controls.
+    // The panel has room for a labeled button; the strip stays icon-only.
     const actionsSep = makeSep();
-    const actionsMenu = new Gtk.MenuButton({
-      icon_name: 'view-more-symbolic',
-      tooltip_text: _('Selection actions'),
-      valign: Gtk.Align.CENTER,
-    });
-    labelFromTooltip(actionsMenu);
+    const actionsMenu = vertical
+      ? new Gtk.MenuButton({label: _('Selection actions')})
+      : new Gtk.MenuButton({
+          icon_name: 'view-more-symbolic',
+          tooltip_text: _('Selection actions'),
+          valign: Gtk.Align.CENTER,
+        });
+    if (!vertical) labelFromTooltip(actionsMenu);
     actionsMenu.set_popover(this.buildActionsPopover());
-    this.actionsGroup = makeGroup(actionsSep, actionsMenu);
+    this.actionsGroup = vertical
+      ? makeColumn(actionsSep, actionsMenu)
+      : makeGroup(actionsSep, actionsMenu);
     styleBar.append(this.actionsGroup);
 
     // Color group
@@ -251,7 +382,7 @@ export class StyleBar {
     this.colorSwatchSet = colorSwatch.setColor;
     this.colorLabel = new Gtk.Label({label: _('Color'), css_classes: ['caption']});
     setLabelledBy(colorSwatch.button, this.colorLabel);
-    this.colorGroup = makeGroup(colorSep, this.colorLabel, colorSwatch.button);
+    this.colorGroup = makeRowGroup(colorSep, this.colorLabel, colorSwatch.button);
     styleBar.append(this.colorGroup);
 
     // Fill group
@@ -260,7 +391,7 @@ export class StyleBar {
     this.fillSwatchSet = fillSwatch.setColor;
     this.fillLabel = new Gtk.Label({label: _('Fill'), css_classes: ['caption']});
     setLabelledBy(fillSwatch.button, this.fillLabel);
-    this.fillGroup = makeGroup(fillSep, this.fillLabel, fillSwatch.button);
+    this.fillGroup = makeRowGroup(fillSep, this.fillLabel, fillSwatch.button);
     styleBar.append(this.fillGroup);
 
     // Width group
@@ -277,6 +408,7 @@ export class StyleBar {
       draw_value: true,
       value_pos: Gtk.PositionType.RIGHT,
       width_request: 120,
+      hexpand: vertical,
     });
     this.widthScale.connect('value-changed', () => this.onWidthPicked());
     this.widthPreview = new Gtk.DrawingArea({
@@ -286,7 +418,15 @@ export class StyleBar {
     });
     this.widthPreview.set_draw_func((_w, cr, w, h) => this.drawWidthPreview(cr, w, h));
     this.widthLabel = new Gtk.Label({label: _('Width'), css_classes: ['caption']});
-    this.widthGroup = makeGroup(widthSep, this.widthLabel, this.widthScale, this.widthPreview);
+    if (vertical) {
+      // Slider and preview share one full-width row under the caption.
+      const widthRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
+      widthRow.append(this.widthScale);
+      widthRow.append(this.widthPreview);
+      this.widthGroup = makeStackGroup(widthSep, this.widthLabel, widthRow);
+    } else {
+      this.widthGroup = makeGroup(widthSep, this.widthLabel, this.widthScale, this.widthPreview);
+    }
     styleBar.append(this.widthGroup);
 
     // Dash group — selector index maps to DashStyle via DASH_ORDER below.
@@ -294,7 +434,7 @@ export class StyleBar {
     this.dashDropdown = Gtk.DropDown.new_from_strings([_('Solid'), _('Dashed'), _('Dotted')]);
     this.dashDropdown.connect('notify::selected', () => this.onDashPicked());
     this.dashLabel = new Gtk.Label({label: _('Line'), css_classes: ['caption']});
-    this.dashGroup = makeGroup(dashSep, this.dashLabel, this.dashDropdown);
+    this.dashGroup = makeRowGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
     // Corners group (rectangle only) — slider over the corner radius (px).
@@ -311,10 +451,11 @@ export class StyleBar {
       draw_value: true,
       value_pos: Gtk.PositionType.RIGHT,
       width_request: 120,
+      hexpand: vertical,
     });
     this.cornerScale.connect('value-changed', () => this.onCornerRadiusPicked());
     this.cornerLabel = new Gtk.Label({label: _('Corners'), css_classes: ['caption']});
-    this.cornerGroup = makeGroup(cornerSep, this.cornerLabel, this.cornerScale);
+    this.cornerGroup = makeStackGroup(cornerSep, this.cornerLabel, this.cornerScale);
     styleBar.append(this.cornerGroup);
 
     // Callout group (selected rect/oval only) — a switch toggling the pointer
@@ -324,7 +465,7 @@ export class StyleBar {
     this.tailSwitch = new Gtk.Switch({valign: Gtk.Align.CENTER});
     this.tailSwitch.connect('notify::active', () => this.onTailPicked());
     this.tailLabel = new Gtk.Label({label: _('Callout'), css_classes: ['caption']});
-    this.tailGroup = makeGroup(tailSep, this.tailLabel, this.tailSwitch);
+    this.tailGroup = makeRowGroup(tailSep, this.tailLabel, this.tailSwitch);
     styleBar.append(this.tailGroup);
 
     // Arrowhead group (arrow only) — row 0 = open, row 1 = filled.
@@ -332,7 +473,11 @@ export class StyleBar {
     this.filledHeadDropdown = Gtk.DropDown.new_from_strings([_('Open'), _('Filled')]);
     this.filledHeadDropdown.connect('notify::selected', () => this.onFilledHeadPicked());
     this.filledHeadLabel = new Gtk.Label({label: _('Arrowhead'), css_classes: ['caption']});
-    this.filledHeadGroup = makeGroup(filledHeadSep, this.filledHeadLabel, this.filledHeadDropdown);
+    this.filledHeadGroup = makeRowGroup(
+      filledHeadSep,
+      this.filledHeadLabel,
+      this.filledHeadDropdown
+    );
     styleBar.append(this.filledHeadGroup);
 
     // Group selector (stamp). Rows are filled in refresh() from the canvas's
@@ -342,7 +487,7 @@ export class StyleBar {
     this.groupDropdown = new Gtk.DropDown({model: this.groupModel});
     this.groupDropdown.connect('notify::selected', () => this.onGroupPicked());
     this.groupLabel = new Gtk.Label({label: _('Group'), css_classes: ['caption']});
-    this.groupGroup = makeGroup(groupSep, this.groupLabel, this.groupDropdown);
+    this.groupGroup = makeRowGroup(groupSep, this.groupLabel, this.groupDropdown);
     styleBar.append(this.groupGroup);
 
     // Variant group
@@ -350,7 +495,7 @@ export class StyleBar {
     this.variantDropdown = Gtk.DropDown.new_from_strings([_('Number'), _('Letter')]);
     this.variantDropdown.connect('notify::selected', () => this.onVariantPicked());
     this.variantLabel = new Gtk.Label({label: _('Variant'), css_classes: ['caption']});
-    this.variantGroup = makeGroup(variantSep, this.variantLabel, this.variantDropdown);
+    this.variantGroup = makeRowGroup(variantSep, this.variantLabel, this.variantDropdown);
     styleBar.append(this.variantGroup);
 
     // Text color group — the getTextColor channel (a text's glyphs, or the text
@@ -360,13 +505,19 @@ export class StyleBar {
     this.textColorSwatchSet = textColorSwatch.setColor;
     this.textColorLabel = new Gtk.Label({label: _('Text color'), css_classes: ['caption']});
     setLabelledBy(textColorSwatch.button, this.textColorLabel);
-    this.textColorGroup = makeGroup(textColorSep, this.textColorLabel, textColorSwatch.button);
+    this.textColorGroup = makeRowGroup(textColorSep, this.textColorLabel, textColorSwatch.button);
     styleBar.append(this.textColorGroup);
 
     // Font group (family + size).
     const fontSep = makeSep();
     this.fontModel = [...getAvailableFonts()];
     this.fontDropdown = Gtk.DropDown.new_from_strings(this.fontModel.map((f) => f.label));
+    // Popup rows keep the stock factory (moved to the list slot before the
+    // button slot is replaced): full names, and the popover may outgrow the
+    // button. The button's label ellipsizes in both layouts so a long
+    // selected family can't force the dock wider or hog the strip.
+    this.fontDropdown.set_list_factory(this.fontDropdown.get_factory());
+    this.fontDropdown.set_factory(ellipsizingFactory());
     this.fontDropdown.connect('notify::selected', () => this.onFontDescPicked());
     this.fontSizeSpinner = new Gtk.SpinButton({
       adjustment: new Gtk.Adjustment({
@@ -384,15 +535,27 @@ export class StyleBar {
     this.fontSizeLabel = new Gtk.Label({
       label: _('Size'),
       css_classes: ['caption'],
-      margin_start: 6,
+      margin_start: vertical ? 0 : 6,
     });
-    this.fontGroup = makeGroup(
-      fontSep,
-      this.fontLabel,
-      this.fontDropdown,
-      this.fontSizeLabel,
-      this.fontSizeSpinner
-    );
+    if (vertical) {
+      // Family dropdown full-width under the Font caption; Size gets its own
+      // caption-left row beneath it.
+      this.fontDropdown.set_hexpand(true);
+      this.fontSizeLabel.set_xalign(0);
+      this.fontSizeLabel.set_hexpand(true);
+      const sizeRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
+      sizeRow.append(this.fontSizeLabel);
+      sizeRow.append(this.fontSizeSpinner);
+      this.fontGroup = makeStackGroup(fontSep, this.fontLabel, this.fontDropdown, sizeRow);
+    } else {
+      this.fontGroup = makeGroup(
+        fontSep,
+        this.fontLabel,
+        this.fontDropdown,
+        this.fontSizeLabel,
+        this.fontSizeSpinner
+      );
+    }
     styleBar.append(this.fontGroup);
 
     // Align group (shape text only) — L/C/R radio cluster.
@@ -419,7 +582,7 @@ export class StyleBar {
     alignBox.append(center);
     alignBox.append(right);
     this.alignLabel = new Gtk.Label({label: _('Align'), css_classes: ['caption']});
-    this.alignGroup = makeGroup(alignSep, this.alignLabel, alignBox);
+    this.alignGroup = makeRowGroup(alignSep, this.alignLabel, alignBox);
     styleBar.append(this.alignGroup);
 
     this.styleGroupOrder = [
@@ -457,7 +620,7 @@ export class StyleBar {
 
   // The selection-actions overflow popover: Add/Edit text (lone rect/oval only),
   // Duplicate, and the four z-order moves — each closing the popover after
-  // acting. A footnote flags the stamp-renumber side effect.
+  // acting. A footnote flags the stamp-renumber side effect when it applies.
   private buildActionsPopover(): Gtk.Popover {
     const box = new Gtk.Box({
       orientation: Gtk.Orientation.VERTICAL,
@@ -508,16 +671,15 @@ export class StyleBar {
     row(_('Bring forward (Ctrl+])'), () => this.canvas.reorderSelected('raise'));
     row(_('Send backward (Ctrl+[)'), () => this.canvas.reorderSelected('lower'));
     row(_('Send to back (Ctrl+Shift+[)'), () => this.canvas.reorderSelected('back'));
-    box.append(
-      new Gtk.Label({
-        label: _('Stamps renumber within their group.'),
-        css_classes: ['caption', 'dim-label'],
-        xalign: 0,
-        wrap: true,
-        max_width_chars: 26,
-        margin_top: 4,
-      })
-    );
+    this.renumberNote = new Gtk.Label({
+      label: _('Stamps renumber within their group.'),
+      css_classes: ['caption', 'dim-label'],
+      xalign: 0,
+      wrap: true,
+      max_width_chars: 26,
+      margin_top: 4,
+    });
+    box.append(this.renumberNote);
     return popover;
   }
 
@@ -857,7 +1019,8 @@ export class StyleBar {
     this.refreshTextControls();
 
     // Hide the leading separator on the first visible group so there's no
-    // orphan divider at the left edge.
+    // orphan divider at the bar's leading edge (left of the strip, top of the
+    // panel).
     let firstVisible = true;
     for (const {group, sep} of this.styleGroupOrder) {
       if (group.get_visible()) {
@@ -919,10 +1082,11 @@ export class StyleBar {
     setCaption(this.alignLabel, _('Align'), alignMixed);
   }
 
-  // The two type-specific rows of the selection-actions menu: Add/Edit text for
-  // a lone rect/oval (its label reflecting whether the shape already has text),
-  // and Straighten when the selection holds a bent segment. Their shared
-  // separator shows whenever either row does.
+  // The selection-dependent parts of the selection-actions menu: Add/Edit text
+  // for a lone rect/oval (its label reflecting whether the shape already has
+  // text), Straighten when the selection holds a bent segment (their shared
+  // separator shows whenever either row does), and the renumber footnote when
+  // the selection holds a number stamp.
   private refreshTypedActions(selectAction: boolean): void {
     const sel = this.canvas.getSelectedActions();
     const loneShape = selectAction && sel.length === 1 && isShapeAction(sel[0]);
@@ -934,6 +1098,8 @@ export class StyleBar {
     const curved = selectAction && sel.some((a) => a.getCurve() === true);
     this.straightenBtn.set_visible(curved);
     this.typedActionsSep.set_visible(loneShape || curved);
+    const hasStamp = selectAction && sel.some((a) => numberStampGroup(a) !== null);
+    this.renumberNote.set_visible(hasStamp);
   }
 
   // The Group selector and per-group Variant control (both number-stamp only).

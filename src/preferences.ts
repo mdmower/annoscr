@@ -2,7 +2,13 @@ import Gio from 'gi://Gio?version=2.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
 
-import {ColorScheme, UndoMemory, getSettings, updateSettings} from './settings.js';
+import {
+  ColorScheme,
+  StyleBarPosition,
+  UndoMemory,
+  getSettings,
+  updateSettings,
+} from './settings.js';
 import {TOOLS} from './window_constants.js';
 import {labelFromTooltip} from './a11y.js';
 import {_, N_, formatN} from './i18n.js';
@@ -11,6 +17,9 @@ import {RECENT_LIMIT} from './recent_files.js';
 const COLOR_SCHEMES: ColorScheme[] = ['system', 'light', 'dark'];
 // N_-marked (module-level); translated at dialog-build time with _() below.
 const COLOR_SCHEME_LABELS = [N_('Follow system'), N_('Light'), N_('Dark')];
+
+const STYLE_BAR_POSITIONS: StyleBarPosition[] = ['top', 'bottom', 'left', 'right'];
+const STYLE_BAR_POSITION_LABELS = [N_('Top'), N_('Bottom'), N_('Left'), N_('Right')];
 
 // Row order ↔ preset mapping for the undo-memory ComboRow. Labels are the bare
 // sizes (mirroring settings.undoMemoryBytes) — friendly names made the
@@ -44,6 +53,8 @@ export interface PreferencesCallbacks {
   // Recent-file remembering was switched on or off; the caller shows or hides
   // the strip and its toggle.
   onRecentFilesChanged?: () => void;
+  // The style-bar dock edge changed; the caller re-docks the bar.
+  onStyleBarPositionChanged?: () => void;
 }
 
 export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCallbacks): void {
@@ -65,6 +76,18 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
     updateSettings({colorScheme: scheme});
   });
   appearance.add(schemeRow);
+  const styleBarRow = new Adw.ComboRow({
+    title: _('Style bar position'),
+    subtitle: _('Window edge where the style controls dock'),
+    model: Gtk.StringList.new(STYLE_BAR_POSITION_LABELS.map((l) => _(l))),
+    selected: Math.max(0, STYLE_BAR_POSITIONS.indexOf(s.styleBarPosition)),
+  });
+  styleBarRow.connect('notify::selected', () => {
+    const pos = STYLE_BAR_POSITIONS[styleBarRow.get_selected()] ?? 'top';
+    updateSettings({styleBarPosition: pos});
+    callbacks?.onStyleBarPositionChanged?.();
+  });
+  appearance.add(styleBarRow);
   page.add(appearance);
 
   // Tools

@@ -33,7 +33,13 @@ import {
   parseDocument,
   serializeDocument,
 } from './document.js';
-import {AnnoscrSettings, getSettings, undoMemoryBytes, updateSettings} from './settings.js';
+import {
+  AnnoscrSettings,
+  StyleBarPosition,
+  getSettings,
+  undoMemoryBytes,
+  updateSettings,
+} from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
 import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
@@ -92,9 +98,17 @@ export const AnnoscrWindow = GObject.registerClass(
     // that's no longer "this document".
     private currentDocPath: string | null = null;
     // The collaborators the window builds and wires together. Each owns one
-    // region of the shell: the top style-picker bar, the scrolled view plus
-    // bottom zoom bar, and the tool selector plus resize toolbar.
+    // region of the shell: the dockable style-picker bar, the scrolled view
+    // plus bottom zoom bar, and the tool selector plus resize toolbar.
     private styleBar!: StyleBar;
+    // The four dock slots the style bar moves between (two ToolbarView bars,
+    // two sides of the content box); applyStyleBarPosition parents the bar
+    // into one and shows only that slot. The side slots keep a permanent
+    // separator on their canvas edge.
+    private styleTopSlot!: Gtk.Box;
+    private styleBottomSlot!: Gtk.Box;
+    private styleStartSlot!: Gtk.Box;
+    private styleEndSlot!: Gtk.Box;
     private zoom!: ZoomController;
     private toolbar!: ToolBar;
     private toastOverlay!: Adw.ToastOverlay;
@@ -371,6 +385,8 @@ export const AnnoscrWindow = GObject.registerClass(
 
       this.stack = new Gtk.Stack({
         transition_type: Gtk.StackTransitionType.CROSSFADE,
+        // Takes the width a side-docked style bar leaves in the content box.
+        hexpand: true,
       });
       this.stack.add_named(empty, 'empty');
       this.stack.add_named(viewOverlay, 'canvas');
@@ -387,16 +403,30 @@ export const AnnoscrWindow = GObject.registerClass(
       const statusBar = this.zoom.getStatusBar();
       this.zoom.setStatusCenterWidget(this.buildRecentToggle());
 
+      this.styleTopSlot = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, visible: false});
+      this.styleBottomSlot = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, visible: false});
+      this.styleStartSlot = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, visible: false});
+      this.styleStartSlot.append(new Gtk.Separator({orientation: Gtk.Orientation.VERTICAL}));
+      this.styleEndSlot = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, visible: false});
+      this.styleEndSlot.append(new Gtk.Separator({orientation: Gtk.Orientation.VERTICAL}));
+
+      const contentBox = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL});
+      contentBox.append(this.styleStartSlot);
+      contentBox.append(this.stack);
+      contentBox.append(this.styleEndSlot);
+
       const toolbar = new Adw.ToolbarView();
       toolbar.add_top_bar(header);
-      toolbar.add_top_bar(this.styleBar.getWidget());
-      toolbar.set_content(this.stack);
+      toolbar.add_top_bar(this.styleTopSlot);
+      toolbar.set_content(contentBox);
+      // Bottom bars stack downward in the order they're added: a bottom-docked
+      // style bar sits just above the status bar, the strip below it.
+      toolbar.add_bottom_bar(this.styleBottomSlot);
       toolbar.add_bottom_bar(statusBar);
-      // Bottom bars stack downward in the order they're added, so the strip
-      // lands below the status bar.
       toolbar.add_bottom_bar(this.recentStrip.getWidget());
       this.toastOverlay = new Adw.ToastOverlay({child: toolbar});
       this.set_content(this.toastOverlay);
+      this.applyStyleBarPosition(settings.styleBarPosition);
 
       this.canvas.setStateChangeHandler(() => {
         this.zoom.refresh();
@@ -513,6 +543,36 @@ export const AnnoscrWindow = GObject.registerClass(
       if (s.rememberToolStyles && s.toolStyles) this.canvas.importToolStyles(s.toolStyles);
     }
 
+    // Dock the style bar on the window edge `pos` names: reparent it into
+    // that slot (rebuilt vertical for the side docks) and show only that
+    // slot. Applied at startup and live on a preference change.
+    private applyStyleBarPosition(pos: StyleBarPosition): void {
+      const bar = this.styleBar.getWidget();
+      const parent = bar.get_parent();
+      if (parent instanceof Gtk.Box) parent.remove(bar);
+      this.styleBar.setVertical(pos === 'left' || pos === 'right');
+      this.styleTopSlot.set_visible(pos === 'top');
+      this.styleBottomSlot.set_visible(pos === 'bottom');
+      this.styleStartSlot.set_visible(pos === 'left');
+      this.styleEndSlot.set_visible(pos === 'right');
+      switch (pos) {
+        case 'top':
+          this.styleTopSlot.append(bar);
+          break;
+        case 'bottom':
+          this.styleBottomSlot.append(bar);
+          break;
+        case 'left':
+          // Ahead of the slot's permanent separator, which sits on the
+          // canvas edge.
+          this.styleStartSlot.prepend(bar);
+          break;
+        case 'right':
+          this.styleEndSlot.append(bar);
+          break;
+      }
+    }
+
     // Push the undo-memory preference into the canvas as a byte budget.
     // Applied at startup and again whenever the preference changes.
     private applyUndoMemory(): void {
@@ -553,6 +613,8 @@ export const AnnoscrWindow = GObject.registerClass(
           },
           onUndoMemoryChanged: () => this.applyUndoMemory(),
           onRecentFilesChanged: () => this.onRecentPreferenceChanged(),
+          onStyleBarPositionChanged: () =>
+            this.applyStyleBarPosition(getSettings().styleBarPosition),
         })
       );
       add('shortcuts', () => presentShortcuts(this));

@@ -31,6 +31,10 @@ const TOOL_ID_SET = new Set<string>(TOOL_IDS);
 
 export type ColorScheme = 'system' | 'light' | 'dark';
 
+// Which window edge the style bar docks to. Top/bottom share the horizontal
+// bar layout; left/right use the vertical properties-panel layout.
+export type StyleBarPosition = 'top' | 'bottom' | 'left' | 'right';
+
 // Pixel-memory budget preset for canvas undo history (the surfaces rotate /
 // canvas-resize snapshots pin; see CanvasView's surface cap).
 export type UndoMemory = 'low' | 'normal' | 'high' | 'unlimited';
@@ -80,6 +84,7 @@ export interface ToolStylesSnapshot {
 
 export interface AnnoscrSettings {
   colorScheme: ColorScheme;
+  styleBarPosition: StyleBarPosition;
   // The tool active when the app starts. Any palette tool; 'resize' is a mode
   // with its own Apply/Cancel bar, not a palette tool, so it's excluded.
   // Loading another image mid-session keeps whatever tool is current.
@@ -126,6 +131,7 @@ export interface AnnoscrSettings {
 
 const DEFAULTS: AnnoscrSettings = {
   colorScheme: 'system',
+  styleBarPosition: 'top',
   defaultTool: 'pen',
   rememberToolStyles: true,
   defaultSaveFolder: '',
@@ -174,6 +180,12 @@ function asStringArray(v: unknown): string[] | undefined {
 
 function asColorScheme(v: unknown): ColorScheme {
   return v === 'light' || v === 'dark' || v === 'system' ? v : DEFAULTS.colorScheme;
+}
+
+function asStyleBarPosition(v: unknown): StyleBarPosition {
+  return v === 'top' || v === 'bottom' || v === 'left' || v === 'right'
+    ? v
+    : DEFAULTS.styleBarPosition;
 }
 
 function asDefaultTool(v: unknown): ToolId {
@@ -242,6 +254,7 @@ function sanitize(raw: unknown): AnnoscrSettings {
   if (!isRecord(raw)) return {...DEFAULTS};
   const out: AnnoscrSettings = {
     colorScheme: asColorScheme(raw.colorScheme),
+    styleBarPosition: asStyleBarPosition(raw.styleBarPosition),
     defaultTool: asDefaultTool(raw.defaultTool),
     rememberToolStyles: asBool(raw.rememberToolStyles) ?? DEFAULTS.rememberToolStyles,
     defaultSaveFolder: asString(raw.defaultSaveFolder) ?? DEFAULTS.defaultSaveFolder,
