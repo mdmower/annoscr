@@ -59,8 +59,8 @@ function setCaption(label: Gtk.Label, base: string, mixed: boolean): void {
 }
 
 // Paint a color swatch: a checkerboard (so transparency reads as such) with the
-// color over it and a hairline border, matching the look of the stock color
-// button we replaced.
+// color over it and a hairline border, matching the look of a stock GTK color
+// button.
 function drawSwatch(cr: Cairo.Context, w: number, h: number, color: ColorRGBA): void {
   const cell = 5;
   cr.setSourceRGB(0.85, 0.85, 0.85);
@@ -142,10 +142,10 @@ export class StyleBar {
   // Select-mode actions (Duplicate + z-order) behind one overflow menu, so they
   // don't crowd the bar. Visible only when the select tool has a selection.
   private actionsGroup!: Gtk.Box;
-  // Select-mode action: opens the box editor on a lone selected rect/oval —
-  // "Add text" when empty, "Edit text" when it already has text.
-  // Add/Edit-text lives as a row in the selection-actions menu (below). Refs so
-  // refresh can show it (lone rect/oval only) and relabel it (Add vs Edit).
+  // Select-mode action (a row in the selection-actions menu): opens the box
+  // editor on a lone selected rect/oval. Both refs are held so refresh can show
+  // the row for that selection only and relabel it "Add text" / "Edit text"
+  // depending on whether the shape already has any.
   private addTextBtn!: Gtk.Button;
   private addTextLabel!: Gtk.Label;
   // Select-mode action: drops the bend from selected curved line/arrow segments.

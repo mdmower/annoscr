@@ -57,8 +57,8 @@ export function undoMemoryBytes(m: UndoMemory): number | null {
 // future change to a tool's static default still wins for untouched tools.
 export interface ToolStyleEntry {
   color?: ColorRGBA;
-  // Text-foreground color (the getTextColor channel). Only the text tool writes
-  // it today.
+  // Text-foreground color (the getTextColor channel). Written by the text tool
+  // and by the shape tools, which reuse it for a shape's embedded text.
   textColor?: ColorRGBA;
   width?: number;
   fill?: ColorRGBA;

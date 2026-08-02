@@ -127,11 +127,11 @@ export interface Action {
   getCurve(): boolean | null;
   withCurve(on: boolean): Action;
   // The action's editable font family (Pango font description string), or
-  // null for actions that don't carry one. Only TextAction does today.
+  // null for actions that don't carry one. Only TextAction does.
   getFontDesc(): string | null;
   withFontDesc(fontDesc: string): Action;
   // The action's editable font size in image-space pixels, or null for
-  // actions that don't carry one. Only TextAction does today.
+  // actions that don't carry one. Only TextAction does.
   getFontSize(): number | null;
   withFontSize(size: number): Action;
   // The action's text alignment (left / center / right), or null for actions
@@ -522,7 +522,7 @@ function pangoAlignment(align: TextAlign): Pango.Alignment {
 
 // Text background plate geometry (image-space px). Corner radius is a small
 // constant ("slightly rounded"); padding scales with the font so the plate
-// stays proportional. Starting values — tune in testing.
+// stays proportional.
 const TEXT_BG_RADIUS = 6;
 const TEXT_BG_PAD_RATIO = 0.25;
 
@@ -548,8 +548,9 @@ export function defaultColorForTool(toolId: ToolId): ColorRGBA {
 }
 
 // Default per-tool text-foreground color (the getTextColor channel). Only the
-// text tool carries one today; other tools return null and the "Text color"
-// control hides accordingly. (Shapes gain an embedded-text color later.)
+// text tool carries one; other tools return null and the "Text color" control
+// hides accordingly. A shape's embedded text seeds its color from the shape
+// tool's remembered style instead (rememberedShapeTextStyle in canvas_view.ts).
 export function defaultTextColorForTool(toolId: ToolId): ColorRGBA | null {
   return toolId === 'text' ? TEXT_STYLE.color : null;
 }
@@ -615,9 +616,9 @@ export function defaultFontDescForTool(toolId: ToolId): string | null {
   return null;
 }
 
-// Default per-tool font size (image-space pixels). Only the text tool has
-// an editable font size today; everything else returns null and the font
-// size picker hides accordingly.
+// Default per-tool font size (image-space pixels). Only the text tool has an
+// editable font size; everything else returns null and the font size picker
+// hides accordingly.
 export function defaultFontSizeForTool(toolId: ToolId): number | null {
   if (toolId === 'text') return TEXT_STYLE.size;
   return null;
@@ -1757,7 +1758,7 @@ abstract class TwoEndpointAction extends BaseAction {
 // Shared base for the two segment shapes, which can each be bent into a
 // quadratic Bezier by dragging a third handle at the control point. A null
 // curve is a plain straight segment, so the handle sits on the midpoint and the
-// shapes behave exactly as before until it's dragged. Subclasses supply their
+// shape draws as a plain segment until it's dragged. Subclasses supply their
 // own draw plus a `makeCurved` constructor, so rebuild() re-threads the curve
 // through every with*/translate/rotate path.
 abstract class CurvableLineAction extends TwoEndpointAction {
@@ -2119,8 +2120,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     style: Style,
     protected readonly fill: ColorRGBA,
     protected readonly rotation: number,
-    // Optional centered text inside the box. Defaults to none so existing
-    // call sites (live strokes, plain placement) are unaffected.
+    // Optional centered text inside the box. Defaults to none, so live strokes
+    // and plain placement build a textless shape.
     protected readonly text: ShapeText = EMPTY_SHAPE_TEXT,
     // Optional callout tail (tip offset from center, local frame); see
     // TailOffset. Defaults to none, like text.
@@ -3087,7 +3088,7 @@ export function defaultFilledHeadForTool(toolId: ToolId): boolean | null {
 // The tool that produces an action of this type, so a select-mode style edit can
 // be written back to the matching tool's default. StrokeAction carries its
 // own pen/highlighter tag; the rest map by concrete class. Null for any action
-// with no single originating tool (none today).
+// with no single originating tool.
 export function actionToolId(action: Action): ToolId | null {
   if (action instanceof StrokeAction) return action.toolId();
   if (action instanceof LineAction) return 'line';

@@ -476,7 +476,7 @@ export const CanvasView = GObject.registerClass(
     private toolColors: Map<ToolId, ColorRGBA> = new Map();
 
     // Per-tool current text-foreground color (the getTextColor channel). Only
-    // the text tool has one today; other tools never get an entry.
+    // the text tool has one; other tools never get an entry.
     private toolTextColors: Map<ToolId, ColorRGBA> = new Map();
 
     // Per-tool current stroke/outline width. Same lifetime story as
@@ -512,12 +512,12 @@ export const CanvasView = GObject.registerClass(
     private groupVariants: Map<number, StampVariant> = new Map();
     private defaultStampVariant: StampVariant = DEFAULT_STAMP_VARIANT;
 
-    // Per-tool current font description. Only 'text' has an entry today;
-    // other tools have no editable font and return null from getToolFontDesc.
+    // Per-tool current font description. Only 'text' has an entry; other tools
+    // have no editable font and return null from getToolFontDesc.
     private toolFontDescs: Map<ToolId, string> = new Map();
 
     // Per-tool current font size (image-space pixels). Only 'text' has an
-    // entry today; other tools return null from getToolFontSize.
+    // entry; other tools return null from getToolFontSize.
     private toolFontSizes: Map<ToolId, number> = new Map();
 
     // Per-tool remembered number-stamp radius (image-space pixels). Only
@@ -2923,13 +2923,10 @@ export const CanvasView = GObject.registerClass(
       this.openTextEditor(selHit >= 0 ? selHit : this.resolveCandidate(ix, iy));
     }
 
-    // Open the floating editor on the text action at `idx`, hiding it from the
-    // canvas while the live editor stands in. No-op (returns false) unless the
-    // index is a valid text action. Shared by double-click and the Enter
-    // shortcut.
     // Open the floating editor on the action at `idx` — a standalone TextAction
     // or a box shape's embedded text. Hides the action from the canvas while the
-    // live editor stands in. No-op (false) for any other action type.
+    // live editor stands in. No-op (false) for any other action type. Shared by
+    // double-click, the Enter shortcut, and the style bar's Add/Edit text.
     private openTextEditor(idx: number): boolean {
       if (idx < 0 || idx >= this.state.actions.length) return false;
       const action = this.state.actions[idx];

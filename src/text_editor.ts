@@ -122,8 +122,9 @@ export interface TextEditorStyle {
   fontDesc: string;
   size: number; // image-space pixels (font height)
   // Background plate color committed onto the TextAction (alpha 0 = none).
-  // Carried through the edit so the Fill picker round-trips; v1 doesn't render
-  // it inside the editor frame.
+  // Carried through the edit so the Fill picker round-trips; the editor frame
+  // deliberately doesn't preview it (the frame is wider than the text, so a
+  // plate drawn behind the view would misrepresent the committed one).
   bg: ColorRGBA;
   // Horizontal alignment. Only meaningful for shape (box-mode) text — previewed
   // via the TextView's justification and committed onto the shape; standalone

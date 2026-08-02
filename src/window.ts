@@ -90,15 +90,15 @@ export const AnnoscrWindow = GObject.registerClass(
     // plain image replaces the canvas (open/blank/paste/drop/screenshot), since
     // that's no longer "this document".
     private currentDocPath: string | null = null;
-    // Constructed in the constructor; owns the top style-picker bar.
+    // The collaborators the window builds and wires together. Each owns one
+    // region of the shell: the top style-picker bar, the scrolled view plus
+    // bottom zoom bar, and the tool selector plus resize toolbar.
     private styleBar!: StyleBar;
-    // Constructed in the constructor; owns the scrolled view + bottom zoom bar.
     private zoom!: ZoomController;
-    // Constructed in the constructor; owns the tool selector + resize toolbar.
     private toolbar!: ToolBar;
     private toastOverlay!: Adw.ToastOverlay;
-    // Constructed in the constructor; owns the recent-files strip below the
-    // status bar and the status-bar button that shows/hides it.
+    // The recent-files strip below the status bar, and the status-bar button
+    // that shows/hides it.
     private recentStrip!: RecentStrip;
     private recentToggle!: Gtk.ToggleButton;
     private recentToggleIcon!: Adw.ButtonContent;
