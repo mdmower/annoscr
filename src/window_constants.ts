@@ -30,6 +30,11 @@ const WINDOW_CSS = `
   .annoscr-recent-item {
     padding: 2px;
   }
+  .annoscr-recent-drop {
+    background-color: alpha(@accent_color, 0.12);
+    outline: 2px dashed @accent_color;
+    outline-offset: -3px;
+  }
   .annoscr-recent-badge {
     background-color: alpha(@window_bg_color, 0.8);
     border-radius: 5px;

@@ -18,7 +18,9 @@ interface Section {
   items: Shortcut[];
 }
 
-// Mirrors the bindings wired in window.ts (installShortcuts + the menu accels).
+// Mirrors the bindings wired in window.ts (installShortcuts + the menu accels)
+// and, for the Recent files section, the per-thumbnail controller in
+// recent_strip.ts.
 // Kept in sync by hand — there's no single source of truth for accelerators yet.
 // Section titles + descriptions are N_-marked (this table is built at module
 // load, pre-init); presentShortcuts translates them with _() at display time.
@@ -29,6 +31,7 @@ const SECTIONS: Section[] = [
     items: [
       {keys: ['Ctrl', 'N'], desc: N_('New blank canvas')},
       {keys: ['Ctrl', 'O'], desc: N_('Open image')},
+      {keys: ['Insert'], desc: N_('Add to recent files without opening')},
       {keys: ['Ctrl', 'Shift', 'S'], desc: N_('Take screenshot')},
       {keys: ['Ctrl', 'S'], desc: N_('Save image')},
       {keys: ['Ctrl', 'C'], desc: N_('Copy to clipboard')},
@@ -100,6 +103,15 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', '-'], desc: N_('Zoom out')},
       {keys: ['Ctrl', 'Scroll'], desc: N_('Zoom at the pointer')},
       {keys: ['Arrow keys'], desc: N_('Pan the canvas (when nothing is selected)')},
+    ],
+  },
+  {
+    title: N_('Recent files'),
+    description: N_('While a thumbnail in the strip has focus.'),
+    items: [
+      {keys: ['Delete'], alt: ['Backspace'], desc: N_('Forget the focused file')},
+      {keys: ['Ctrl', 'Alt', 'O'], desc: N_('Show the focused file in Files')},
+      {keys: ['Menu'], alt: ['Shift', 'F10'], desc: N_('Open the thumbnail menu')},
     ],
   },
   {

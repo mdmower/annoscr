@@ -6,11 +6,12 @@ import GObject from 'gi://GObject?version=2.0';
 import Gtk from 'gi://Gtk?version=4.0';
 
 import {setAccessibleLabel} from './a11y.js';
-import {TAG_IMAGE, TAG_THUMBNAIL} from './document.js';
+import {DOC_PATTERN, TAG_IMAGE, TAG_THUMBNAIL, isDocumentName} from './document.js';
 import {NotContainerError, readChunkFromFile} from './document_container.js';
 import {_} from './i18n.js';
-import {RecentEntry, forgetRecentFile, getRecentFiles} from './recent_files.js';
+import {RecentEntry, forgetRecentFile, getRecentFiles, rememberAddedFiles} from './recent_files.js';
 import {isRecord} from './validators.js';
+import {IMAGE_MIME_TYPES} from './window_constants.js';
 
 // A horizontally scrolling list of recently opened files. Gtk.ListView recycles
 // item widgets, so only visible thumbnails are ever realized and a long list
@@ -176,6 +177,20 @@ async function legacyPreviewBytes(
   return GLib.base64_decode(image.data);
 }
 
+// Classify a file offered to the list: an annotation document by extension,
+// anything else by the content type its name implies. Null means it can't be
+// listed - a folder, a file Annoscr can't annotate, or a remote URI with no
+// local path to reopen from. Name-only, so a drop of many files costs no I/O;
+// a file that turns out to be undecodable still gets its placeholder later,
+// exactly as a listed file whose contents changed does.
+function listableEntry(file: Gio.File): RecentEntry | null {
+  const path = file.get_path();
+  if (path === null) return null;
+  if (isDocumentName(path)) return {path, kind: 'document'};
+  const [type] = Gio.content_type_guess(path, null);
+  return type.startsWith('image/') ? {path, kind: 'image'} : null;
+}
+
 async function documentImageStream(
   file: Gio.File,
   cancellable: Gio.Cancellable
@@ -191,6 +206,7 @@ export class RecentStrip {
   private readonly store: Gio.ListStore;
   private readonly listView: Gtk.ListView;
   private readonly onOpen: (entry: RecentEntry) => void;
+  private readonly onNotify: (message: string) => void;
   // Thumbnails decoded this session. Nothing is cached on disk; this only stops
   // scrolling back and forth from decoding the same file twice.
   private readonly textures = new Map<string, Gdk.Texture>();
@@ -199,8 +215,9 @@ export class RecentStrip {
   private readonly factory: Gtk.SignalListItemFactory;
   private factoryHandlers: number[];
 
-  constructor(onOpen: (entry: RecentEntry) => void) {
+  constructor(onOpen: (entry: RecentEntry) => void, onNotify: (message: string) => void) {
     this.onOpen = onOpen;
+    this.onNotify = onNotify;
     this.store = new Gio.ListStore({item_type: RecentItem.$gtype});
 
     const factory = new Gtk.SignalListItemFactory();
@@ -238,7 +255,7 @@ export class RecentStrip {
     });
 
     const empty = new Gtk.Label({
-      label: _('Files you open will appear here'),
+      label: _('Files you open will appear here. Drop files or press Insert to add them.'),
       css_classes: ['dim-label', 'caption'],
       // Matches the populated strip's height so toggling the list open doesn't
       // resize the window's content area.
@@ -262,7 +279,108 @@ export class RecentStrip {
     this.actions.add_action(forget);
     this.stack.insert_action_group('recent', this.actions);
 
+    this.installDropTarget();
     this.refresh();
+  }
+
+  // Files dropped on the strip are listed, not opened: this is how a set of
+  // screenshots gets staged for annotating one at a time, without disturbing
+  // whatever is on the canvas. The window's own drop target still opens a file
+  // dropped anywhere else; this one sits deeper in the widget tree, so it takes
+  // the drop before that one sees it.
+  private installDropTarget(): void {
+    // GdkFileList rather than GFile, which carries only the first of a
+    // multi-file drag. A single file arrives as a one-entry list, and a source
+    // offering a plain GFile still advertises text/uri-list, which GDK
+    // deserializes to this - so one type covers every file drag.
+    const target = Gtk.DropTarget.new(Gdk.FileList.$gtype, Gdk.DragAction.COPY);
+    target.connect('drop', (_t, value: unknown) => this.onDrop(value));
+    target.connect('enter', () => {
+      this.setDropHighlight(true);
+      return Gdk.DragAction.COPY;
+    });
+    target.connect('leave', () => this.setDropHighlight(false));
+    this.stack.add_controller(target);
+  }
+
+  private setDropHighlight(on: boolean): void {
+    if (on) this.stack.add_css_class('annoscr-recent-drop');
+    else this.stack.remove_css_class('annoscr-recent-drop');
+  }
+
+  private onDrop(value: unknown): boolean {
+    this.setDropHighlight(false);
+    if (!(value instanceof Gdk.FileList)) return false;
+    this.addFiles(value.get_files());
+    return true;
+  }
+
+  // List files without opening any - the tail shared by the two ways files are
+  // staged, a drop on the strip and the Add dialog. Reports whether the list
+  // actually grew, which the caller uses to reveal a collapsed strip.
+  private addFiles(files: Gio.File[]): boolean {
+    // An offer of nothing is silently nothing; the toasts below are for files
+    // that were genuinely rejected.
+    if (files.length === 0) return false;
+
+    const entries: RecentEntry[] = [];
+    for (const file of files) {
+      const entry = listableEntry(file);
+      if (entry) entries.push(entry);
+    }
+    // Both dead ends are otherwise invisible: nothing opens and the strip
+    // doesn't move, so without a word the request reads as having been ignored.
+    if (entries.length === 0) {
+      this.onNotify(_('Only images and annotation files can be added'));
+      return false;
+    }
+    if (!rememberAddedFiles(entries)) {
+      this.onNotify(_('Already in recent files'));
+      return false;
+    }
+    // Rebuilding resets the scroll to the start, where the new entries are.
+    this.refresh();
+    return true;
+  }
+
+  // The keyboard counterpart to dropping files on the strip: pick several at
+  // once and list them without opening any. `onAdded` runs only when the list
+  // grew, so the window can reveal a collapsed strip rather than leaving the
+  // result where nobody can see it. Returns whether the dialog opened at all.
+  presentAddDialog(onAdded: () => void): boolean {
+    const root = this.stack.get_root();
+    if (!(root instanceof Gtk.Window)) return false;
+
+    const dialog = new Gtk.FileDialog({title: _('Add to recent files'), modal: true});
+    // One filter covering everything the strip can list, matching what a drop
+    // on it accepts.
+    const filter = new Gtk.FileFilter({name: _('Images and annotation files')});
+    for (const mime of IMAGE_MIME_TYPES) filter.add_mime_type(mime);
+    filter.add_pattern(DOC_PATTERN);
+    const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
+    filters.append(filter);
+    dialog.set_filters(filters);
+    dialog.set_default_filter(filter);
+
+    dialog.open_multiple(root, null, (_src, result) => {
+      let picked: Gio.ListModel;
+      try {
+        picked = dialog.open_multiple_finish(result);
+      } catch (e) {
+        // Cancelling is routine and surfaces as a Gtk.DialogError; log the rest.
+        if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+          console.warn('open_multiple_finish failed', e);
+        }
+        return;
+      }
+      const files: Gio.File[] = [];
+      for (let i = 0; i < picked.get_n_items(); i++) {
+        const item = picked.get_item(i);
+        if (item instanceof Gio.File) files.push(item);
+      }
+      if (this.addFiles(files)) onAdded();
+    });
+    return true;
   }
 
   getWidget(): Gtk.Widget {

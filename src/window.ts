@@ -29,6 +29,7 @@ import {
   DOC_EXTENSION,
   DOC_PATTERN,
   defaultDocFilename,
+  isDocumentName,
   parseDocument,
   serializeDocument,
 } from './document.js';
@@ -376,7 +377,10 @@ export const AnnoscrWindow = GObject.registerClass(
       this.stack.set_visible_child_name('empty');
 
       this.styleBar = new StyleBar(this.canvas, this.editor);
-      this.recentStrip = new RecentStrip((entry) => this.openRecent(entry));
+      this.recentStrip = new RecentStrip(
+        (entry) => this.openRecent(entry),
+        (message) => this.showToast(message)
+      );
 
       // The strip it reveals is directly below, and the status bar already holds
       // the other view controls.
@@ -686,11 +690,9 @@ export const AnnoscrWindow = GObject.registerClass(
       }
     }
 
-    // Whether an incoming file is an annotation document, by extension — the same
-    // classification the file manager and CLI rely on.
     private isDocumentFile(file: Gio.File): boolean {
       const name = file.get_basename();
-      return name !== null && name.toLowerCase().endsWith(DOC_EXTENSION);
+      return name !== null && isDocumentName(name);
     }
 
     // abandonOnCancel is set when this window was created solely to host a fresh
@@ -842,6 +844,19 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>o', () => this.openImageDialog());
       this.bindShortcut(controller, '<Control><Shift>s', () => this.captureScreenshot());
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
+      // Add files to the recent strip without opening any — the keyboard twin
+      // of dropping them on it, and Insert to the strip's Delete. App-wide
+      // rather than scoped to a focused thumbnail because it acts on the list
+      // as a whole, so it has to work while the strip is empty or collapsed.
+      // Two gates: the preference (with the feature off there's no list to add
+      // to), and the text editor, which keeps Insert for its own overwrite
+      // toggle in both standalone and shape-text edits.
+      this.bindShortcut(controller, 'Insert', () => {
+        if (this.editor.isActive() || !getSettings().rememberRecentFiles) return false;
+        // set_active drives the toggle's own handler, which persists the state
+        // and expands the strip; it no-ops when the strip is already shown.
+        return this.recentStrip.presentAddDialog(() => this.recentToggle.set_active(true));
+      });
       // Undo/redo are disabled while resize mode is active: a pending region
       // is transient state that hasn't been committed, and rolling history
       // out from under it would be confusing (the resize would silently

@@ -116,6 +116,26 @@ export function rememberSavedFile(path: string, kind: RecentKind): boolean {
   return true;
 }
 
+// Add files staged on the strip without opening any of them (dropped on it, or
+// picked from its Add dialog). They go to the front in the order they were
+// given (the first one leftmost); an already-listed file keeps its place, since
+// adding a file is a kind of opening and must not rearrange what the user is
+// hunting through. Returns whether anything moved, as its two siblings do.
+export function rememberAddedFiles(entries: readonly RecentEntry[]): boolean {
+  const s = state();
+  const listed = new Set(s.recentFiles.map((e) => e.path));
+  const fresh: RecentEntry[] = [];
+  for (const entry of entries) {
+    if (listed.has(entry.path)) continue;
+    listed.add(entry.path);
+    fresh.push(entry);
+  }
+  if (fresh.length === 0) return false;
+  s.recentFiles = [...fresh, ...s.recentFiles].slice(0, RECENT_LIMIT);
+  saveState(s);
+  return true;
+}
+
 export function forgetRecentFile(path: string): void {
   const s = state();
   const kept = s.recentFiles.filter((e) => e.path !== path);

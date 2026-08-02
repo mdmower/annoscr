@@ -68,6 +68,14 @@ import {APP_VERSION} from './version.js';
 export const DOC_EXTENSION = '.annoscr';
 export const DOC_PATTERN = '*.annoscr';
 
+// Whether a file is an annotation document, by extension - the same
+// classification the file manager and CLI rely on. Takes a bare name or a whole
+// path, and reads neither, so it costs no I/O and works on a file that isn't
+// there.
+export function isDocumentName(name: string): boolean {
+  return name.toLowerCase().endsWith(DOC_EXTENSION);
+}
+
 const DOC_FORMAT = 'annoscr-document';
 
 // What the chunks MEAN. Bump when an existing field changes meaning; a reader
