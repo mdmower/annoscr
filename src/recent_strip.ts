@@ -6,6 +6,8 @@ import GObject from 'gi://GObject?version=2.0';
 import Gtk from 'gi://Gtk?version=4.0';
 
 import {setAccessibleLabel} from './a11y.js';
+import {TAG_IMAGE, TAG_THUMBNAIL} from './document.js';
+import {NotContainerError, readChunkFromFile} from './document_container.js';
 import {_} from './i18n.js';
 import {RecentEntry, forgetRecentFile, getRecentFiles} from './recent_files.js';
 import {isRecord} from './validators.js';
@@ -20,12 +22,14 @@ const THUMB_H = 108;
 // Placeholder icon size for a file that can't be previewed.
 const PLACEHOLDER_ICON_PX = 48;
 
-// Above these sizes a preview isn't worth its cost and the file gets a
-// placeholder. An image scales during its decode; an annotation file also parses
-// its whole JSON on the main loop, hence the lower limit. A screenshot reaches
-// neither.
+// Above this size an image isn't worth its preview and gets a placeholder; it
+// scales during its decode, so the limit is generous and a screenshot never
+// reaches it.
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
-const MAX_DOCUMENT_BYTES = 32 * 1024 * 1024;
+// Documents written before the container format parse whole on the main loop to
+// reach their preview, so they keep a tighter limit. Container documents need no
+// limit: their preview costs the same few reads at any size.
+const MAX_LEGACY_DOCUMENT_BYTES = 32 * 1024 * 1024;
 
 // An intact file that is simply too big to preview — distinct from a decode
 // failure so each gets its own placeholder icon.
@@ -126,29 +130,60 @@ function pixbufAtScale(
   });
 }
 
-// The base64 PNG payload of an envelope field, or null when absent or the wrong
-// shape — the file is plain JSON a user can hand-edit.
-function base64Payload(envelope: Record<string, unknown>, key: string): string | null {
-  const field = envelope[key];
-  if (!isRecord(field) || typeof field.data !== 'string') return null;
-  return field.data;
+// The preview payload of a container document, or null when the file predates
+// the container. Only the chunk headers and the preview itself are read, where
+// parseDocument would decode the full-resolution image and rebuild every action.
+async function containerPreviewBytes(
+  file: Gio.File,
+  cancellable: Gio.Cancellable
+): Promise<Uint8Array | null> {
+  try {
+    // Prefer the composited preview; a document saved without one falls back to
+    // its source image, which previews as a flat rectangle when the content is
+    // all in the action stack.
+    const preview =
+      (await readChunkFromFile(file, TAG_THUMBNAIL, cancellable)) ??
+      (await readChunkFromFile(file, TAG_IMAGE, cancellable));
+    if (!preview) throw new Error('annotation file carries no embedded image');
+    return preview;
+  } catch (e) {
+    // Only "this was never a container" falls back to the older reader; a
+    // corrupt container is a real failure and stays one.
+    if (e instanceof NotContainerError) return null;
+    throw e;
+  }
 }
 
-// Prefer the composited preview; a document saved without one falls back to its
-// source image, which previews as a flat rectangle when the content is all in
-// the action stack. Going through parseDocument would decode the full-size image
-// and rebuild every action; the JSON parse still covers the whole file, which is
-// what the lower document cap is for.
+// The same preview out of a pre-container document: a JSON envelope with the
+// image base64-encoded inside it, so the whole file parses to reach it. Those
+// carry no composited preview, so one built on a blank fill shows as a flat
+// rectangle.
+async function legacyPreviewBytes(
+  file: Gio.File,
+  cancellable: Gio.Cancellable
+): Promise<Uint8Array> {
+  const size = await fileSize(file, cancellable);
+  if (size > MAX_LEGACY_DOCUMENT_BYTES) {
+    throw new OversizeError(`${String(size)} bytes exceeds the preview limit`);
+  }
+  const contents = await loadContents(file, cancellable);
+  const envelope: unknown = JSON.parse(new TextDecoder().decode(contents));
+  if (!isRecord(envelope)) throw new Error('annotation file is not an object');
+  const image = isRecord(envelope.image) ? envelope.image : null;
+  if (!image || typeof image.data !== 'string') {
+    throw new Error('annotation file carries no embedded image');
+  }
+  return GLib.base64_decode(image.data);
+}
+
 async function documentImageStream(
   file: Gio.File,
   cancellable: Gio.Cancellable
 ): Promise<Gio.InputStream> {
-  const contents = await loadContents(file, cancellable);
-  const envelope: unknown = JSON.parse(new TextDecoder().decode(contents));
-  if (!isRecord(envelope)) throw new Error('annotation file is not an object');
-  const data = base64Payload(envelope, 'thumbnail') ?? base64Payload(envelope, 'image');
-  if (data === null) throw new Error('annotation file carries no embedded image');
-  return Gio.MemoryInputStream.new_from_bytes(new GLib.Bytes(GLib.base64_decode(data)));
+  const data =
+    (await containerPreviewBytes(file, cancellable)) ??
+    (await legacyPreviewBytes(file, cancellable));
+  return Gio.MemoryInputStream.new_from_bytes(new GLib.Bytes(data));
 }
 
 export class RecentStrip {
@@ -440,15 +475,20 @@ export class RecentStrip {
     cancellable: Gio.Cancellable
   ): Promise<Gdk.Texture> {
     const file = Gio.File.new_for_path(entry.path);
-    // Checked before anything is read, so an oversized file costs one stat
-    // rather than a full decode.
-    const limit = entry.kind === 'document' ? MAX_DOCUMENT_BYTES : MAX_IMAGE_BYTES;
-    const size = await fileSize(file, cancellable);
-    if (size > limit) throw new OversizeError(`${String(size)} bytes exceeds the preview limit`);
-    const stream =
-      entry.kind === 'document'
-        ? await documentImageStream(file, cancellable)
-        : await readStream(file, cancellable);
+    let stream: Gio.InputStream;
+    if (entry.kind === 'document') {
+      // Any size limit that applies belongs to the older format, so the stat
+      // happens down that branch rather than here.
+      stream = await documentImageStream(file, cancellable);
+    } else {
+      // Checked before anything is read, so an oversized file costs one stat
+      // rather than a full decode.
+      const size = await fileSize(file, cancellable);
+      if (size > MAX_IMAGE_BYTES) {
+        throw new OversizeError(`${String(size)} bytes exceeds the preview limit`);
+      }
+      stream = await readStream(file, cancellable);
+    }
     return Gdk.Texture.new_for_pixbuf(await pixbufAtScale(stream, cancellable));
   }
 

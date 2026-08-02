@@ -32,6 +32,13 @@ import {
   numberStampStyle,
   serializeActions,
 } from './actions.js';
+import {
+  Chunk,
+  buildContainer,
+  findChunk,
+  isContainer,
+  readContainer,
+} from './document_container.js';
 import {fileTimestamp, renderToSurface, surfaceFitPngBytes, surfaceToPngBytes} from './exporter.js';
 import {
   asClampedNumber,
@@ -44,20 +51,39 @@ import {
 import {loadFromBytes} from './image_loader.js';
 import {APP_VERSION} from './version.js';
 
-// The Annoscr annotation document: a self-contained JSON envelope holding the
-// source image (base64-encoded PNG) plus the editable action stack, so a saved
-// annotation can be reopened and edited rather than only flattened to PNG/JPEG.
-// The embedded image is whatever the canvas currently holds — already cropped/
-// rotated by any transform — so only the visible portion is stored.
+// The Annoscr annotation document: the source image plus the editable action
+// stack, so a saved annotation can be reopened and edited rather than only
+// flattened to PNG/JPEG. The embedded image is whatever the canvas currently
+// holds — already cropped/rotated by any transform — so only the visible
+// portion is stored.
+//
+// The file is a chunk container (document_container.ts): metadata, the
+// composited preview, the source image, and the action stack, each its own
+// length-prefixed payload — so a reader after one payload reads only that one,
+// and images are stored as PNG bytes rather than base64 a third larger. Older
+// documents are JSON envelopes; they still open (parseLegacyDocument) but are
+// never written again.
 
 // Canonical extension + dialog glob for annotation files.
 export const DOC_EXTENSION = '.annoscr';
 export const DOC_PATTERN = '*.annoscr';
 
 const DOC_FORMAT = 'annoscr-document';
-// Bump when the envelope or a serialized action shape changes incompatibly; a
-// reader rejects versions it doesn't recognize (see parseDocument).
-const DOC_VERSION = 1;
+
+// What the chunks MEAN. Bump when an existing field changes meaning; a reader
+// rejects versions it doesn't recognize. Adding a chunk or an optional field is
+// additive (readers skip what they don't know) and bumps nothing. How the chunks
+// are FRAMED is versioned separately, inside the container.
+const DOC_SCHEMA_VERSION = 1;
+
+// Chunk tags. META and ACTS hold JSON text; THMB and IMGE hold PNG bytes.
+const TAG_META = 'META';
+export const TAG_THUMBNAIL = 'THMB';
+export const TAG_IMAGE = 'IMGE';
+const TAG_ACTIONS = 'ACTS';
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 // Thrown by parseDocument for any malformed or unsupported file. The caller
 // shows a generic user-facing toast and logs this message (diagnostic English,
@@ -70,54 +96,47 @@ export class DocumentError extends Error {}
 const THUMB_MAX_W = 768;
 const THUMB_MAX_H = 432;
 
-interface DocumentEnvelope {
-  format: string;
-  version: number;
-  appVersion?: string;
-  // The composited preview, written before the full-resolution image on
-  // purpose: a reader wanting only the preview reaches it without walking past
-  // megabytes of base64. Optional (additive, no version bump), so a document
-  // saved without one still loads and readers fall back to `image`.
-  thumbnail?: {encoding: string; data: string};
-  image: {encoding: string; data: string};
-  // Untrusted until sanitizeSerializedActions validates each entry.
-  actions?: unknown;
-}
-
 // Default name for a newly saved annotation file, e.g.
 // Annoscr-2026-05-22-143015.annoscr.
 export function defaultDocFilename(): string {
   return `Annoscr-${fileTimestamp()}${DOC_EXTENSION}`;
 }
 
+function pngChunk(tag: string, encoded: GLib.Bytes): Chunk {
+  const data = encoded.get_data();
+  if (!data) throw new DocumentError(`Image encoding produced no bytes for chunk ${tag}`);
+  return {tag, data};
+}
+
+function jsonChunk(tag: string, value: unknown): Chunk {
+  return {tag, data: encoder.encode(JSON.stringify(value))};
+}
+
 export function serializeDocument(
   surface: Cairo.ImageSurface,
   actions: ReadonlyArray<Action>
-): string {
-  const envelope: DocumentEnvelope = {
-    format: DOC_FORMAT,
-    version: DOC_VERSION,
-    appVersion: APP_VERSION,
+): Uint8Array {
+  return buildContainer([
+    jsonChunk(TAG_META, {
+      format: DOC_FORMAT,
+      version: DOC_SCHEMA_VERSION,
+      appVersion: APP_VERSION,
+    }),
     // Composited, not the bare source: a document built on a blank fill would
-    // otherwise preview as a featureless rectangle.
-    thumbnail: {
-      encoding: 'png-base64',
-      data: GLib.base64_encode(
-        surfaceFitPngBytes(renderToSurface(surface, actions), THUMB_MAX_W, THUMB_MAX_H).get_data()
-      ),
-    },
-    image: {
-      encoding: 'png-base64',
-      data: GLib.base64_encode(surfaceToPngBytes(surface).get_data()),
-    },
-    actions: serializeActions(actions),
-  };
-  return JSON.stringify(envelope, null, 2);
+    // otherwise preview as a featureless rectangle. Kept ahead of the
+    // full-resolution image so a start-to-end reader still reaches it early.
+    pngChunk(
+      TAG_THUMBNAIL,
+      surfaceFitPngBytes(renderToSurface(surface, actions), THUMB_MAX_W, THUMB_MAX_H)
+    ),
+    pngChunk(TAG_IMAGE, surfaceToPngBytes(surface)),
+    jsonChunk(TAG_ACTIONS, serializeActions(actions)),
+  ]);
 }
 
 // ---------- Per-field validation of loaded actions ----------
-// A .annoscr file is plain JSON the user can hand-edit, so every action field
-// is validated on load, the same way settings.ts treats settings.json. A
+// The action stack is JSON, so it can arrive hand-edited or corrupted: every
+// field is validated on load, the same way settings.ts treats settings.json. A
 // malformed STYLE field — color, width, dash, fill, font, rotation, … — falls
 // back to that action type's default rather than rejecting the document.
 // STRUCTURAL fields with no sensible default — the type tag, geometry, a
@@ -357,35 +376,103 @@ export interface ParsedDocument {
   actions: Action[];
 }
 
-export function parseDocument(text: string): ParsedDocument {
+function decodeImage(bytes: Uint8Array): Cairo.ImageSurface {
+  try {
+    return loadFromBytes(bytes);
+  } catch (e) {
+    throw new DocumentError(`Could not decode the annotation file image: ${String(e)}`);
+  }
+}
+
+function buildActions(raw: unknown): Action[] {
+  try {
+    return deserializeActions(sanitizeSerializedActions(raw));
+  } catch (e) {
+    if (e instanceof DocumentError) throw e;
+    // e.g. Pango rejecting a text's markup at layout time.
+    throw new DocumentError(`Could not read the annotations: ${String(e)}`);
+  }
+}
+
+export function parseDocument(bytes: Uint8Array): ParsedDocument {
+  return isContainer(bytes) ? parseContainerDocument(bytes) : parseLegacyDocument(bytes);
+}
+
+function checkMeta(data: Uint8Array | null): void {
+  if (!data) throw new DocumentError('Annotation file has no metadata');
+  let meta: unknown;
+  try {
+    meta = JSON.parse(decoder.decode(data));
+  } catch {
+    throw new DocumentError('Annotation file has malformed metadata');
+  }
+  if (!isRecord(meta) || meta.format !== DOC_FORMAT) {
+    throw new DocumentError('Not an Annoscr annotation file');
+  }
+  if (meta.version !== DOC_SCHEMA_VERSION) {
+    throw new DocumentError(`Unsupported annotation file version: ${JSON.stringify(meta.version)}`);
+  }
+}
+
+function parseContainerDocument(bytes: Uint8Array): ParsedDocument {
+  let chunks: Chunk[];
+  try {
+    chunks = readContainer(bytes);
+  } catch (e) {
+    throw new DocumentError(`Annotation file is not readable: ${String(e)}`);
+  }
+  checkMeta(findChunk(chunks, TAG_META));
+
+  const image = findChunk(chunks, TAG_IMAGE);
+  if (!image) throw new DocumentError('Annotation file is missing its embedded image');
+
+  // A document with no annotations carries no action chunk.
+  const actionsChunk = findChunk(chunks, TAG_ACTIONS);
+  let raw: unknown = [];
+  if (actionsChunk) {
+    try {
+      raw = JSON.parse(decoder.decode(actionsChunk));
+    } catch {
+      throw new DocumentError('Annotation list is malformed');
+    }
+  }
+  return {surface: decodeImage(image), actions: buildActions(raw)};
+}
+
+// ---------- Documents written before the container ----------
+// A JSON envelope holding the image as base64. Frozen: nothing writes this
+// shape any more and the reader goes away in 2.0, so its version constant is
+// separate from DOC_SCHEMA_VERSION and never moves.
+
+const LEGACY_JSON_VERSION = 1;
+
+interface DocumentEnvelope {
+  format: string;
+  version: number;
+  appVersion?: string;
+  image: {encoding: string; data: string};
+  // Untrusted until sanitizeSerializedActions validates each entry.
+  actions?: unknown;
+}
+
+function parseLegacyDocument(bytes: Uint8Array): ParsedDocument {
   let env: DocumentEnvelope;
   try {
-    env = JSON.parse(text) as DocumentEnvelope;
+    env = JSON.parse(decoder.decode(bytes)) as DocumentEnvelope;
   } catch {
     throw new DocumentError('Not a valid annotation file (invalid JSON)');
   }
   if (!env || typeof env !== 'object' || env.format !== DOC_FORMAT) {
     throw new DocumentError('Not an Annoscr annotation file');
   }
-  if (env.version !== DOC_VERSION) {
+  if (env.version !== LEGACY_JSON_VERSION) {
     throw new DocumentError(`Unsupported annotation file version: ${String(env.version)}`);
   }
   if (!env.image || env.image.encoding !== 'png-base64' || typeof env.image.data !== 'string') {
     throw new DocumentError('Annotation file is missing its embedded image');
   }
-  let surface: Cairo.ImageSurface;
-  try {
-    surface = loadFromBytes(GLib.base64_decode(env.image.data));
-  } catch (e) {
-    throw new DocumentError(`Could not decode the annotation file image: ${String(e)}`);
-  }
-  let actions: Action[];
-  try {
-    actions = deserializeActions(sanitizeSerializedActions(env.actions));
-  } catch (e) {
-    if (e instanceof DocumentError) throw e;
-    // e.g. Pango rejecting a text's markup at layout time.
-    throw new DocumentError(`Could not read the annotations: ${String(e)}`);
-  }
-  return {surface, actions};
+  return {
+    surface: decodeImage(GLib.base64_decode(env.image.data)),
+    actions: buildActions(env.actions),
+  };
 }

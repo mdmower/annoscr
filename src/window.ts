@@ -1231,9 +1231,8 @@ export const AnnoscrWindow = GObject.registerClass(
         if (!path.toLowerCase().endsWith(DOC_EXTENSION)) path += DOC_EXTENSION;
 
         try {
-          const text = serializeDocument(snapshot.surface, snapshot.actions);
           Gio.File.new_for_path(path).replace_contents(
-            new TextEncoder().encode(text),
+            serializeDocument(snapshot.surface, snapshot.actions),
             null,
             false,
             Gio.FileCreateFlags.NONE,
@@ -1284,7 +1283,7 @@ export const AnnoscrWindow = GObject.registerClass(
       try {
         const [ok, contents] = file.load_contents(null);
         if (!ok) throw new Error('load_contents returned false');
-        const {surface, actions} = parseDocument(new TextDecoder().decode(contents));
+        const {surface, actions} = parseDocument(contents);
         this.setDocument(surface, actions);
         // Remember the opened file so a re-save offers the same name/folder.
         this.currentDocPath = file.get_path();
