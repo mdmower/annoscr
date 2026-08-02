@@ -157,23 +157,25 @@ function readBytes(
   });
 }
 
-// Exactly count bytes, or null if the file ends first. A single read may return
-// less than it was asked for, so short reads are accumulated.
-async function readExactly(
+// Up to count bytes, short only where the stream ends. A single read may
+// return less than it was asked for, so short reads are accumulated. Callers
+// check the returned length: whether ending early is a clean end of the file
+// or truncation depends on what was being read.
+async function readUpTo(
   stream: Gio.InputStream,
   count: number,
   cancellable: Gio.Cancellable
-): Promise<Uint8Array | null> {
+): Promise<Uint8Array> {
   const out = new Uint8Array(count);
   let filled = 0;
   while (filled < count) {
     // eslint-disable-next-line no-await-in-loop -- each read continues where the last stopped
     const part = await readBytes(stream, count - filled, cancellable);
-    if (part.length === 0) return null;
+    if (part.length === 0) break;
     out.set(part, filled);
     filled += part.length;
   }
-  return out;
+  return out.subarray(0, filled);
 }
 
 // The payload of the first chunk with this tag, or null when the file carries
@@ -187,8 +189,10 @@ export async function readChunkFromFile(
 ): Promise<Uint8Array | null> {
   const stream = await openRead(file, cancellable);
   try {
-    const header = await readExactly(stream, HEADER_SIZE, cancellable);
-    if (header === null) throw new NotContainerError('file is shorter than a container header');
+    const header = await readUpTo(stream, HEADER_SIZE, cancellable);
+    if (header.length < HEADER_SIZE) {
+      throw new NotContainerError('file is shorter than a container header');
+    }
     checkHeader(header);
     // A regular file always seeks; anything else (a pipe, say) would have to be
     // read through, which defeats the point of asking for one chunk.
@@ -200,15 +204,20 @@ export async function readChunkFromFile(
 
     for (;;) {
       // eslint-disable-next-line no-await-in-loop -- a chunk's position depends on the one before it
-      const chunkHeader = await readExactly(stream, CHUNK_HEADER_SIZE, cancellable);
-      if (chunkHeader === null) return null; // end of the chunk sequence
+      const chunkHeader = await readUpTo(stream, CHUNK_HEADER_SIZE, cancellable);
+      if (chunkHeader.length === 0) return null; // end of the chunk sequence
+      // A file that ends partway through a chunk header is truncated, not a
+      // shorter sequence.
+      if (chunkHeader.length < CHUNK_HEADER_SIZE) {
+        throw new ContainerError('truncated chunk header');
+      }
       const found = readTag(chunkHeader, 0);
       const length = readLength(chunkHeader, TAG_SIZE);
       if (stream.tell() + length > size) throw new ContainerError(`chunk ${found} is truncated`);
       if (found === tag) {
         // eslint-disable-next-line no-await-in-loop -- the loop ends here
-        const data = await readExactly(stream, length, cancellable);
-        if (data === null) throw new ContainerError(`chunk ${found} is truncated`);
+        const data = await readUpTo(stream, length, cancellable);
+        if (data.length < length) throw new ContainerError(`chunk ${found} is truncated`);
         return data;
       }
       stream.seek(length, GLib.SeekType.CUR, cancellable);

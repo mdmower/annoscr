@@ -102,17 +102,19 @@ function loadContents(file: Gio.File, cancellable: Gio.Cancellable): Promise<Uin
   });
 }
 
-// Decode straight to thumbnail size, so a full-resolution screenshot is never
-// materialized just to be shrunk afterwards.
+// Decode straight to thumbnail size — in device pixels, so a HiDPI display
+// gets a sharp preview — so a full-resolution screenshot is never materialized
+// just to be shrunk afterwards.
 function pixbufAtScale(
   stream: Gio.InputStream,
+  scaleFactor: number,
   cancellable: Gio.Cancellable
 ): Promise<GdkPixbuf.Pixbuf> {
   return new Promise((resolve, reject) => {
     GdkPixbuf.Pixbuf.new_from_stream_at_scale_async(
       stream,
-      THUMB_W,
-      THUMB_H,
+      THUMB_W * scaleFactor,
+      THUMB_H * scaleFactor,
       true,
       cancellable,
       (_src, res) => {
@@ -214,6 +216,11 @@ export class RecentStrip {
   private readonly actions = new Gio.SimpleActionGroup();
   private readonly factory: Gtk.SignalListItemFactory;
   private factoryHandlers: number[];
+  // Whether focus was in the strip when the context menu was opened — i.e.
+  // where focus returns when the menu closes. The menu itself takes focus, so
+  // this can't be read at activation time; a menu-driven Forget uses it to
+  // decide whether focus belongs on a surviving thumbnail.
+  private menuFocusInStrip = false;
 
   constructor(onOpen: (entry: RecentEntry) => void, onNotify: (message: string) => void) {
     this.onOpen = onOpen;
@@ -274,7 +281,7 @@ export class RecentStrip {
       parameter_type: GLib.VariantType.new('s'),
     });
     forget.connect('activate', (_a, param) => {
-      if (param) this.forgetEntry(param.deepUnpack() as string);
+      if (param) this.forgetEntry(param.deepUnpack() as string, this.menuFocusInStrip);
     });
     this.actions.add_action(forget);
     this.stack.insert_action_group('recent', this.actions);
@@ -512,6 +519,10 @@ export class RecentStrip {
     const state = this.items.get(listItem);
     const entry = state?.entry;
     if (!state || !entry) return;
+    // Read before the popover opens and takes focus itself: the keyboard path
+    // arrives with the thumbnail focused, a right-click leaves focus where it
+    // was (a claimed gesture doesn't move it).
+    this.menuFocusInStrip = this.stripContainsFocus();
     const button = listItem.get_child();
     const px = x ?? (button ? button.get_width() / 2 : 0);
     const py = y ?? (button ? button.get_height() / 2 : 0);
@@ -537,13 +548,21 @@ export class RecentStrip {
     state.menu.popup();
   }
 
+  // Whether the window's keyboard focus is on the strip or inside it.
+  private stripContainsFocus(): boolean {
+    const root = this.stack.get_root();
+    const focus = root instanceof Gtk.Window ? root.get_focus() : null;
+    return focus !== null && (focus === this.stack || focus.is_ancestor(this.stack));
+  }
+
   // The two menu entries as key handlers. Both report "not handled" with no
   // bound file, so the key falls through to the window rather than being eaten
-  // by a recycled item that currently shows nothing.
+  // by a recycled item that currently shows nothing. Delete is LOCAL to the
+  // focused thumbnail, so focus is in the strip by definition.
   private forgetItem(listItem: Gtk.ListItem): boolean {
     const entry = this.items.get(listItem)?.entry;
     if (!entry) return false;
-    this.forgetEntry(entry.path);
+    this.forgetEntry(entry.path, true);
     return true;
   }
 
@@ -556,18 +575,27 @@ export class RecentStrip {
   // Drop one entry. Nothing special-cases the image currently on the canvas:
   // forgetting it only removes the list entry, and saving puts it back through
   // the normal save path.
-  private forgetEntry(path: string): void {
+  //
+  // `focusStrip` says whether focus belongs in the strip afterwards. Rebuilding
+  // the model destroys the focused thumbnail, so a keyboard-driven forget hands
+  // focus to the item that took the freed slot (the new last one when the tail
+  // went) — otherwise a keyboard walk through the strip ends at the first
+  // Delete. A pointer-driven forget must not do that: pulling focus off the
+  // canvas would make a later Delete forget another file instead of deleting
+  // the canvas selection.
+  private forgetEntry(path: string, focusStrip: boolean): void {
     const position = getRecentFiles().findIndex((e) => e.path === path);
     forgetRecentFile(path);
     this.textures.delete(path);
     this.refresh();
-    // Rebuilding the model destroys the focused thumbnail, so hand focus to the
-    // item that took the freed slot (the new last one when the tail went) —
-    // otherwise a keyboard walk through the strip ends at the first Delete.
     // The rebuild also resets the scroll, which scroll_to puts back.
     const remaining = this.store.get_n_items();
     if (position < 0 || remaining === 0) return;
-    this.listView.scroll_to(Math.min(position, remaining - 1), Gtk.ListScrollFlags.FOCUS, null);
+    this.listView.scroll_to(
+      Math.min(position, remaining - 1),
+      focusStrip ? Gtk.ListScrollFlags.FOCUS : Gtk.ListScrollFlags.NONE,
+      null
+    );
   }
 
   private bindItem(listItem: Gtk.ListItem): void {
@@ -648,7 +676,20 @@ export class RecentStrip {
       }
       stream = await readStream(file, cancellable);
     }
-    return Gdk.Texture.new_for_pixbuf(await pixbufAtScale(stream, cancellable));
+    try {
+      const scaleFactor = this.stack.get_scale_factor();
+      return Gdk.Texture.new_for_pixbuf(await pixbufAtScale(stream, scaleFactor, cancellable));
+    } finally {
+      // GdkPixbuf's stream decoders leave the stream open, and an unclosed file
+      // stream keeps its descriptor until GC — enough binds would run the
+      // process out of descriptors. Closed without the cancellable: a cancelled
+      // decode would fail its own close and mask the cancellation.
+      try {
+        stream.close(null);
+      } catch {
+        // A read-only stream that won't close has nothing left to report.
+      }
+    }
   }
 
   private showThumbnail(picture: Gtk.Picture, texture: Gdk.Texture): void {
