@@ -185,7 +185,7 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
         }
       } catch (e) {
         if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
-          console.error('choose_family failed', e);
+          console.warn('choose_family failed', e);
         }
       }
     });
@@ -224,7 +224,7 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
         }
       } catch (e) {
         if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
-          console.error('select_folder failed', e);
+          console.warn('select_folder failed', e);
         }
       }
     });

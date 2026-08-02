@@ -146,7 +146,7 @@ export const AnnoscrApplication = GObject.registerClass(
         try {
           launcher.open_containing_folder_finish(res);
         } catch (e) {
-          console.error('open_containing_folder failed', e);
+          console.warn('open_containing_folder failed', e);
         }
         this.release();
       });

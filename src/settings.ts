@@ -285,7 +285,7 @@ function saveSettings(s: AnnoscrSettings): void {
     GLib.file_set_contents(path, new TextEncoder().encode(JSON.stringify(s, null, 2)));
   } catch (e) {
     // A bad write must never crash the app — preferences are best-effort.
-    console.error('saveSettings failed', e);
+    console.warn('saveSettings failed', e);
   }
 }
 

@@ -76,7 +76,7 @@ function saveState(s: AppState): void {
     GLib.file_set_contents(path, new TextEncoder().encode(JSON.stringify(s, null, 2)));
   } catch (e) {
     // Never let a failed write break an open; the list is best-effort.
-    console.error('saveState failed', e);
+    console.warn('saveState failed', e);
   }
 }
 

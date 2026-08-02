@@ -66,6 +66,13 @@ const NOTIFY_GRACE_MS = 1000;
 // giving up silently.
 const CLIPBOARD_READY_TIMEOUT_MS = 3000;
 
+// Expected, handled failures log their cause alone. Passing the error object
+// would append a stack trace that is identical every time and says nothing the
+// message doesn't.
+function causeOf(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export const AnnoscrWindow = GObject.registerClass(
   {GTypeName: 'AnnoscrWindow'},
   class extends Adw.ApplicationWindow {
@@ -642,7 +649,7 @@ export const AnnoscrWindow = GObject.registerClass(
         } catch (e) {
           // Cancellation surfaces as a Gtk DialogError; ignore those and log the rest.
           if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
-            console.error('open_finish failed', e);
+            console.warn('open_finish failed', e);
           }
         }
       });
@@ -720,20 +727,15 @@ export const AnnoscrWindow = GObject.registerClass(
             // reports them the same way).
             if (abandonOnCancel) {
               // Fresh `--screenshot` launch: just go away (see the destroy()
-              // note above). A normal cancel shouldn't look like a crash, so
-              // log a single non-fatal line rather than the CRITICAL the
-              // running-instance path emits; a genuine failure stays visible.
-              console.log(
-                `annoscr: screenshot capture did not complete (${
-                  e instanceof Error ? e.message : String(e)
-                }); exiting`
-              );
+              // note above). Cancelling is routine, so this names the cause in
+              // one line instead of reading as a failure.
+              console.log(`screenshot capture did not complete: ${causeOf(e)}; exiting`);
               this.destroy();
               return;
             }
             // Log the cause so a genuine failure is diagnosable even though the
             // toast reads as a cancel.
-            console.error('takeScreenshot failed', e);
+            console.log(`takeScreenshot failed: ${causeOf(e)}`);
             this.set_visible(true);
             this.present();
             this.showToast(_('Screenshot cancelled'));
@@ -750,7 +752,7 @@ export const AnnoscrWindow = GObject.registerClass(
         // Covers both load/decode failures and I/O errors (missing file,
         // permission denied), so the message stays general rather than always
         // blaming the file format.
-        console.error('openFile failed', e);
+        console.log(`openFile failed: ${causeOf(e)}`);
         const name = file.get_basename() ?? file.get_uri();
         this.showToast(_('Could not open "%s"').replace('%s', name));
       }
@@ -1034,7 +1036,7 @@ export const AnnoscrWindow = GObject.registerClass(
         this.canvas.markClean();
         this.onImageSaved(path, true, surface);
       } catch (e) {
-        console.error('saveSurface failed', e);
+        console.warn('saveSurface failed', e);
         this.showToast(_('Could not save image'));
       }
     }
@@ -1149,7 +1151,7 @@ export const AnnoscrWindow = GObject.registerClass(
         } catch (e) {
           // User cancelled or dismissed.
           if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
-            console.error('save_finish failed', e);
+            console.warn('save_finish failed', e);
           }
           return;
         }
@@ -1175,7 +1177,7 @@ export const AnnoscrWindow = GObject.registerClass(
           this.canvas.markClean();
           this.onImageSaved(path, false, surface);
         } catch (e) {
-          console.error('saveSurface failed', e);
+          console.warn('saveSurface failed', e);
           this.showToast(_('Could not save image'));
         }
       });
@@ -1215,7 +1217,7 @@ export const AnnoscrWindow = GObject.registerClass(
           file = dialog.save_finish(result);
         } catch (e) {
           if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
-            console.error('save_finish failed', e);
+            console.warn('save_finish failed', e);
           }
           return;
         }
@@ -1243,7 +1245,7 @@ export const AnnoscrWindow = GObject.registerClass(
           this.currentDocPath = path;
           this.recordSaved(path, 'document');
         } catch (e) {
-          console.error('save annotation file failed', e);
+          console.warn('save annotation file failed', e);
           this.showToast(_('Could not save annotation file'));
         }
       });
@@ -1270,7 +1272,7 @@ export const AnnoscrWindow = GObject.registerClass(
           file = dialog.open_finish(result);
         } catch (e) {
           if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
-            console.error('open_finish failed', e);
+            console.warn('open_finish failed', e);
           }
           return;
         }
@@ -1290,7 +1292,7 @@ export const AnnoscrWindow = GObject.registerClass(
       } catch (e) {
         // parseDocument's DocumentError and any I/O error both land here; the
         // specific cause is logged, the user sees one general message.
-        console.error('openDocumentFile failed', e);
+        console.log(`openDocumentFile failed: ${causeOf(e)}`);
         this.showToast(_('Could not open annotation file'));
       }
     }
@@ -1316,7 +1318,7 @@ export const AnnoscrWindow = GObject.registerClass(
           this.showToast(_('Image copied to clipboard'));
         }
       } catch (e) {
-        console.error('copySurfaceToClipboard failed', e);
+        console.warn('copySurfaceToClipboard failed', e);
         this.showToast(_('Could not copy image'));
       }
     }
@@ -1387,7 +1389,7 @@ export const AnnoscrWindow = GObject.registerClass(
             const pixbuf = GdkPixbuf.Pixbuf.new_from_stream_finish(pbResult);
             if (pixbuf) this.setImage(loadFromPixbuf(pixbuf));
           } catch (e) {
-            console.error('paste (image bytes) failed', e);
+            console.log(`paste (image bytes) failed: ${causeOf(e)}`);
             this.showToast(_('Could not paste image'));
           } finally {
             stream.close(null);
@@ -1419,7 +1421,7 @@ export const AnnoscrWindow = GObject.registerClass(
           if (uri) this.openFile(Gio.File.new_for_uri(uri));
           else this.showToast(_('Clipboard has no image to paste'));
         } catch (e) {
-          console.error('paste (uri-list) failed', e);
+          console.log(`paste (uri-list) failed: ${causeOf(e)}`);
           this.showToast(_('Could not paste image'));
         } finally {
           stream?.close(null);
