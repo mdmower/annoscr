@@ -1518,10 +1518,17 @@ export const AnnoscrWindow = GObject.registerClass(
             .split(/\r?\n/)
             .find((line) => line && !line.startsWith('#'))
             ?.trim();
-          // openFile reports its own failures; only the empty-list case needs
-          // a toast here.
-          if (uri) this.openFile(Gio.File.new_for_uri(uri));
-          else this.showToast(_('Clipboard has no image to paste'));
+          if (uri) {
+            // A copied file arrives as a URI, and it can be an annotation file
+            // as well as an image — route it like a drop. No discard guard
+            // here: pasteFromClipboard already ran it. Both openers report
+            // their own failures; only the empty-list case needs a toast.
+            const file = Gio.File.new_for_uri(uri);
+            if (this.isDocumentFile(file)) this.openDocumentFile(file);
+            else this.openFile(file);
+          } else {
+            this.showToast(_('Clipboard has no image to paste'));
+          }
         } catch (e) {
           console.log(`paste (uri-list) failed: ${causeOf(e)}`);
           this.showToast(_('Could not paste image'));
