@@ -228,7 +228,10 @@ Pressing the shortcut launches Annoscr, which immediately captures through the d
 
 ## Roadmap
 
-Annoscr is in active development.
+Annoscr is in active development. Planned work:
+
+- **Paste image as a canvas item**: paste an image as a resizable, movable annotation on the canvas, rather than replacing the whole document, so multiple screenshots can be arranged side by side (e.g. for before/after comparisons) and annotated together.
+- **Scale image**: shrink an oversized screenshot to more manageable dimensions, scaling its annotations along with it so they stay editable.
 
 ## Contributing
 
