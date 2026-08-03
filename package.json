@@ -32,10 +32,10 @@
     "@girs/pango-1.0": "^4.1.0",
     "@girs/pangocairo-1.0": "^4.1.0",
     "@girs/xdp-1.0": "^4.1.0",
-    "eslint": "^10.6.0",
+    "eslint": "^10.8.0",
     "jiti": "^2.7.0",
-    "prettier": "^3.9.4",
+    "prettier": "^3.9.6",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.62.1"
+    "typescript-eslint": "^8.65.0"
   }
 }
