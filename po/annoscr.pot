@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-02 16:30-0700\n"
+"POT-Creation-Date: 2026-08-02 17:54-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1051,11 +1051,11 @@ msgstr ""
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:1495 src/window.ts:1527
+#: src/window.ts:1495 src/window.ts:1534
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:1507 src/window.ts:1524
+#: src/window.ts:1507 src/window.ts:1530
 msgid "Clipboard has no image to paste"
 msgstr ""
 

@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        1.4.0
+Version:        1.5.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -82,6 +82,15 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Sun Aug 02 2026 Matt Mower <mdmower@cmphys.com> - 1.5.0-1
+- A recent files strip below the status bar keeps thumbnails of the images, annotation files, and screenshots you open, so returning to an earlier one is a single click. A status bar button shows or hides it, and right-clicking a thumbnail offers Show in Files and Forget.
+- Files can be lined up in the strip without opening any of them: drop a selection onto the strip, or press Insert to choose them from a dialog, then work through them one at a time.
+- Lines and arrows can be curved. Drag the round handle at the middle of a selected segment to bend it; the arrowhead follows the curve and points where the ink arrives. Drag the handle back to the middle, or use Straighten in the selection actions menu, to flatten it again.
+- The style bar can be docked to any window edge from Preferences. Top and bottom keep the horizontal strip; left and right show the controls as a vertical panel.
+- Annotation files are stored in a new format that opens faster and no longer inflates the embedded image. Files written by earlier releases still open, and saving one writes the new format; support for the old format will be removed in 2.0.
+- The eyedropper now cancels when you click outside the canvas, instead of staying active invisibly and capturing your next click on the image.
+- Pasting an annotation file copied in the file manager now opens it as a document, matching what dropping the same file already did.
+
 * Sat Jul 18 2026 Matt Mower <mdmower@cmphys.com> - 1.4.0-1
 - Each color popover (Color, Fill, and Text color) gains an eyedropper that picks a color straight from the image, with a magnifier loupe and hex readout; annotations are included in the sample.
 - A new Default tool preference chooses which tool is active when the app starts.

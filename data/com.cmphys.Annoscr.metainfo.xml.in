@@ -31,6 +31,19 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.5.0" date="2026-08-02">
+      <description its:translate="no">
+        <ul>
+          <li>A recent files strip below the status bar keeps thumbnails of the images, annotation files, and screenshots you open, so returning to an earlier one is a single click. A status bar button shows or hides it, and right-clicking a thumbnail offers Show in Files and Forget.</li>
+          <li>Files can be lined up in the strip without opening any of them: drop a selection onto the strip, or press Insert to choose them from a dialog, then work through them one at a time.</li>
+          <li>Lines and arrows can be curved. Drag the round handle at the middle of a selected segment to bend it; the arrowhead follows the curve and points where the ink arrives. Drag the handle back to the middle, or use Straighten in the selection actions menu, to flatten it again.</li>
+          <li>The style bar can be docked to any window edge from Preferences. Top and bottom keep the horizontal strip; left and right show the controls as a vertical panel.</li>
+          <li>Annotation files are stored in a new format that opens faster and no longer inflates the embedded image. Files written by earlier releases still open, and saving one writes the new format; support for the old format will be removed in 2.0.</li>
+          <li>The eyedropper now cancels when you click outside the canvas, instead of staying active invisibly and capturing your next click on the image.</li>
+          <li>Pasting an annotation file copied in the file manager now opens it as a document, matching what dropping the same file already did.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-07-18">
       <description its:translate="no">
         <ul>
