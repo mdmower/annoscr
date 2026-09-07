@@ -100,21 +100,21 @@ export const AnnoscrWindow = GObject.registerClass(
     // The collaborators the window builds and wires together. Each owns one
     // region of the shell: the dockable style-picker bar, the scrolled view
     // plus bottom zoom bar, and the tool selector plus resize toolbar.
-    private styleBar!: StyleBar;
+    private styleBar: StyleBar;
     // The four dock slots the style bar moves between (two ToolbarView bars,
     // two sides of the content box); applyStyleBarPosition parents the bar
     // into one and shows only that slot. The side slots keep a permanent
     // separator on their canvas edge.
-    private styleTopSlot!: Gtk.Box;
-    private styleBottomSlot!: Gtk.Box;
-    private styleStartSlot!: Gtk.Box;
-    private styleEndSlot!: Gtk.Box;
-    private zoom!: ZoomController;
-    private toolbar!: ToolBar;
-    private toastOverlay!: Adw.ToastOverlay;
+    private styleTopSlot: Gtk.Box;
+    private styleBottomSlot: Gtk.Box;
+    private styleStartSlot: Gtk.Box;
+    private styleEndSlot: Gtk.Box;
+    private zoom: ZoomController;
+    private toolbar: ToolBar;
+    private toastOverlay: Adw.ToastOverlay;
     // The recent-files strip below the status bar, and the status-bar button
     // that shows/hides it.
-    private recentStrip!: RecentStrip;
+    private recentStrip: RecentStrip;
     private recentToggle!: Gtk.ToggleButton;
     private recentToggleIcon!: Adw.ButtonContent;
 

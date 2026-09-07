@@ -256,7 +256,7 @@ export class TextEditor {
   private readonly buttons: Record<TagName, Gtk.ToggleButton>;
   // Held as a field so beginAt can measure its height when computing the
   // vertical offset between the frame's top and the TextView's first line.
-  private toolbar!: Gtk.Box;
+  private toolbar: Gtk.Box;
   // Buffer-wide style tag (font + foreground color). Properties are updated
   // on each beginAt to reflect the active style; applied to the full buffer
   // after set_text/setBufferFromMarkup and to each insert range so newly
@@ -274,10 +274,10 @@ export class TextEditor {
 
   // Resize grip (visible only in standalone mode — box mode is sized by the
   // shape, so manual resize is disabled there).
-  private grip!: Gtk.DrawingArea;
+  private grip: Gtk.DrawingArea;
   // Holds the TextView (+ grip). Fills the card in box mode (so the text wraps)
   // and fills normally in standalone.
-  private viewOverlay!: Gtk.Overlay;
+  private viewOverlay: Gtk.Overlay;
   // Box-mode vertical centering: the text view area height and wrap width (widget
   // px). The text is centered by setting the view's top margin to half the slack;
   // 0 height = not box mode (no centering).
