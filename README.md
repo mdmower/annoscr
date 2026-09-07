@@ -231,7 +231,8 @@ Pressing the shortcut launches Annoscr, which immediately captures through the d
 Annoscr is in active development. Planned work:
 
 - **Paste image as a canvas item**: paste an image as a resizable, movable annotation on the canvas, rather than replacing the whole document, so multiple screenshots can be arranged side by side (e.g. for before/after comparisons) and annotated together.
-- **Scale image**: shrink an oversized screenshot to more manageable dimensions, scaling its annotations along with it so they stay editable.
+- **Scale image**: scale the whole image to new dimensions, typically to shrink an oversized screenshot, with its annotations scaling along so they stay editable and sharp at the new size.
+- **Select annotations by type**: choose all pen strokes, all arrows, all text, and so on from the selection menu, adding each type to the current selection, so a whole class of annotations can be restyled, moved, or deleted at once.
 
 ## Contributing
 
