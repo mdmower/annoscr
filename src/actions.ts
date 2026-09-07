@@ -42,7 +42,7 @@ export type RotateDirection = 'cw' | 'ccw';
 // bl/br) and edge midpoints (t/b/l/r) — cover rect/oval/number-stamp; endpoint
 // handles (p1/p2) cover line/arrow, which also expose 'curve' to bend the
 // segment; 'tail' drags a callout tail's tip on a box shape. Free-rotate uses
-// its own gizmo on the same grab/preview scaffolding rather than extending this
+// its own gizmo on the same grab/preview code path rather than extending this
 // set.
 export type HandleId =
   'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2' | 'curve' | 'tail';
@@ -82,9 +82,9 @@ export interface Action {
   // independently.
   getColor(): ColorRGBA | null;
   withColor(color: ColorRGBA): Action;
-  // The foreground color of text the action carries: a standalone text's glyphs,
-  // or the text embedded in a shape. Null for actions with no text. Kept
-  // separate from getColor so a shape's outline and its text color don't collide.
+  // The foreground color of the action's text: a standalone text's glyphs, or
+  // the text embedded in a shape. Null for actions with no text. Kept separate
+  // from getColor so a shape's outline and its text color are independent.
   getTextColor(): ColorRGBA | null;
   withTextColor(color: ColorRGBA): Action;
   // The action's editable stroke / outline width in image-space pixels, or
@@ -93,28 +93,28 @@ export interface Action {
   getWidth(): number | null;
   withWidth(width: number): Action;
   // The action's editable fill color (interior of rect / oval / number stamp
-  // circle), or null for actions that don't carry a fill. For rect / oval,
+  // circle), or null for actions that have no fill. For rect / oval,
   // alpha === 0 means "no fill" (outline-only).
   getFill(): ColorRGBA | null;
   withFill(color: ColorRGBA): Action;
   // The action's editable stroke dash style (solid / dashed / dotted), or
-  // null for actions whose stroke doesn't carry one (pen, highlighter, text,
-  // number stamp). Only line / arrow / rect / oval carry it.
+  // null for actions whose stroke has none (pen, highlighter, text, number
+  // stamp). Only line / arrow / rect / oval have one.
   getDash(): DashStyle | null;
   withDash(dash: DashStyle): Action;
   // Whether the arrowhead is drawn as a filled solid triangle (true) rather
   // than two open strokes (false), or null for actions that have no arrowhead.
-  // Only ArrowAction carries it.
+  // Only ArrowAction has one.
   getFilledHead(): boolean | null;
   withFilledHead(filled: boolean): Action;
   // The rectangle's corner radius in image-space pixels (0 = sharp corners), or
-  // null for actions that aren't rounded rectangles. Only RectAction carries it;
-  // the radius is clamped to half the smaller side at draw time, so an oversized
-  // value just maxes the rounding rather than overshooting.
+  // null for actions that aren't rounded rectangles. Only RectAction has one;
+  // the radius is clamped to half the smaller side at draw time, so an
+  // oversized value produces the maximum rounding rather than overshooting.
   getCornerRadius(): number | null;
   withCornerRadius(radius: number): Action;
-  // Whether the box shape carries a callout tail (a pointer triangle fused to
-  // its outline), or null for actions that can't (only rect / oval can). The
+  // Whether the box shape has a callout tail (a pointer triangle joined to its
+  // outline), or null for actions that can't have one (only rect / oval). The
   // tail's position is geometry (dragged via its 'tail' handle), not part of
   // this channel, and there's no per-tool default — new shapes start plain.
   getTail(): boolean | null;
@@ -123,20 +123,22 @@ export interface Action {
   // (only line / arrow can). Like the callout tail this is presence-only: the
   // bend itself is geometry dragged via the 'curve' handle, with no per-tool
   // default, so a newly drawn line/arrow always starts straight. Setting it
-  // false straightens; true is a no-op, since a bend is dragged, not switched on.
+  // false straightens; true is a no-op, since a bend is dragged, not switched
+  // on.
   getCurve(): boolean | null;
   withCurve(on: boolean): Action;
   // The action's editable font family (Pango font description string), or
-  // null for actions that don't carry one. Only TextAction does.
+  // null for actions that have none. Only TextAction has one.
   getFontDesc(): string | null;
   withFontDesc(fontDesc: string): Action;
   // The action's editable font size in image-space pixels, or null for
-  // actions that don't carry one. Only TextAction does.
+  // actions that have none. Only TextAction has one.
   getFontSize(): number | null;
   withFontSize(size: number): Action;
   // The action's text alignment (left / center / right), or null for actions
   // with no alignable text. Only a shape that contains text returns one
-  // (standalone TextAction stays left-only — its editor can't preview alignment).
+  // (standalone TextAction stays left-only — its editor can't preview
+  // alignment).
   getAlign(): TextAlign | null;
   withAlign(align: TextAlign): Action;
   // Per-action resize handles, in image space, for the select tool to draw and
@@ -160,7 +162,7 @@ export interface Action {
   getOrientedBounds(): OrientedBounds | null;
   // Whether (ix, iy) is inside the action for hit-testing. Defaults to the AABB
   // (`getBounds()`); rotated text overrides it with a precise rotated-rect test
-  // so its loose bounding box doesn't grab clicks far from the tilted text.
+  // so its loose bounding box doesn't accept clicks far from the tilted text.
   containsPoint(ix: number, iy: number): boolean;
   // The action's on-disk form for the .annoscr document format (the inverse is
   // deserializeAction). Each type emits its own `type` discriminant; see the
@@ -260,7 +262,7 @@ export interface TextStyle {
 
 // Editor frame dimensions in image-space pixels (the allocated frame divided
 // by the zoom at commit) — stored on TextAction so re-edits restore the size
-// the user dragged the editor to, with the same on-image footprint at any
+// the user dragged the editor to, with the same on-image size at any
 // zoom. Doesn't affect the rendered output; purely a UX preference per action.
 export interface EditorSize {
   width: number;
@@ -279,7 +281,7 @@ export interface NumberStampStyle {
 }
 
 // 'number' renders the n-th stamp as String(n); 'letter' renders as A..Z,
-// restarting at A after Z. Variant lives on each action so undo/redo of a
+// restarting at A after Z. Variant is stored on each action so undo/redo of a
 // global variant change is just a normal history entry.
 export type StampVariant = 'number' | 'letter';
 export const DEFAULT_STAMP_VARIANT: StampVariant = 'number';
@@ -303,14 +305,14 @@ const HIGHLIGHTER_STYLE: Style = {
 const LINE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 const ARROW_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
 const SHAPE_STYLE: Style = {color: DEFAULT_COLOR, width: 3, dash: DEFAULT_DASH};
-// Shift-constraint step for a line/arrow drag: 15°, the same detent the rotate
-// gizmo uses. Since 15° divides 90°, the snap lands on horizontal and vertical
-// as well as the diagonals.
+// Shift-constraint step for a line/arrow drag: 15°, the same step the rotate
+// gizmo uses. Since 15° divides 90°, the snapped angles include horizontal,
+// vertical, and the diagonals.
 const ANGLE_SNAP = Math.PI / 12;
 // Miter limit for MITER-joined strokes (the box outlines). Cairo's default of
 // 10 lets an acute joint grow a spike up to 5x the stroke width before
-// flipping to a bevel — so a callout tail's tip visibly jumped between a long
-// spike and a flat cut as a drag nudged its angle across the threshold. A
+// switching to a bevel — so a callout tail's tip visibly jumped between a long
+// spike and a flat cut as a drag moved its angle across the threshold. A
 // limit of 2 bevels everything sharper than ~60°, rendering tips consistently
 // at any angle, while a square 90° corner (ratio ~1.41) stays a sharp miter.
 const STROKE_MITER_LIMIT = 2;
@@ -326,7 +328,7 @@ export const TEXT_STYLE: TextStyle = {
 
 // Default text style for a shape's embedded text: centered, on a slightly
 // smaller font than standalone text, no background plate (the shape fill is the
-// backdrop). Color/font are the standalone defaults.
+// background). Color/font are the standalone defaults.
 export const SHAPE_TEXT_STYLE: TextStyle = {
   color: DEFAULT_COLOR,
   size: 20,
@@ -335,10 +337,10 @@ export const SHAPE_TEXT_STYLE: TextStyle = {
   align: 'center',
 };
 
-// Optional centered text carried by a box shape (rect / oval). Empty markup =
+// Optional centered text stored on a box shape (rect / oval). Empty markup =
 // no text (no controls, nothing drawn). The style is the text's own
 // color/font/size/align — independent of the box's stroke Style and fill; the
-// bg field is unused (the shape fill is the backdrop).
+// bg field is unused (the shape fill is the background).
 export interface ShapeText {
   markup: string;
   style: TextStyle;
@@ -346,17 +348,17 @@ export interface ShapeText {
 
 const EMPTY_SHAPE_TEXT: ShapeText = {markup: '', style: SHAPE_TEXT_STYLE};
 
-// Optional callout tail carried by a box shape (rect / oval): the tip's offset
+// Optional callout tail stored on a box shape (rect / oval): the tip's offset
 // from the box center, stored in the box's LOCAL (unrotated) frame so the tail
-// rotates with the shape and rides along when the box moves or resizes. Only
-// the tip is stored — the visible triangle (base chord on the outline) is
+// rotates with the shape and keeps its offset when the box moves or resizes.
+// Only the tip is stored — the visible triangle (base chord on the outline) is
 // derived from the box extents at draw time. Null = plain box.
 export interface TailOffset {
   dx: number;
   dy: number;
 }
 
-// Optional bend carried by a line / arrow: the offset of the curve's own
+// Optional bend stored on a line / arrow: the offset of the curve's own
 // midpoint (its apex) from the straight segment's midpoint, stored in the
 // segment's LOCAL frame —
 // `along` runs toward p2, `perp` is 90° clockwise from it (y-down). Local
@@ -368,8 +370,8 @@ export interface CurveOffset {
   perp: number;
 }
 
-// Below this offset (image px) a dragged apex is treated as landing back on the
-// midpoint and the curve is dropped, so a bend can be undone by hand as well as
+// Below this offset (image px) a dragged apex is treated as being back on the
+// midpoint and the curve is removed, so a bend can be undone by hand as well as
 // through Straighten.
 const CURVE_STRAIGHT_EPS = 0.5;
 
@@ -393,10 +395,10 @@ function segmentFrame(
 // A point offset from the segment's midpoint by `curve` scaled by k, in the
 // segment's local frame — the midpoint itself when straight. k = 1 is the apex,
 // the point the curve actually passes through at t = 0.5 (where the handle
-// sits); k = 2 is the Bezier control point, because a quadratic's midpoint lands
+// sits); k = 2 is the Bezier control point, because a quadratic's midpoint is
 // exactly halfway between the chord midpoint and its control point. Storing the
 // apex rather than the control point is what makes the handle track the cursor
-// instead of the ink lagging at half the drag distance. A degenerate segment has
+// instead of the curve moving half the drag distance. A degenerate segment has
 // no local frame, so the offset falls back to image-space axes rather than
 // collapsing the handle onto the endpoints.
 function curvePoint(
@@ -437,7 +439,7 @@ function curveFromApexPoint(
 // Exact extent of a quadratic Bezier along one axis: the two endpoints, plus
 // the stationary point of B'(t) when it falls strictly inside the span. Used
 // instead of the control-polygon hull, which would overshoot the visible bow by
-// roughly a factor of two and leave the hit area floating off the ink.
+// roughly a factor of two and place the hit area away from the drawn curve.
 function quadAxisExtent(p0: number, q: number, p2: number): [number, number] {
   let lo = Math.min(p0, p2);
   let hi = Math.max(p0, p2);
@@ -479,7 +481,7 @@ function quadCurveTo(
 // The derived tail triangle in the box's local frame: the stored tip plus the
 // two base points where the tail meets the outline. Null when the tip sits
 // inside the shape (nothing to point at) — the box then draws plain, but the
-// stored tip (and its handle) survives so the user can pull it back out.
+// stored tip (and its handle) is kept so the user can drag it back out.
 interface TailTriangle {
   tip: [number, number];
   b1: [number, number];
@@ -487,16 +489,16 @@ interface TailTriangle {
 }
 
 // Tail base half-width relative to the smaller box half-extent: proportional so
-// the tail reads as a pointer on any box size.
+// the tail looks like a pointer on any box size.
 const TAIL_BASE_RATIO = 0.3;
 
 function tailBaseHalfWidth(hW: number, hH: number): number {
   return TAIL_BASE_RATIO * Math.min(hW, hH);
 }
 
-// Default tip for a freshly toggled-on tail: down-left of the box, past the
-// outline by roughly the smaller half-extent, so it's immediately visible and
-// grabbable at any box size.
+// Default tip for a newly enabled tail: down-left of the box, past the outline
+// by roughly the smaller half-extent, so it's immediately visible and draggable
+// at any box size.
 function defaultTail(hW: number, hH: number): TailOffset {
   const u = Math.SQRT1_2; // 45° down-left
   const dist = (Math.SQRT2 + 0.9) * Math.min(hW, hH);
@@ -540,7 +542,7 @@ const NUMBER_STAMP_STYLE: NumberStampStyle = {
 // Default per-tool colors used both at startup and as the fallback for the
 // color picker when a tool has no explicit override yet. For the number
 // stamp, "color" means the foreground (border + digit), not the dominant
-// interior — interior lives in the fill slot.
+// interior — the interior is the fill property.
 export function defaultColorForTool(toolId: ToolId): ColorRGBA {
   if (toolId === 'highlighter') return DEFAULT_HIGHLIGHTER_COLOR;
   if (toolId === 'number') return DEFAULT_NUMBER_STAMP_FG;
@@ -548,9 +550,10 @@ export function defaultColorForTool(toolId: ToolId): ColorRGBA {
 }
 
 // Default per-tool text-foreground color (the getTextColor channel). Only the
-// text tool carries one; other tools return null and the "Text color" control
-// hides accordingly. A shape's embedded text seeds its color from the shape
-// tool's remembered style instead (rememberedShapeTextStyle in canvas_view.ts).
+// text tool has one; other tools return null and the "Text color" control
+// hides accordingly. A shape's embedded text takes its initial color from the
+// shape tool's remembered style instead (rememberedShapeTextStyle in
+// canvas_view.ts).
 export function defaultTextColorForTool(toolId: ToolId): ColorRGBA | null {
   return toolId === 'text' ? TEXT_STYLE.color : null;
 }
@@ -600,7 +603,7 @@ export function defaultWidthForTool(toolId: ToolId): number | null {
   }
 }
 
-// Default per-tool corner radius. Only the rectangle tool carries one (0 =
+// Default per-tool corner radius. Only the rectangle tool has one (0 =
 // sharp corners, the default); every other tool returns null and the Corners
 // control hides. The oval is always an ellipse, so it has no corner radius.
 export function defaultCornerRadiusForTool(toolId: ToolId): number | null {
@@ -624,8 +627,8 @@ export function defaultFontSizeForTool(toolId: ToolId): number | null {
   return null;
 }
 
-// Slider range for the width control. Generous enough that the highlighter's
-// default (18 px) sits comfortably below the top.
+// Slider range for the width control. Large enough that the highlighter's
+// default (18 px) is well below the maximum.
 export const WIDTH_MIN = 1;
 export const WIDTH_MAX = 40;
 
@@ -634,8 +637,8 @@ export const FONT_SIZE_MIN = 6;
 export const FONT_SIZE_MAX = 200;
 
 // Slider range for the rectangle corner-radius control (image-space px). 0 is
-// sharp corners; the upper bound is generous and the radius is clamped to half
-// the smaller side at draw time, so a large value just maxes the rounding.
+// sharp corners; the upper bound is large and the radius is clamped to half the
+// smaller side at draw time, so a large value produces the maximum rounding.
 export const CORNER_RADIUS_MIN = 0;
 export const CORNER_RADIUS_MAX = 100;
 
@@ -649,7 +652,8 @@ export const CANVAS_SIZE_MAX = 8192;
 // contract: the JSON keys are chosen independently of the (private) class field
 // names, so internal refactors don't change the file format. Colors are
 // [r,g,b,a] floats 0..1; coordinates are source-image-space pixels. A new
-// optional field is backward-compatible; renaming/removing one is a version bump.
+// optional field is backward-compatible; renaming/removing one is a version
+// bump.
 
 export interface SerializedTextStyle {
   color: ColorRGBA;
@@ -752,9 +756,10 @@ export type SerializedAction =
 
 const SHAPE_MIN_EXTENT = 2;
 
-// Number-stamp radius bounds (image-space px). MIN is the resize floor (a corner
-// drag can't collapse the stamp to a dot) and the persistence clamp floor; MAX
-// only bounds a remembered value loaded from settings.json against junk.
+// Number-stamp radius bounds (image-space px). MIN is the resize floor (a
+// corner drag can't collapse the stamp to a dot) and the persistence clamp
+// floor; MAX only bounds a remembered value loaded from settings.json against
+// malformed input.
 export const STAMP_RADIUS_MIN = 4;
 export const STAMP_RADIUS_MAX = 512;
 // The static placement radius before any remembered size.
@@ -923,7 +928,8 @@ class TextAction extends BaseAction {
   // mutable cache, no pre-paint fallback). A withX()/translate() clone is a
   // new instance, so its bounds are recomputed there. The unrotated layout
   // size (w, h) is kept too — draw, bounds, the oriented box, and the precise
-  // hit-test all need it, and it's free here since we measure for bounds anyway.
+  // hit-test all need it, and it costs nothing extra since the layout is
+  // already measured for the bounds.
   private readonly bounds: Bounds;
   private readonly w: number;
   private readonly h: number;
@@ -1057,8 +1063,8 @@ class TextAction extends BaseAction {
   }
 
   // Text has no stroke/outline (getColor stays null, inherited); its glyph
-  // color lives in the text-color channel so it shares one control with the
-  // text embedded in shapes.
+  // color is the text-color channel so it shares one control with the text
+  // embedded in shapes.
   getTextColor(): ColorRGBA {
     return this.style.color;
   }
@@ -1113,7 +1119,7 @@ class TextAction extends BaseAction {
     );
   }
 
-  // The Fill control carries the text background plate (transparent = none).
+  // The Fill control sets the text background plate (transparent = none).
   getFill(): ColorRGBA {
     return this.style.bg;
   }
@@ -1202,8 +1208,8 @@ class NumberStampAction extends BaseAction {
     public readonly n: number,
     // Stable id of the stamp's group. Numbering runs independently per group;
     // the dropdown shows a gap-free ordinal label derived from the set of
-    // present ids, but this id itself is never reused so placement state stays
-    // pinned to the same group across relabels.
+    // present ids, but this id itself is never reused so placement state keeps
+    // referring to the same group across relabels.
     public readonly groupId: number,
     public readonly variant: StampVariant,
     public readonly rotation: number, // free angle in radians, CW (affects the digit only)
@@ -1215,9 +1221,9 @@ class NumberStampAction extends BaseAction {
   draw(cr: Cairo.Context, _scale: number): void {
     const s = this.style;
 
-    // newSubPath so the arc isn't connected by a line segment to whatever
-    // current point a previous action left behind (e.g. PangoCairo.show_layout
-    // leaves the current point at the end of rendered text).
+    // newSubPath so the arc isn't connected by a line segment to the current
+    // point a previous action left set (e.g. PangoCairo.show_layout leaves the
+    // current point at the end of rendered text).
     cr.newSubPath();
     cr.arc(this.x, this.y, s.radius, 0, 2 * Math.PI);
     const [fr, fg, fb, fa] = s.fillColor;
@@ -1513,7 +1519,7 @@ export function reassignStamp(action: Action, groupId: number, variant: StampVar
 // counter kept independently per group. So deleting "2" from group A's
 // "1, 2, 3" leaves "1, 2", and each group numbers from 1 regardless of the
 // others' interleaving in document order. Unchanged stamps keep their identity
-// (same reference) so clean-state detection isn't tripped by a no-op renumber.
+// (same reference) so a no-op renumber doesn't register as a modification.
 export function renumberStamps(actions: ReadonlyArray<Action>): Action[] {
   const counts = new Map<number, number>();
   return actions.map((a) => {
@@ -1527,7 +1533,8 @@ export function renumberStamps(actions: ReadonlyArray<Action>): Action[] {
 }
 
 // Rewrite the variant of every stamp in one group. Non-matching actions pass
-// through unchanged (same reference), so a no-op flip doesn't dirty the state.
+// through unchanged (same reference), so a no-op change doesn't mark the state
+// modified.
 export function setStampVariantInGroup(
   actions: ReadonlyArray<Action>,
   groupId: number,
@@ -1651,9 +1658,9 @@ class StrokeLiveStroke implements LiveStroke {
 
 // Shared base for the four shapes defined by two endpoint/corner coordinates
 // plus a stroke Style. Subclasses supply draw() (the shape itself) and
-// rebuild() (a clone with new coords/style, threading any subclass-specific
-// state such as rect/oval fill); the AABB, translate, rotate, and the
-// color/width/dash getters+withers all live here.
+// rebuild() (a clone with new coords/style, passing through any
+// subclass-specific state such as rect/oval fill); the AABB, translate, rotate,
+// and the color/width/dash getters+withers are all implemented here.
 abstract class TwoEndpointAction extends BaseAction {
   constructor(
     protected readonly x1: number,
@@ -1667,8 +1674,8 @@ abstract class TwoEndpointAction extends BaseAction {
 
   abstract draw(cr: Cairo.Context, scale: number): void;
 
-  // Clone with new endpoints/style. Subclasses re-thread their own state
-  // (e.g. fill) so the with*/translate/rotate paths below stay state-agnostic.
+  // Clone with new endpoints/style. Subclasses pass their own state (e.g. fill)
+  // through so the with*/translate/rotate paths below need no knowledge of it.
   protected abstract rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action;
 
   // Padding around the endpoint AABB. Defaults to half the stroke width;
@@ -1759,7 +1766,7 @@ abstract class TwoEndpointAction extends BaseAction {
 // quadratic Bezier by dragging a third handle at the control point. A null
 // curve is a plain straight segment, so the handle sits on the midpoint and the
 // shape draws as a plain segment until it's dragged. Subclasses supply their
-// own draw plus a `makeCurved` constructor, so rebuild() re-threads the curve
+// own draw plus a `makeCurved` constructor, so rebuild() passes the curve
 // through every with*/translate/rotate path.
 abstract class CurvableLineAction extends TwoEndpointAction {
   constructor(
@@ -1791,7 +1798,8 @@ abstract class CurvableLineAction extends TwoEndpointAction {
     return curvePoint(this.x1, this.y1, this.x2, this.y2, this.curve, 2);
   }
 
-  // Where the curve's apex sits — on the ink, and where the drag handle goes.
+  // The curve's apex — a point on the drawn curve, and the drag handle
+  // position.
   private apex(): [number, number] {
     return curvePoint(this.x1, this.y1, this.x2, this.y2, this.curve, 1);
   }
@@ -1809,7 +1817,7 @@ abstract class CurvableLineAction extends TwoEndpointAction {
   }
 
   // Widen a bounds to cover a curved shaft, using the Bezier's exact per-axis
-  // extrema so the box tracks the visible bow rather than the control point.
+  // extrema so the box follows the visible bow rather than the control point.
   protected expandToCurve(b: Bounds): Bounds {
     if (!this.curve) return b;
     const [qx, qy] = this.control();
@@ -1832,9 +1840,9 @@ abstract class CurvableLineAction extends TwoEndpointAction {
     return this.curve !== null;
   }
 
-  // Only false does anything: a bend is made by dragging the apex handle, not by
-  // setting a flag, so there is nothing to switch on. The boolean shape exists
-  // because the broadcast path pairs a getter with a setter.
+  // Only false does anything: a bend is made by dragging the apex handle, not
+  // by setting a flag, so there is nothing to switch on. The boolean shape
+  // exists because the broadcast path pairs a getter with a setter.
   withCurve(on: boolean): Action {
     if (on) return this;
     return this.makeCurved(this.x1, this.y1, this.x2, this.y2, this.style, null);
@@ -1848,16 +1856,16 @@ abstract class CurvableLineAction extends TwoEndpointAction {
   resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
     if (handle !== 'curve') return super.resizeByHandle(handle, ix, iy, constrain);
     const dragged = curveFromApexPoint(this.x1, this.y1, this.x2, this.y2, ix, iy);
-    // Shift pins the apex to the perpendicular bisector, giving a symmetric bow
-    // instead of one leaning toward an endpoint.
+    // Shift constrains the apex to the perpendicular bisector, giving a
+    // symmetric bow instead of one leaning toward an endpoint.
     const next = constrain ? {along: 0, perp: dragged.perp} : dragged;
     const straight =
       Math.abs(next.along) < CURVE_STRAIGHT_EPS && Math.abs(next.perp) < CURVE_STRAIGHT_EPS;
     return this.makeCurved(this.x1, this.y1, this.x2, this.y2, this.style, straight ? null : next);
   }
 
-  // The curve rides in the segment's local frame, so it needs no field of its
-  // own on disk beyond the offset itself; omitted entirely when straight.
+  // The curve is stored in the segment's local frame, so it needs no field of
+  // its own on disk beyond the offset itself; omitted entirely when straight.
   protected curveData(): {curve?: CurveOffset} {
     return this.curve ? {curve: this.curve} : {};
   }
@@ -1890,7 +1898,8 @@ class LineAction extends CurvableLineAction {
 
 // Shared base for the single-drag live strokes of the two-endpoint shapes.
 // build() turns the current endpoints into the finished Action; the degenerate
-// guard and the optional Shift constraint (via `constrainEndpoint`) live here.
+// guard and the optional Shift constraint (via `constrainEndpoint`) are
+// implemented here.
 abstract class EndpointLiveStroke implements LiveStroke {
   protected endX: number;
   protected endY: number;
@@ -1961,17 +1970,17 @@ class ArrowAction extends CurvableLineAction {
   }
 
   // The two arrowhead arm tips. Both draw() and getBounds() need them, so the
-  // geometry lives in one place. The arms run back from the tip (x2, y2) at
-  // ±headAngle off the shaft's direction where it arrives at the tip — for a
+  // geometry is computed in one place. The arms run back from the tip (x2, y2)
+  // at ±headAngle off the shaft's direction where it arrives at the tip — for a
   // curved shaft that's the Bezier's end tangent (2·(P2 − Q) at t = 1), so the
-  // head stays aligned with the ink instead of with the chord.
+  // head stays aligned with the drawn curve instead of with the chord.
   private arrowheadArms(): [[number, number], [number, number]] {
     const chord = Math.hypot(this.x2 - this.x1, this.y2 - this.y1);
     const [qx, qy] = this.control();
     // Curved: the head follows the end tangent, 2·(P2 − Q). That vector is zero
-    // when the control point lands exactly on the tip, where atan2 would return
+    // when the control point coincides with the tip, where atan2 would return
     // an arbitrary angle rather than no answer — fall back to the chord so the
-    // head still points somewhere sensible.
+    // head still has a well-defined direction.
     const tangent = this.curve ? Math.hypot(this.x2 - qx, this.y2 - qy) : 0;
     const angle =
       tangent > 1e-6
@@ -2000,25 +2009,25 @@ class ArrowAction extends CurvableLineAction {
   }
 
   draw(cr: Cairo.Context, _scale: number): void {
-    // The arrow is one logical ink built from several Cairo operations (the
-    // shaft and head stroke separately since only the shaft dashes, and a
-    // filled head adds a fill under its stroke), so a translucent color would
-    // double-blend where they overlap. Composite the operations opaquely in a
-    // group, then paint the merged result once at the color's alpha. Opaque
-    // arrows skip the intermediate group surface.
+    // The arrow is one shape built from several Cairo operations (the shaft and
+    // head stroke separately since only the shaft dashes, and a filled head
+    // adds a fill under its stroke), so a translucent color would double-blend
+    // where they overlap. Composite the operations opaquely in a group, then
+    // paint the merged result once at the color's alpha. Opaque arrows skip the
+    // intermediate group surface.
     const [r, g, b, alpha] = this.style.color;
     const grouped = alpha < 1;
     if (grouped) cr.pushGroup();
 
-    // Shaft honours the dash style; stroke it on its own.
+    // Only the shaft is dashed; stroke it on its own.
     applyStrokeStyle(cr, this.style, Cairo.LineCap.ROUND, Cairo.LineJoin.ROUND);
     if (grouped) cr.setSourceRGBA(r, g, b, 1);
     this.pathSegment(cr);
     cr.stroke();
 
-    // Arrowhead is always solid — a dashed head reads as broken. Clear any
-    // dash the shaft set. Round cap + join give the open head its rounded tip
-    // (the join where the arms meet) and rounded wing ends (the caps).
+    // Arrowhead is always solid — a dashed head looks broken. Clear any dash
+    // the shaft set. Round cap + join give the open head its rounded tip (the
+    // join where the arms meet) and rounded wing ends (the caps).
     cr.setDash([], 0);
     cr.setLineCap(Cairo.LineCap.ROUND);
     cr.setLineJoin(Cairo.LineJoin.ROUND);
@@ -2030,8 +2039,8 @@ class ArrowAction extends CurvableLineAction {
       // Filled winged head: close the two arms into a triangle and fill it,
       // then stroke the outline so the round joins/caps round the tip and wing
       // ends to width/2 — matching the open head and the round-capped shaft.
-      // The rounded apex coincides with the shaft's round cap at the tip, so no
-      // nub shows past the point.
+      // The rounded apex coincides with the shaft's round cap at the tip, so
+      // nothing protrudes past the point.
       cr.closePath();
       cr.fillPreserve();
       cr.stroke();
@@ -2046,9 +2055,9 @@ class ArrowAction extends CurvableLineAction {
     }
   }
 
-  // Tight box around the actual ink: both endpoints plus the two arrowhead arm
-  // tips, padded by half the stroke width for the round caps, then widened to
-  // cover a curved shaft's reach. Unlike a uniform pad this leaves no dead
+  // Tight box around the drawn geometry: both endpoints plus the two arrowhead
+  // arm tips, padded by half the stroke width for the round caps, then widened
+  // to cover a curved shaft's extent. Unlike a uniform pad this leaves no empty
   // space on the tail end or past the tip.
   getBounds(): Bounds {
     const [arm1, arm2] = this.arrowheadArms();
@@ -2108,9 +2117,10 @@ class ArrowLiveStroke extends EndpointLiveStroke {
 // Shared base for the two filled, freely-rotatable box shapes (rect / oval).
 // Stored (x1,y1,x2,y2) is the UNROTATED box; it's drawn rotated by `rotation`
 // radians about its center. All the rotation, fill, oriented-bounds, hit-test,
-// and oriented-resize logic lives here; subclasses supply only their outline
-// path (buildPath) and a constructor (make). Resize handles + the rotate gizmo
-// coexist: handles ride the rotated box, resize works in the box's local frame.
+// and oriented-resize logic is implemented here; subclasses supply only their
+// outline path (buildPath) and a constructor (make). Resize handles + the
+// rotate gizmo coexist: handles are positioned on the rotated box, and resize
+// works in the box's local frame.
 abstract class RotatableBoxAction extends TwoEndpointAction {
   constructor(
     x1: number,
@@ -2131,7 +2141,7 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   }
 
   // Build the outline path centered at the origin in the local frame, spanning
-  // ±halfW × ±halfH, fusing in the callout tail when one is drawable. The base
+  // ±halfW × ±halfH, including the callout tail when one is drawable. The base
   // sets up the translate/rotate and the fill/stroke.
   protected abstract buildPath(cr: Cairo.Context, halfW: number, halfH: number): void;
 
@@ -2182,7 +2192,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
 
   // Centered text inside the box (in the box's rotated frame): word-wrapped and
   // L/C/R-aligned within the inner width, vertically centered, no clip — so
-  // overflow spills past the box (and ellipse corners) rather than resizing it.
+  // overflow extends past the box (and ellipse corners) rather than resizing
+  // it.
   private drawText(cr: Cairo.Context, cx: number, cy: number, hW: number): void {
     const {markup, style} = this.text;
     if (!markup) return;
@@ -2236,10 +2247,10 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     }
     if (this.tail) {
       // The STORED tip, even when the triangle is degenerate and hidden: the
-      // 'tail' handle sits there regardless and must stay inside the bounds
-      // that size the fixed-zoom scroll extent, or it couldn't be reached to
-      // drag back. The base chord lies on the outline, inside the corner AABB
-      // already. A drawn tip is widened further by its miter spike.
+      // 'tail' handle is positioned there regardless and must stay inside the
+      // bounds that size the fixed-zoom scroll extent, or it couldn't be
+      // reached to drag back. The base chord lies on the outline, inside the
+      // corner AABB already. A drawn tip is widened further by its miter spike.
       const [rx, ry] = rotateAboutPoint(
         cx + this.tail.dx,
         cy + this.tail.dy,
@@ -2282,8 +2293,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     const [hW, hH] = this.halfExtents();
     const [ncx, ncy] = rotatePoint(cx, cy, direction, oldW, oldH);
     const dr = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
-    // The tail offset is local-frame, so the rotation delta absorbed into
-    // `rotation` carries it around with the box unchanged.
+    // The tail offset is local-frame, so adding the rotation delta to
+    // `rotation` rotates it with the box; the offset itself is unchanged.
     return this.make(
       ncx - hW,
       ncy - hH,
@@ -2339,8 +2350,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     return this.tail !== null;
   }
 
-  // Toggling on seeds a default tip scaled to the box; toggling off forgets
-  // the position (undo restores it, and a re-toggle re-seeds the default).
+  // Enabling sets a default tip scaled to the box; disabling discards the
+  // position (undo restores it, and re-enabling sets the default again).
   withTail(on: boolean): Action {
     if (on === (this.tail !== null)) return this;
     const [hW, hH] = this.halfExtents();
@@ -2385,8 +2396,9 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   }
 
   // The text-style channels are exposed (non-null) ONLY when the box has text,
-  // so the style bar shows Text color / Font / Size / Align for a shape-with-text
-  // and hides them for an empty shape. getColor stays the outline color.
+  // so the style bar shows Text color / Font / Size / Align for a
+  // shape-with-text and hides them for an empty shape. getColor stays the
+  // outline color.
   getTextColor(): ColorRGBA | null {
     return this.text.markup ? this.text.style.color : null;
   }
@@ -2426,10 +2438,10 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   }
 
   // Hit-test against the (rotated) bounding rectangle: inverse-rotate the point
-  // into the local frame and test the padded box. For rotation 0 this is exactly
-  // the AABB test, so unrotated selection is unchanged; rotated, it's the tilted
-  // box (not the loose AABB). The oval uses the same box as the rect — the
-  // "precision" here is the orientation, not an exact ellipse boundary.
+  // into the local frame and test the padded box. For rotation 0 this is
+  // exactly the AABB test, so unrotated selection is unchanged; rotated, it's
+  // the tilted box (not the loose AABB). The oval uses the same box as the rect
+  // — the "precision" here is the orientation, not an exact ellipse boundary.
   containsPoint(ix: number, iy: number): boolean {
     const [cx, cy] = this.center();
     const [hW, hH] = this.halfExtents();
@@ -2445,8 +2457,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   getResizeHandles(): ResizeHandle[] {
     const local = boxResizeHandles(this.x1, this.y1, this.x2, this.y2);
     const [cx, cy] = this.center();
-    // The tail handle sits at the STORED tip (not the drawable triangle), so a
-    // tip swallowed by a box resize can still be pulled back out.
+    // The tail handle is at the STORED tip (not the drawable triangle), so a
+    // tip moved inside the shape by a box resize can still be dragged back out.
     if (this.tail) local.push({id: 'tail', x: cx + this.tail.dx, y: cy + this.tail.dy});
     if (this.rotation === 0) return local;
     return local.map((h) => {
@@ -2486,9 +2498,9 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       iy,
       constrain
     );
-    // The tail rides along: its center offset is kept, so resizing shifts the
-    // tip with the box (and can swallow it — the triangle then hides until the
-    // tip is dragged back out).
+    // The tail's center offset is kept, so resizing moves the tip with the box
+    // (and can move it inside the shape — the triangle then hides until the tip
+    // is dragged back out).
     return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation, this.text, this.tail);
   }
 
@@ -2551,9 +2563,9 @@ type PerimeterPiece = PerimeterArc | PerimeterLine;
 
 // The rounded rect's outline as a clockwise (screen y-down) arc-length
 // parametrization in the box's local frame, starting at the top-right arc.
-// Positions on it are plain arc lengths, so the tail base can anchor anywhere
-// on the outline — straight edge or corner arc — the way the oval's single
-// curve allows, instead of being confined to a straight span.
+// Positions on it are plain arc lengths, so the tail base can attach anywhere
+// on the outline — straight edge or corner arc — as it can on the oval's single
+// curve, instead of being confined to a straight span.
 function roundedRectPerimeter(hW: number, hH: number, r: number): PerimeterPiece[] {
   const arcLen = (Math.PI / 2) * r;
   const spanW = 2 * (hW - r);
@@ -2601,7 +2613,7 @@ function perimeterPointAt(pieces: PerimeterPiece[], total: number, s: number): [
     if (sw <= p.len && p.len > 0) return piecePointAt(p, sw / p.len);
     sw -= p.len;
   }
-  // Float spill past the last piece wraps to the walk origin.
+  // A float remainder past the last piece wraps to the start of the walk.
   return piecePointAt(pieces[0], 0);
 }
 
@@ -2683,16 +2695,16 @@ function rectTailAnchors(
     total += p.len;
   }
   const sExit = rayExitLength(pieces, starts, hW, hH, r, dx, dy);
-  // The proportional base always fits a sane outline; the total/8 clamp only
-  // guards pathological aspect ratios from wrapping the anchors past halfway.
+  // The proportional base always fits a normal outline; the total/8 clamp only
+  // stops extreme aspect ratios from wrapping the anchors past halfway.
   const base = Math.min(tailBaseHalfWidth(hW, hH), total / 8);
   return {pieces, total, sExit, base};
 }
 
 // Append the outline from arc length s, walking `dist` clockwise, starting
-// with a moveTo. Pieces the ends land in are emitted partially; zero-length
-// pieces pass through silently. The iteration cap covers dist ≤ total plus a
-// wrap of the piece ring (float slack can't extend it — every positive-length
+// with a moveTo. Pieces containing an endpoint are emitted partially;
+// zero-length pieces are skipped. The iteration cap covers dist ≤ total plus a
+// wrap of the piece ring (float error can't extend it — every positive-length
 // piece consumes its full remainder).
 function emitPerimeterWalk(
   cr: Cairo.Context,
@@ -2729,8 +2741,8 @@ function emitPerimeterWalk(
   }
 }
 
-// The fused callout outline: the perimeter from one base anchor the long way
-// around to the other, then the detour to the tip. One closed path, so fill
+// The combined callout outline: the perimeter from one base anchor the long way
+// around to the other, then out to the tip and back. One closed path, so fill
 // and (dashed) stroke treat box + tail as a single outline with clean joins.
 function calloutRectPath(cr: Cairo.Context, an: RectTailAnchors, tail: TailOffset): void {
   emitPerimeterWalk(cr, an.pieces, an.total, an.sExit + an.base, an.total - 2 * an.base);
@@ -2790,9 +2802,9 @@ class RectAction extends RotatableBoxAction {
     };
   }
 
-  // Thread cornerRadius through make so every base edit that rebuilds the box
+  // Pass cornerRadius through make so every base edit that rebuilds the box
   // (fill / rotation / resize / text / tail, plus color / width / dash via
-  // rebuild) carries the radius forward.
+  // rebuild) preserves the radius.
   protected make(
     x1: number,
     y1: number,
@@ -2885,15 +2897,15 @@ class OvalAction extends RotatableBoxAction {
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
     // Scale-and-arc trick: build the path under a scaled CTM, then restore so
-    // the line width isn't scaled with the ellipse axes (stroking happens in the
-    // base after the outer restore, in unscaled space).
+    // the line width isn't scaled with the ellipse axes (stroking happens in
+    // the base after the outer restore, in unscaled space).
     const chord = this.tail ? ovalTailChord(halfW, halfH, this.tail) : null;
     cr.save();
     cr.scale(halfW, halfH);
     cr.newSubPath();
     if (chord) {
       // Arc the long way around from one base point to the other; the tail
-      // detour below closes the loop into one outline.
+      // segments below close the path into one outline.
       cr.arc(0, 0, 1, chord.t2, chord.t1);
     } else {
       cr.arc(0, 0, 1, 0, 2 * Math.PI);
@@ -2955,7 +2967,7 @@ class OvalLiveStroke extends EndpointLiveStroke {
   }
 }
 
-// Whether the action is a box shape (rect / oval) that can carry centered text.
+// Whether the action is a box shape (rect / oval) that can hold centered text.
 export function isShapeAction(action: Action): boolean {
   return action instanceof RotatableBoxAction;
 }
@@ -2967,7 +2979,7 @@ export interface ShapeTextEditState {
 }
 
 // Edit state for a box shape's text, or null for non-shapes. Used to open the
-// box editor and seed its style.
+// box editor and set its initial style.
 export function getShapeTextEditState(action: Action): ShapeTextEditState | null {
   if (!(action instanceof RotatableBoxAction)) return null;
   return {
@@ -2984,9 +2996,9 @@ export function withShapeText(action: Action, markup: string, style: TextStyle):
   return action.withText(markup, style);
 }
 
-// A box shape with its text stripped (or the shape unchanged if it has none), or
-// null for non-shapes. Lets the canvas keep the box drawn while its text is being
-// edited — only the text is suppressed, not the whole shape.
+// A box shape with its text stripped (or the shape unchanged if it has none),
+// or null for non-shapes. Lets the canvas keep the box drawn while its text is
+// being edited — only the text is hidden, not the whole shape.
 export function shapeWithoutText(action: Action): Action | null {
   if (!(action instanceof RotatableBoxAction)) return null;
   return action.getMarkup() ? action.withText('', action.getTextStyle()) : action;
@@ -3026,8 +3038,8 @@ export function createLiveStroke(
     case 'number':
     case 'resize':
     default:
-      // Non-drag-stroke tools handled elsewhere; the canvas guards against
-      // this call, the throw is a safety net.
+      // Non-drag-stroke tools are handled elsewhere; the canvas never makes
+      // this call, so the throw only reports a programming error.
       throw new Error(`${toolId} tool is handled outside createLiveStroke`);
   }
 }
@@ -3057,7 +3069,7 @@ export function defaultFillForTool(toolId: ToolId): ColorRGBA | null {
   }
 }
 
-// Default per-tool dash style. Only the discrete-path stroke tools carry one;
+// Default per-tool dash style. Only the discrete-path stroke tools have one;
 // pen/highlighter (smooth multi-point strokes), text, number, select and
 // resize return null and the dash dropdown hides accordingly.
 export function defaultDashForTool(toolId: ToolId): DashStyle | null {
@@ -3078,15 +3090,15 @@ export function defaultDashForTool(toolId: ToolId): DashStyle | null {
   }
 }
 
-// Default filled-arrowhead state. Only the arrow tool carries it; everything
+// Default filled-arrowhead state. Only the arrow tool has one; everything
 // else returns null and the toggle hides accordingly. Arrows default to the
 // open (stroked) arrowhead.
 export function defaultFilledHeadForTool(toolId: ToolId): boolean | null {
   return toolId === 'arrow' ? false : null;
 }
 
-// The tool that produces an action of this type, so a select-mode style edit can
-// be written back to the matching tool's default. StrokeAction carries its
+// The tool that produces an action of this type, so a select-mode style edit
+// can be written back to the matching tool's default. StrokeAction stores its
 // own pen/highlighter tag; the rest map by concrete class. Null for any action
 // with no single originating tool.
 export function actionToolId(action: Action): ToolId | null {
@@ -3123,7 +3135,8 @@ function deserializeShapeText(text: SerializedShapeText | undefined): ShapeText 
 
 // Reconstruct one action from its serialized form (the inverse of
 // Action.serialize()). Stamps get a placeholder ordinal that deserializeActions
-// corrects via renumberStamps. Throws on an unknown discriminant (corrupt file).
+// corrects via renumberStamps. Throws on an unknown discriminant (corrupt
+// file).
 export function deserializeAction(data: SerializedAction): Action {
   switch (data.type) {
     case 'pen':
@@ -3226,7 +3239,7 @@ export function deserializeActions(data: ReadonlyArray<SerializedAction>): Actio
 
 // On/off dash lengths in image-space pixels, scaled to the line width so the
 // pattern stays proportional at any stroke size. 'dotted' is a short square
-// dash of length == width (rendered with butt caps, so it reads as a square
+// dash of length == width (rendered with butt caps, so it appears as a square
 // dot rather than a round one); 'dashed' is a longer dash with a smaller gap.
 // 'solid' returns an empty array (no dashing).
 function dashPattern(dash: DashStyle, width: number): number[] {
@@ -3252,7 +3265,7 @@ function applyStrokeStyle(cr: Cairo.Context, style: Style, cap: number, join: nu
   // Dashed/dotted strokes force butt caps: a round cap extends each dash by
   // width/2 per end, which closes a width-length gap and turns dots into
   // pills. Solid strokes keep the caller's chosen cap. Always (re)set the dash
-  // array so a dashed action earlier in the stack can't leak onto this one.
+  // array so a dashed action earlier in the stack doesn't affect this one.
   const pattern = dashPattern(style.dash, style.width);
   if (pattern.length > 0) {
     cr.setLineCap(Cairo.LineCap.BUTT);
@@ -3276,10 +3289,10 @@ function endpointBounds(x1: number, y1: number, x2: number, y2: number, pad: num
   };
 }
 
-// Snap (x2, y2) so the bounding box from (x1, y1) is a square. The side is
-// the longer of |dx|, |dy| — keeps the dragged-out shape covering the cursor
-// rather than retreating from it. Zero-component fallback extends positively
-// so a purely horizontal/vertical drag still produces a square.
+// Snap (x2, y2) so the bounding box from (x1, y1) is a square. The side is the
+// longer of |dx|, |dy| — so the dragged-out shape keeps covering the cursor
+// rather than shrinking away from it. Zero-component fallback extends
+// positively so a purely horizontal/vertical drag still produces a square.
 function constrainSquare(x1: number, y1: number, x2: number, y2: number): [number, number] {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -3307,8 +3320,8 @@ function constrainAngle(
 }
 
 // The 8 box handles (4 corners + 4 edge midpoints) of the normalized rectangle
-// spanning (x1,y1)-(x2,y2), in image space. Corners lead so a corner wins over
-// an overlapping edge band when the canvas hit-tests in order.
+// spanning (x1,y1)-(x2,y2), in image space. Corners come first so a corner wins
+// over an overlapping edge band when the canvas hit-tests in order.
 function boxResizeHandles(x1: number, y1: number, x2: number, y2: number): ResizeHandle[] {
   const minX = Math.min(x1, x2);
   const maxX = Math.max(x1, x2);
@@ -3405,7 +3418,8 @@ function resizeBox(
 }
 
 // Whether (px, py) lies inside the triangle (a, b, c): same-side sign test on
-// the three edge cross products (zero counts as inside, so boundary points hit).
+// the three edge cross products (zero counts as inside, so boundary points
+// hit).
 function pointInTriangle(
   px: number,
   py: number,
@@ -3422,7 +3436,7 @@ function pointInTriangle(
 }
 
 // Rotate (px, py) by `angle` radians (CW, screen y-down) about (cx, cy).
-// Delegates to rotateVec so the rotation convention lives in one place.
+// Delegates to rotateVec so the rotation convention is defined in one place.
 function rotateAboutPoint(
   px: number,
   py: number,
@@ -3436,7 +3450,7 @@ function rotateAboutPoint(
 
 // Resize a rotated box. The stored (x1,y1,x2,y2) is the box's UNROTATED extent;
 // it's drawn rotated by `rotation` about its center. Dragging a handle resizes
-// along the box's own (local) axes while the opposite edge/corner stays pinned
+// along the box's own (local) axes while the opposite edge/corner stays fixed
 // in image space: inverse-rotate the cursor into the local frame, run the plain
 // axis-aligned resizeBox there, then place the result so the invariant anchor
 // point keeps its world position (the center shifts, the angle is unchanged).
@@ -3488,8 +3502,9 @@ function resizeOrientedBox(
   const ax = movedLeft || movedRight ? (movedLeft ? oldMaxX : oldMinX) : ocx;
   const ay = movedTop || movedBottom ? (movedTop ? oldMaxY : oldMinY) : ocy;
 
-  // World position of that anchor (old center + rotation) stays fixed; solve for
-  // the new center that re-rotating the resized box about it keeps the anchor there.
+  // World position of that anchor (old center + rotation) stays fixed; solve
+  // for the new center that re-rotating the resized box about it keeps the
+  // anchor there.
   const [wax, way] = rotateAboutPoint(ax, ay, ocx, ocy, rotation);
   const offx = ax - nLocalCx;
   const offy = ay - nLocalCy;
@@ -3503,7 +3518,7 @@ function resizeOrientedBox(
 
 // Connects each adjacent pair of points with a quadratic that passes through
 // their midpoint, using the raw sample as the control. Smooths sparse pointer
-// samples into a continuous curve without losing fidelity.
+// samples into a continuous curve without discarding any sample.
 function buildSmoothPath(cr: Cairo.Context, pts: ReadonlyArray<[number, number]>): void {
   if (pts.length === 2) {
     cr.moveTo(pts[0][0], pts[0][1]);

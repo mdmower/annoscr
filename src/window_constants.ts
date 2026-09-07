@@ -5,7 +5,8 @@ import {DashStyle, ToolId} from './actions.js';
 import {N_} from './i18n.js';
 
 // Maps the dash dropdown's selection index to a DashStyle (and back, via
-// indexOf). Order must match the strings passed to Gtk.DropDown.new_from_strings.
+// indexOf). Order must match the strings passed to
+// Gtk.DropDown.new_from_strings.
 export const DASH_ORDER: DashStyle[] = ['solid', 'dashed', 'dotted'];
 
 const WINDOW_CSS = `
@@ -80,7 +81,7 @@ export interface SizePreset {
 
 // Labels marked with N_ (extracted, not translated here): these are built into
 // a Gtk.StringList at dialog-construction time, which is post-init, so the
-// caller translates each with _() then. The pure-dimension entries carry a
+// caller translates each with _() then. The pure-dimension entries have a
 // translator note since only the parenthetical (HD / Full HD) ever differs.
 export const SIZE_PRESETS: SizePreset[] = [
   {label: N_('Custom'), w: 0, h: 0},
@@ -92,7 +93,7 @@ export const SIZE_PRESETS: SizePreset[] = [
 
 export const DEFAULT_PRESET_INDEX = 2;
 
-// Sticky zoom levels the slider snaps to and Ctrl+/Ctrl- step through.
+// Zoom levels Ctrl+/Ctrl- step through.
 export const ZOOM_DETENTS = [0.25, 0.5, 1, 2, 4];
 // Multiplicative step per Ctrl+scroll notch (exp of accumulated wheel delta).
 export const ZOOM_SCROLL_STEP = 0.15;
@@ -105,7 +106,8 @@ export interface ToolDef {
 }
 
 // Labels marked with N_ (extracted, not translated here): the toolbar reads
-// `label` into tooltips at build time (post-init) and translates with _() there.
+// `label` into tooltips at build time (post-init) and translates with _()
+// there.
 export const TOOLS: ToolDef[] = [
   {id: 'select', label: N_('Select'), icon: 'annoscr-select-symbolic', accelerator: 's'},
   {id: 'pen', label: N_('Pen'), icon: 'annoscr-pen-symbolic', accelerator: 'p'},

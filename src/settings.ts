@@ -35,13 +35,13 @@ export type ColorScheme = 'system' | 'light' | 'dark';
 // bar layout; left/right use the vertical properties-panel layout.
 export type StyleBarPosition = 'top' | 'bottom' | 'left' | 'right';
 
-// Pixel-memory budget preset for canvas undo history (the surfaces rotate /
-// canvas-resize snapshots pin; see CanvasView's surface cap).
+// Pixel-memory budget preset for canvas undo history (the surfaces that rotate
+// / canvas-resize snapshots retain; see CanvasView's surface cap).
 export type UndoMemory = 'low' | 'normal' | 'high' | 'unlimited';
 
-// The byte budget a preset stands for; null = no budget. The mapping lives
-// here so Preferences (labels) and the window (applying it to the canvas)
-// can't drift apart.
+// The byte budget a preset stands for; null = no budget. The mapping is
+// defined here so Preferences (labels) and the window (applying it to the
+// canvas) can't diverge.
 export function undoMemoryBytes(m: UndoMemory): number | null {
   switch (m) {
     case 'low':
@@ -110,20 +110,20 @@ export interface AnnoscrSettings {
   undoMemory: UndoMemory;
   // Remember files opened from disk (images, annotation files, and captured
   // screenshots) and offer them in the recent-files strip. The list itself is
-  // machine-local state and lives outside this file; see recent_files.ts.
+  // machine-local state and is stored outside this file; see recent_files.ts.
   rememberRecentFiles: boolean;
   // Last window geometry, restored on launch. Position is intentionally absent:
   // GTK4 exposes no toplevel-positioning API (the compositor owns placement on
   // Wayland), so only size + maximized state are ours to persist. While
   // maximized, width/height hold the last unmaximized size, so unmaximizing
-  // after a restore returns to the right footprint.
+  // after a restore returns to the right size.
   windowWidth: number;
   windowHeight: number;
   windowMaximized: boolean;
   // Family names shown in the text font dropdown, in order; the first is the
   // text tool's default. Empty/absent = the automatic selection built from
-  // font_catalogue's candidate lists. Families that aren't installed are dropped
-  // when the catalogue is built.
+  // font_catalogue's candidate lists. Families that aren't installed are
+  // dropped when the catalogue is built.
   fontFamilies?: string[];
   // Only populated when rememberToolStyles is on.
   toolStyles?: ToolStylesSnapshot;
@@ -157,11 +157,12 @@ function settingsPath(): string {
   return GLib.build_filenamev([GLib.get_user_config_dir(), 'annoscr', 'settings.json']);
 }
 
-// --- Validators ---------------------------------------------------------------
-// settings.json is a plain file users may hand-edit, so every field is
-// validated against its expected type/domain on load. A bad or unrecognized
-// value falls back to its default rather than propagating into the UI (where a
-// wrong type could, e.g., crash the save dialog on FORMATS[badFormat]).
+// --- Validators
+// --------------------------------------------------------------- settings.json
+// is a plain file users may hand-edit, so every field is validated against its
+// expected type/domain on load. A bad or unrecognized value falls back to its
+// default rather than propagating into the UI (where a wrong type could, e.g.,
+// crash the save dialog on FORMATS[badFormat]).
 
 // An ordered list of non-empty, de-duplicated strings, or undefined when none
 // survive (so an empty list reads the same as an absent one). Family existence
@@ -237,8 +238,8 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
   const tools: Record<string, ToolStyleEntry> = {};
   if (isRecord(v.tools)) {
     for (const [id, raw] of Object.entries(v.tools)) {
-      // Drop unknown tool ids (typos, junk, or a stale id from an old build)
-      // rather than round-tripping them back into settings.json.
+      // Drop unknown tool ids (typos, malformed values, or a stale id from an
+      // old build) rather than round-tripping them back into settings.json.
       if (!TOOL_ID_SET.has(id)) continue;
       const entry = asToolStyleEntry(raw);
       if (entry) tools[id] = entry;

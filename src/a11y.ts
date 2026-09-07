@@ -8,7 +8,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 // nesting correct in one place.
 
 // Set a widget's accessible name. Use for icon-only controls whose meaning is
-// otherwise carried only by an icon (tooltips are not reliably exposed to AT).
+// otherwise conveyed only by an icon (tooltips are not reliably exposed to AT).
 export function setAccessibleLabel(w: Gtk.Accessible, label: string): void {
   w.update_property([Gtk.AccessibleProperty.LABEL], [label]);
 }
@@ -20,7 +20,7 @@ export function setAccessibleDescription(w: Gtk.Accessible, description: string)
 }
 
 // Copy a widget's tooltip to its accessible name. The many icon-only buttons
-// already carry a tooltip stating their purpose, so this keeps the accessible
+// already have a tooltip stating their purpose, so this keeps the accessible
 // label in sync with the visible hint without restating the string.
 export function labelFromTooltip(w: Gtk.Widget): void {
   const tip = w.get_tooltip_text();
@@ -29,7 +29,7 @@ export function labelFromTooltip(w: Gtk.Widget): void {
 
 // Name a control by one or more visible label widgets. The control's accessible
 // name then tracks the labels' accessible names live, so updating a caption's
-// name (e.g. setAccessibleLabel to carry a "(mixed)" note) reaches the control
+// name (e.g. setAccessibleLabel to add a "(mixed)" note) reaches the control
 // without a second update call.
 //
 // The LABELLED_BY value is a reference list, which GJS only marshals correctly
@@ -43,8 +43,8 @@ export function setLabelledBy(w: Gtk.Accessible, ...labels: Gtk.Accessible[]): v
 }
 
 // Request the screen reader speak a transient message (selection/placement/
-// deletion feedback). MEDIUM lets it interrupt lower-priority chatter without
-// preempting the user's own typing.
+// deletion feedback). MEDIUM lets it interrupt lower-priority announcements
+// without preempting the user's own typing.
 export function announce(w: Gtk.Accessible, message: string): void {
   w.announce(message, Gtk.AccessibleAnnouncementPriority.MEDIUM);
 }

@@ -34,7 +34,7 @@ export function rotateSurface(
 // If `fill` is provided and has non-zero alpha, the newly-added margin — the
 // destination area outside the source's placement rect — is painted with it.
 // The source region keeps its own pixels, so an alpha image's interior
-// transparency is preserved: the fill is a border, not a backdrop behind the
+// transparency is preserved: the fill is a border, not a background behind the
 // whole canvas.
 export function resizeSurface(
   src: Cairo.ImageSurface,

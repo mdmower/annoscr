@@ -92,8 +92,8 @@ export function getRecentFiles(): ReadonlyArray<RecentEntry> {
 }
 
 // Add a newly opened file at the front. Entries stay in FIRST-opened order,
-// newest leftmost: reopening deliberately does not move one, so hunting through
-// the strip never rearranges what is being hunted through. Returns whether
+// newest leftmost: reopening deliberately does not move one, so searching the
+// strip never rearranges what is being searched. Returns whether
 // anything changed, so a reopen skips the rebuild and its scroll reset.
 export function rememberOpenedFile(path: string, kind: RecentKind): boolean {
   const s = state();
@@ -106,7 +106,7 @@ export function rememberOpenedFile(path: string, kind: RecentKind): boolean {
 // Put a just-saved file at the front, listed already or not — the deliberate
 // exception to the ordering above. Opening a file is a search and must not
 // disturb the order; saving one changes it, and the result is what the user
-// reaches for next. Returns whether anything moved.
+// is most likely to open next. Returns whether anything moved.
 export function rememberSavedFile(path: string, kind: RecentKind): boolean {
   const s = state();
   if (s.recentFiles[0]?.path === path) return false;
@@ -116,11 +116,11 @@ export function rememberSavedFile(path: string, kind: RecentKind): boolean {
   return true;
 }
 
-// Add files staged on the strip without opening any of them (dropped on it, or
-// picked from its Add dialog). They go to the front in the order they were
-// given (the first one leftmost); an already-listed file keeps its place, since
-// adding a file is a kind of opening and must not rearrange what the user is
-// hunting through. Returns whether anything moved, as its two siblings do.
+// Add files to the strip without opening any of them (dropped on it, or picked
+// from its Add dialog). They go to the front in the order they were given (the
+// first one leftmost); an already-listed file keeps its place, since adding a
+// file is a kind of opening and must not rearrange what the user is searching.
+// Returns whether anything moved, as the two functions above do.
 export function rememberAddedFiles(entries: readonly RecentEntry[]): boolean {
   const s = state();
   const listed = new Set(s.recentFiles.map((e) => e.path));
@@ -144,8 +144,9 @@ export function forgetRecentFile(path: string): void {
   saveState(s);
 }
 
-// Drop entries whose file is gone. Called once at startup, because during a
-// session a failed thumbnail is left in place rather than vanishing mid-scroll.
+// Remove entries whose file no longer exists. Called once at startup, because
+// during a session a failed thumbnail is left in place rather than disappearing
+// mid-scroll.
 // A file that exists but can't be read passes this test, so a permissions
 // problem never costs the user an entry. One stat per entry.
 export function pruneMissingRecentFiles(): boolean {

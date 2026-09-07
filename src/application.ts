@@ -72,9 +72,9 @@ export const AnnoscrApplication = GObject.registerClass(
         _('Capture a screenshot via the desktop portal on startup'),
         null
       );
-      // GOptionContext only lists the flags by default; spell out the positional
-      // FILE argument in the Usage line and explain it, so `--help` reveals that
-      // an image or .annoscr file can be opened directly.
+      // GOptionContext only lists the flags by default; spell out the
+      // positional FILE argument in the Usage line and explain it, so `--help`
+      // reveals that an image or .annoscr file can be opened directly.
       this.set_option_context_parameter_string('[FILE]');
       this.set_option_context_summary(
         _('Annotate a screenshot. FILE is an image or .annoscr file to open.')
@@ -92,10 +92,10 @@ export const AnnoscrApplication = GObject.registerClass(
         Gtk.IconTheme.get_for_display(display).add_search_path(iconPath);
       }
 
-      // The "Show in Files" button on an autoclose-export notification routes
-      // here. It can fire after the window (or the whole app) is gone, which
-      // D-Bus-activates us headless — registering on the application (not a
-      // window) is what lets the action be serviced in that case.
+      // The "Show in Files" button on an autoclose-export notification
+      // activates this. It can run after the window (or the whole app) is gone,
+      // which D-Bus-activates us headless — registering on the application (not
+      // a window) is what lets the action be serviced in that case.
       const showInFiles = new Gio.SimpleAction({
         name: 'show-in-files',
         parameter_type: GLib.VariantType.new('s'),
@@ -106,7 +106,7 @@ export const AnnoscrApplication = GObject.registerClass(
       this.add_action(showInFiles);
 
       // Clicking an "Image saved" notification reopens the saved file. Like the
-      // button above this can fire after the app has quit, D-Bus-activating us;
+      // button above this can run after the app has quit, D-Bus-activating us;
       // a window is created if there isn't one.
       const openFile = new Gio.SimpleAction({
         name: 'open-file',
@@ -186,15 +186,17 @@ export const AnnoscrApplication = GObject.registerClass(
     }
 
     // HANDLES_COMMAND_LINE routes every CLI invocation here on the PRIMARY
-    // instance — including a second `annoscr --screenshot` fired while a window
+    // instance — including a second `annoscr --screenshot` run while a window
     // is already open. Parsing the flags here (rather than in
     // handle_local_options, which runs on the transient local process and never
-    // touches the primary's state) is what lets them reach the running instance.
+    // touches the primary's state) is what lets them reach the running
+    // instance.
     vfunc_command_line(cmdline: Gio.ApplicationCommandLine): number {
       this.applyOptions(cmdline.get_options_dict());
       // After option parsing GOptionContext leaves only positionals in argv,
       // with argv[0] the program name. create_file_for_arg resolves each path
-      // against the invoking process's cwd, which may differ from the primary's.
+      // against the invoking process's cwd, which may differ from the
+      // primary's.
       const positionals = cmdline.get_arguments().slice(1);
       if (positionals.length > 0) {
         this.open(
@@ -209,8 +211,8 @@ export const AnnoscrApplication = GObject.registerClass(
 
     vfunc_activate(): void {
       // No window yet means this is a fresh launch (no instance was already
-      // running); a `--screenshot` capture cancelled in that case should abandon
-      // the launch rather than leave an empty window behind.
+      // running); a `--screenshot` capture cancelled in that case should
+      // abandon the launch rather than leave an empty window behind.
       const freshLaunch = this.active_window === null;
       const win = (this.active_window ?? new AnnoscrWindow(this)) as InstanceType<
         typeof AnnoscrWindow
@@ -232,8 +234,8 @@ export const AnnoscrApplication = GObject.registerClass(
     vfunc_open(files: Gio.File[], _hint: string): void {
       // Reached both from the desktop "Open With" path and from command_line
       // when positional file args are present. A file takes precedence, so any
-      // --new / --screenshot intent can't be honored — warn and drop it rather
-      // than leaving it stranded for a later activation.
+      // --new / --screenshot intent can't be honored — warn and discard it
+      // rather than leaving it pending for a later activation.
       if (this.initialBlank || this.initialCapture) {
         console.warn('annoscr: --new/--screenshot are ignored when a file is opened.');
         this.initialBlank = null;

@@ -1,6 +1,6 @@
 # Contributing
 
-Annoscr is written in TypeScript, runs on GJS, and builds with Meson. This guide covers building from source and working with translations. For building `.deb` / `.rpm` / Arch packages and cutting releases, see [docs/PACKAGING.md](docs/PACKAGING.md).
+Annoscr is written in TypeScript, runs on GJS, and builds with Meson. This guide covers building from source and working with translations. For building `.deb` / `.rpm` / Arch packages and making releases, see [docs/PACKAGING.md](docs/PACKAGING.md).
 
 Issues and patches are welcome at <https://github.com/mdmower/annoscr>.
 
@@ -42,7 +42,7 @@ rm -rf build
 npm run clean
 ```
 
-`npm run clean` ([build-aux/clean.sh](build-aux/clean.sh)) wipes both Meson build trees (`build/` and the `obj-*/` dir `dpkg-buildpackage` creates), the debhelper staging under `debian/`, and the `.deb`/`.changes`/`.buildinfo` products dpkg writes to the parent directory.
+`npm run clean` ([build-aux/clean.sh](build-aux/clean.sh)) removes both Meson build trees (`build/` and the `obj-*/` dir `dpkg-buildpackage` creates), the debhelper staging under `debian/`, and the `.deb`/`.changes`/`.buildinfo` files dpkg writes to the parent directory.
 
 ## Translations
 
@@ -68,7 +68,7 @@ msginit --input=po/annoscr.pot --locale=de --output=po/de.po
 
 Add the language code to [po/LINGUAS](po/LINGUAS); the build compiles each listed `.po` to a `.mo` automatically. When source strings change, regenerate the template and merge it into existing catalogues with `meson compile -C build annoscr-update-po`.
 
-Editing or regenerating the template (`po/annoscr.pot`) needs GNU gettext **≥ 0.25**, the first release whose `xgettext` understands TypeScript sources. This affects template _extraction_ only: compiling catalogues uses `msgfmt` (`.po` → `.mo`), which any gettext provides, so a newer `xgettext` is a translator/maintainer tool, not a build or runtime dependency.
+Editing or regenerating the template (`po/annoscr.pot`) needs GNU gettext **0.25 or newer**, the first release whose `xgettext` supports TypeScript sources. This affects template _extraction_ only: compiling catalogues uses `msgfmt` (`.po` → `.mo`), which any gettext provides, so a newer `xgettext` is a translator/maintainer tool, not a build or runtime dependency.
 
 #### Getting a recent xgettext
 
@@ -93,7 +93,7 @@ RUN ./configure --prefix=/opt/gettext-0.26 --disable-shared --enable-static \
  && make install
 ```
 
-Build the image, then copy the finished tree out to `~/.local/gettext-0.26` (where `xgettext.ini.example` suggests):
+Build the image, then copy the installed tree out of it to `~/.local/gettext-0.26`, the path used in `build-aux/xgettext.ini.example`:
 
 ```sh
 docker build -t annoscr-gettext -f gettext.Dockerfile .
@@ -104,9 +104,9 @@ docker cp "$CID:/opt/gettext-0.26" ~/.local/gettext-0.26
 docker rm "$CID"
 ```
 
-#### Pointing meson at it
+#### Configuring meson to use it
 
-Point meson at that build through a native file:
+Configure meson to use that build through a native file:
 
 ```sh
 cp build-aux/xgettext.ini.example build-aux/xgettext.ini

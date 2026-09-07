@@ -57,7 +57,7 @@ export function renderToSurface(
 
 // Read a single pixel of a surface as a ColorRGBA. Same GJS constraint as the
 // encoders below: cairo's own pixel accessors aren't exposed, so the read goes
-// through the deprecated pixbuf bridge (which un-premultiplies for us).
+// through the deprecated pixbuf conversion (which un-premultiplies the color).
 // Returns null when the read fails or the coordinate is outside the surface.
 export function sampleSurfacePixel(
   surface: Cairo.ImageSurface,
@@ -104,8 +104,8 @@ export function saveSurface(surface: Cairo.ImageSurface, path: string, format: I
 // Encode a surface to PNG bytes in memory (no file). Shared by the clipboard
 // copy and the annotation-file image embed. Same GJS constraint as the JPEG
 // path: no JS-accessible cairo pixel data, so we go via the deprecated pixbuf
-// helper and Gdk.Texture's PNG encoder. Throws on a failed read so callers don't
-// mistake a no-op for success.
+// helper and Gdk.Texture's PNG encoder. Throws on a failed read so callers
+// don't mistake a no-op for success.
 export function surfaceToPngBytes(surface: Cairo.ImageSurface): GLib.Bytes {
   const w = surface.getWidth();
   const h = surface.getHeight();
@@ -120,7 +120,7 @@ export function surfaceToPngBytes(surface: Cairo.ImageSurface): GLib.Bytes {
 // icon in a square slot and stretches a non-square image to fill it, so a
 // landscape capture comes out distorted. A square image can't be stretched, so
 // the letterboxed result keeps the true aspect (transparent bars on the short
-// sides). Encoded as bytes — small, so the D-Bus payload stays light.
+// sides). Encoded as bytes — small, so the D-Bus payload stays small.
 export function surfaceThumbnailPngBytes(surface: Cairo.ImageSurface, maxDim = 256): GLib.Bytes {
   const w = surface.getWidth();
   const h = surface.getHeight();
@@ -139,9 +139,10 @@ export function surfaceThumbnailPngBytes(surface: Cairo.ImageSurface, maxDim = 2
   return surfaceToPngBytes(thumb);
 }
 
-// Scale a surface to fit within maxW x maxH, never upscaling, keeping the source
-// aspect ratio, and encode as PNG. Separate from surfaceThumbnailPngBytes, whose
-// square letterboxing exists only for GNOME's notification icon slot.
+// Scale a surface to fit within maxW x maxH, never upscaling, keeping the
+// source aspect ratio, and encode as PNG. Separate from
+// surfaceThumbnailPngBytes, whose square letterboxing exists only for GNOME's
+// notification icon slot.
 export function surfaceFitPngBytes(
   surface: Cairo.ImageSurface,
   maxW: number,

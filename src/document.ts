@@ -59,10 +59,10 @@ import {APP_VERSION} from './version.js';
 //
 // The file is a chunk container (document_container.ts): metadata, the
 // composited preview, the source image, and the action stack, each its own
-// length-prefixed payload — so a reader after one payload reads only that one,
-// and images are stored as PNG bytes rather than base64 a third larger. Older
-// documents are JSON envelopes; they still open (parseLegacyDocument) but are
-// never written again.
+// length-prefixed payload — so a reader that needs one payload reads only that
+// one, and images are stored as PNG bytes rather than base64 a third larger.
+// Older documents are JSON envelopes; they still open (parseLegacyDocument) but
+// are never written again.
 
 // Canonical extension + dialog glob for annotation files.
 export const DOC_EXTENSION = '.annoscr';
@@ -80,8 +80,8 @@ const DOC_FORMAT = 'annoscr-document';
 
 // What the chunks MEAN. Bump when an existing field changes meaning; a reader
 // rejects versions it doesn't recognize. Adding a chunk or an optional field is
-// additive (readers skip what they don't know) and bumps nothing. How the chunks
-// are FRAMED is versioned separately, inside the container.
+// additive (readers skip what they don't know) and bumps nothing. How the
+// chunks are FRAMED is versioned separately, inside the container.
 const DOC_SCHEMA_VERSION = 1;
 
 // Chunk tags. META and ACTS hold JSON text; THMB and IMGE hold PNG bytes.
@@ -95,11 +95,11 @@ const decoder = new TextDecoder();
 
 // Thrown by parseDocument for any malformed or unsupported file. The caller
 // shows a generic user-facing toast and logs this message (diagnostic English,
-// not surfaced verbatim), so it isn't translated.
+// not shown to the user verbatim), so it isn't translated.
 export class DocumentError extends Error {}
 
 // Longest edges of the stored preview: four times the recent-files strip's
-// display size, leaving pixels to spare on a HiDPI display or in a taller strip.
+// display size, leaving extra pixels for a HiDPI display or a taller strip.
 // Costs a couple of percent on a document embedding a full-resolution image.
 const THUMB_MAX_W = 768;
 const THUMB_MAX_H = 432;
@@ -132,7 +132,7 @@ export function serializeDocument(
     }),
     // Composited, not the bare source: a document built on a blank fill would
     // otherwise preview as a featureless rectangle. Kept ahead of the
-    // full-resolution image so a start-to-end reader still reaches it early.
+    // full-resolution image so a sequential reader still reaches it early.
     pngChunk(
       TAG_THUMBNAIL,
       surfaceFitPngBytes(renderToSurface(surface, actions), THUMB_MAX_W, THUMB_MAX_H)
@@ -217,8 +217,9 @@ function sanitizeEndpoints(
   };
 }
 
-// A box shape's embedded text is decoration on the shape: malformed text (or a
-// malformed markup field) drops to "no text" rather than rejecting the shape.
+// A box shape's embedded text is optional content on the shape: malformed text
+// (or a malformed markup field) drops to "no text" rather than rejecting the
+// shape.
 function sanitizeShapeText(v: unknown): SerializedShapeText | undefined {
   if (!isRecord(v) || typeof v.markup !== 'string' || v.markup.length === 0) return undefined;
   const style = isRecord(v.style) ? v.style : {};
@@ -234,7 +235,7 @@ function sanitizeShapeText(v: unknown): SerializedShapeText | undefined {
   };
 }
 
-// A box shape's callout tail is decoration on the shape, like its text:
+// A box shape's callout tail is optional content on the shape, like its text:
 // malformed input drops to "no tail" rather than rejecting the shape.
 function sanitizeTail(v: unknown): TailOffset | undefined {
   if (!isRecord(v)) return undefined;
@@ -243,7 +244,7 @@ function sanitizeTail(v: unknown): TailOffset | undefined {
   return {dx: v.dx, dy: v.dy};
 }
 
-// A segment's bend is shape decoration like the callout tail: malformed input
+// A segment's bend is optional content like the callout tail: malformed input
 // drops to a straight line rather than rejecting the annotation.
 function sanitizeCurve(v: unknown): CurveOffset | undefined {
   if (!isRecord(v)) return undefined;
@@ -290,7 +291,8 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
   // proportional to the validated radius.
   const defaults = numberStampStyle(foregroundColor, fillColor, radius);
   const variant = asStampVariant(raw.variant) ?? DEFAULT_STAMP_VARIANT;
-  // A bad group id folds into group 1; renumbering keeps the numbers gap-free.
+  // A bad group id is replaced by group 1; renumbering keeps the numbers
+  // gap-free.
   const groupId =
     typeof raw.groupId === 'number' && Number.isInteger(raw.groupId) && raw.groupId >= 1
       ? raw.groupId
@@ -305,8 +307,8 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
     radius,
     fillColor,
     foregroundColor,
-    // Bounds are sanity caps, not style limits: a border thicker than the
-    // radius or a digit taller than the disc is junk input.
+    // Bounds are validity caps, not style limits: a border thicker than the
+    // radius or a digit taller than the disc is malformed input.
     borderWidth: asClampedNumber(raw.borderWidth, 0, radius) ?? defaults.borderWidth,
     fontDesc: asNonEmptyString(raw.fontDesc) ?? defaults.fontDesc,
     fontSize: asClampedNumber(raw.fontSize, 1, 4 * radius) ?? defaults.fontSize,
@@ -314,7 +316,7 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
 }
 
 // Line and arrow share the endpoint fields and the optional bend; only the
-// arrowhead flag sets them apart.
+// arrowhead flag differs.
 function sanitizeSegment(raw: Record<string, unknown>, type: 'line' | 'arrow'): SerializedAction {
   const curve = sanitizeCurve(raw.curve);
   const base = {...sanitizeEndpoints(raw, type), ...(curve ? {curve} : {})};
@@ -434,7 +436,7 @@ function parseContainerDocument(bytes: Uint8Array): ParsedDocument {
   const image = findChunk(chunks, TAG_IMAGE);
   if (!image) throw new DocumentError('Annotation file is missing its embedded image');
 
-  // A document with no annotations carries no action chunk.
+  // A document with no annotations has no action chunk.
   const actionsChunk = findChunk(chunks, TAG_ACTIONS);
   let raw: unknown = [];
   if (actionsChunk) {
@@ -449,8 +451,8 @@ function parseContainerDocument(bytes: Uint8Array): ParsedDocument {
 
 // ---------- Documents written before the container ----------
 // A JSON envelope holding the image as base64. Frozen: nothing writes this
-// shape any more and the reader goes away in 2.0, so its version constant is
-// separate from DOC_SCHEMA_VERSION and never moves.
+// format any more and the reader is removed in 2.0, so its version constant is
+// separate from DOC_SCHEMA_VERSION and never changes.
 
 const LEGACY_JSON_VERSION = 1;
 

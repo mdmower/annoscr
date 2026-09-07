@@ -5,16 +5,16 @@ import GLib from 'gi://GLib?version=2.0';
 // version, then a sequence of length-prefixed chunks. All integers are unsigned
 // little-endian.
 //
-// The framing knows nothing about what a chunk holds — document.ts owns that —
-// so a new payload is a new tag, readers skip tags they don't recognize, and a
-// tag may repeat when a document needs several of something.
+// The framing knows nothing about what a chunk holds — document.ts defines
+// that — so a new payload is a new tag, readers skip tags they don't recognize,
+// and a tag may repeat when a document needs several of something.
 //
 // Length prefixes rather than one parseable blob so a chunk can be reached
 // without reading what precedes it: readChunkFromFile answers a preview request
 // in a few small reads, seeking past the full-resolution image.
 
-// "ANNOSCR" plus a control byte, so the magic can't head a plain-text file and a
-// transfer that mangles line endings fails the check.
+// "ANNOSCR" plus a control byte, so the magic can't begin a plain-text file and
+// a transfer that rewrites line endings fails the check.
 const MAGIC = new Uint8Array([0x41, 0x4e, 0x4e, 0x4f, 0x53, 0x43, 0x52, 0x1a]);
 
 // Bump only for a change to the FRAMING: the header layout, the chunk header,
@@ -37,9 +37,9 @@ export interface Chunk {
 // A malformed container: bad version, truncated chunk, unreadable length.
 export class ContainerError extends Error {}
 
-// The file carries no magic at all, so it was never a container. Distinct from
+// The file has no magic at all, so it was never a container. Distinct from
 // ContainerError so a caller can fall back to another reader without also
-// swallowing genuine corruption.
+// ignoring genuine corruption.
 export class NotContainerError extends ContainerError {}
 
 function view(bytes: Uint8Array): DataView {
@@ -118,7 +118,7 @@ export function readContainer(bytes: Uint8Array): Chunk[] {
 }
 
 // The first chunk with this tag, or null. A tag that a future document repeats
-// is filtered off the same list instead.
+// would be read by filtering the same list instead.
 export function findChunk(chunks: ReadonlyArray<Chunk>, tag: string): Uint8Array | null {
   return chunks.find((chunk) => chunk.tag === tag)?.data ?? null;
 }
@@ -178,9 +178,9 @@ async function readUpTo(
   return out.subarray(0, filled);
 }
 
-// The payload of the first chunk with this tag, or null when the file carries
-// no such chunk. Only the chunk headers and the wanted payload are read; the
-// rest is skipped with a seek, which is what keeps a preview cheap in a document
+// The payload of the first chunk with this tag, or null when the file has no
+// such chunk. Only the chunk headers and the wanted payload are read; the rest
+// is skipped with a seek, which is what keeps a preview cheap in a document
 // holding a full-resolution image.
 export async function readChunkFromFile(
   file: Gio.File,
@@ -198,8 +198,8 @@ export async function readChunkFromFile(
     // read through, which defeats the point of asking for one chunk.
     if (!stream.can_seek()) throw new ContainerError('stream does not support seeking');
     // Seeking past the end of a file is legal, so without the file's size a
-    // truncated document would walk off the end and read as "no such chunk"
-    // rather than as the corruption it is.
+    // truncated document would seek past the end and report "no such chunk"
+    // rather than the corruption it is.
     const size = stream.query_info('standard::size', cancellable).get_size();
 
     for (;;) {
@@ -224,7 +224,7 @@ export async function readChunkFromFile(
     }
   } finally {
     // Closed without the cancellable: a cancelled read would fail its own close
-    // and mask the error that got us here.
+    // and hide the error that caused this.
     try {
       stream.close(null);
     } catch {

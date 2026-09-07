@@ -8,9 +8,9 @@ import {TextEditor} from './text_editor.js';
 import {ZOOM_DETENTS, ZOOM_SCROLL_STEP} from './window_constants.js';
 import {_} from './i18n.js';
 
-// How long a cursor-anchored zoom's anchor outlives the last zoom event (ms):
-// long enough for a smooth-scroll burst to share one anchor, short enough
-// that a later unrelated canvas resize can't re-assert a stale one.
+// How long a cursor-anchored zoom's anchor persists after the last zoom event
+// (ms): long enough for a smooth-scroll burst to share one anchor, short enough
+// that a later unrelated canvas resize can't re-apply a stale one.
 const ANCHOR_RETIRE_MS = 150;
 
 // Owns the scrolled view of the canvas and the bottom status/zoom bar: the
@@ -32,10 +32,10 @@ export class ZoomController {
   // Cursor-anchored zoom state: the image point to keep pinned at a
   // viewport-relative screen position. Kept in image space (not as a
   // precomputed scroll value) so each application can re-resolve it against
-  // the transform at hand. Lives from the first zoom event of a scroll burst
-  // until retired.
+  // the current transform. Exists from the first zoom event of a scroll burst
+  // until cleared.
   private pendingAnchor: {ix: number; iy: number; sx: number; sy: number} | null = null;
-  // Debounced retire timer for the anchor (0 = none). See scheduleAnchorRetire.
+  // Debounced clear timer for the anchor (0 = none). See scheduleAnchorRetire.
   private anchorRetireId = 0;
 
   constructor(
@@ -52,9 +52,9 @@ export class ZoomController {
     // whose scroll-to-focus is on by default: when the canvas grabs focus (it
     // does on every first click) the viewport scrolls to bring the focused
     // child into view. The canvas fills the whole — larger than the viewport —
-    // scrollable area, so that "scroll into view" snaps the position and drags
-    // the canvas out from under a stationary pointer mid-press. The canvas does
-    // its own scrolling, so this auto-scroll is never wanted; turn it off.
+    // scrollable area, so that "scroll into view" changes the scroll position
+    // and moves the canvas under a stationary pointer mid-press. The canvas
+    // does its own scrolling, so this auto-scroll is never wanted; turn it off.
     const viewport = this.scrolled.get_child();
     if (viewport instanceof Gtk.Viewport) viewport.set_scroll_to_focus(false);
     this.installZoomScroll();
@@ -70,9 +70,9 @@ export class ZoomController {
     return this.statusBar;
   }
 
-  // Park a widget in the middle of the status bar. Gtk.CenterBox keeps it
-  // centered on the whole bar while there's room and slides it to sit between
-  // the dimensions label and the zoom controls once they close in.
+  // Place a widget in the middle of the status bar. Gtk.CenterBox keeps it
+  // centered on the whole bar while there's room and moves it to fit between
+  // the dimensions label and the zoom controls once they leave less room.
   setStatusCenterWidget(widget: Gtk.Widget): void {
     this.statusBar.set_center_widget(widget);
   }
@@ -114,10 +114,11 @@ export class ZoomController {
     zoomBtnBox.append(oneBtn);
 
     // Log2 scale so equal slider travel doubles or halves the zoom and the
-    // keyboard detents (25/50/100/200/400) sit at even intervals. Slider value
+    // keyboard detents (25/50/100/200/400) are at even intervals. Slider value
     // is log2(zoom); zoom is 2^value. No marks: GtkScale's mark feature also
-    // snaps the value to them (baked in before we can intercept it), so the
-    // slider stays free/continuous — exact stops come from Ctrl+/Ctrl- and 1:1.
+    // snaps the value to them (inside the drag gesture, before any handler
+    // could intercept it), so the slider stays free/continuous — exact stops
+    // come from Ctrl+/Ctrl- and 1:1.
     this.zoomSlider = new Gtk.Scale({
       orientation: Gtk.Orientation.HORIZONTAL,
       adjustment: new Gtk.Adjustment({
@@ -135,13 +136,13 @@ export class ZoomController {
 
     this.zoomLabel = new Gtk.Label({
       label: '',
-      // Pin to a fixed width. If this label resizes as the % text changes
-      // (e.g. "100%" vs "114%" render at different widths in a proportional
-      // font), the hexpand status label to its left absorbs the delta and
-      // shifts the slider ~2px under a held thumb — which changes the zoom,
-      // resizes the label again, and oscillates at the frame rate. width_chars=4
-      // was too small for "100%" (wide %), so the label grew to fit content and
-      // varied; 6 leaves headroom.
+      // Fixed width. If this label resizes as the % text changes (e.g. "100%"
+      // vs "114%" render at different widths in a proportional font), the
+      // hexpand status label to its left absorbs the delta and shifts the
+      // slider ~2px under a held thumb — which changes the zoom, resizes the
+      // label again, and oscillates at the frame rate. width_chars=4 was too
+      // small for "100%" (wide %), so the label grew to fit content and varied;
+      // 6 leaves a margin.
       width_chars: 6,
       max_width_chars: 6,
       xalign: 1,
@@ -169,15 +170,15 @@ export class ZoomController {
       this.zoomControls.set_visible(false);
       return;
     }
-    // Translatable "W \u00d7 H px" via a two-placeholder template, so a locale can
-    // reorder or relabel the unit. Both the current and (resize-preview) target
-    // dimensions render through the same template.
+    // Translatable "W \u00d7 H px" via a two-placeholder template, so a locale
+    // can reorder or relabel the unit. Both the current and (resize-preview)
+    // target dimensions render through the same template.
     const dims = (w: number, h: number): string =>
       _('%w \u00d7 %h px').replace('%w', String(w)).replace('%h', String(h));
     const base = dims(img.w, img.h);
     const r = this.canvas.getResizeDimensions();
-    // U+2003 EM SPACE on either side of the arrow gives breathing room
-    // without depending on Pango markup or label padding tricks. Escaped
+    // U+2003 EM SPACE on either side of the arrow adds spacing without
+    // depending on Pango markup or label padding. Escaped
     // because eslint's no-irregular-whitespace rejects the literal character.
     this.statusLabel.set_label(r ? `${base}\u2003→\u2003${dims(r.w, r.h)}` : base);
     const scale = this.canvas.getZoomScale();
@@ -185,8 +186,8 @@ export class ZoomController {
       this.zoomLabel.set_label(`${Math.round(scale * 100)}%`);
       const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
       // Only move the thumb when it doesn't already represent this zoom.
-      // Writing during an active drag would fight the mouse, oscillating the
-      // thumb against the pointer.
+      // Writing during an active drag would compete with the pointer,
+      // oscillating the thumb.
       const sliderZoom = Math.pow(2, this.zoomSlider.get_value());
       if (Math.abs(sliderZoom - clamped) > 1e-6) {
         this.updatingZoom = true;
@@ -210,16 +211,16 @@ export class ZoomController {
   }
 
   // Set a fixed zoom while keeping the image point under (screenX, screenY) —
-  // viewport-relative coords — pinned at that same on-screen position.
+  // viewport-relative coords — at that same on-screen position.
   private zoomTo(factor: number, screenX: number, screenY: number): void {
     // Commit before reading the transform: a commit can add an action, which
     // in 1:1 mode can grow the displayed area and shift the offset.
     this.editor.commitIfActive();
     const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, factor));
-    // Smooth scrolling lands several zoom events between layout passes. Only
+    // Smooth scrolling delivers several zoom events between layout passes. Only
     // the first derives the anchor (the transform is settled then); the rest
-    // reuse it — re-deriving mid-flight (new zoom, stale allocation) would
-    // re-anchor on a bogus image point and make the view wander.
+    // reuse it — re-deriving between layouts (new zoom, stale allocation) would
+    // re-anchor on a wrong image point and make the view drift.
     if (!this.pendingAnchor) {
       const oldScale = this.canvas.getZoomScale();
       const oldOff = this.canvas.getViewOffset();
@@ -229,7 +230,7 @@ export class ZoomController {
       }
       // Image point under the screen position (content = screen + live
       // scroll). The view offset matters: in fit / zoomed-out views the image
-      // is centered, and ignoring the letterbox margin lurches the view.
+      // is centered, and ignoring the letterbox margin jumps the view.
       this.pendingAnchor = {
         ix: (screenX + this.scrolled.get_hadjustment().get_value() - oldOff[0]) / oldScale,
         iy: (screenY + this.scrolled.get_vadjustment().get_value() - oldOff[1]) / oldScale,
@@ -239,9 +240,10 @@ export class ZoomController {
     }
     this.canvas.setZoom(clamped);
     // Apply NOW from predicted geometry so the first frame at the new scale
-    // is already scrolled right — the resize hook alone is one frame late, a
-    // lurch per smooth-scroll event. The hook then re-asserts the same values
-    // from the live transform, and the debounced timer retires the anchor.
+    // is already scrolled correctly — the resize handler alone is one frame
+    // late, a visible jump per smooth-scroll event. The handler then re-applies
+    // the same values from the live transform, and the debounced timer clears
+    // the anchor.
     this.applyAnchorPredicted(clamped);
     this.scheduleAnchorRetire();
   }
@@ -277,10 +279,10 @@ export class ZoomController {
     this.scrolled.get_vadjustment().set_value(off[1] + iy * scale - sy);
   }
 
-  // Retire the anchor shortly after a burst's last zoom event. Retiring only
-  // CLEARS it — the view is already placed, and applying from a timer could
-  // hit a mid-flight transform or clobber a pan started right after zooming.
-  // Debounced: each zoom event extends the anchor's life.
+  // Clear the anchor shortly after a burst's last zoom event. This only CLEARS
+  // it — the view is already positioned, and applying from a timer could read
+  // a transform between layouts or override a pan started right after zooming.
+  // Debounced: each zoom event extends the anchor's lifetime.
   private scheduleAnchorRetire(): void {
     if (this.anchorRetireId !== 0) GLib.source_remove(this.anchorRetireId);
     this.anchorRetireId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, ANCHOR_RETIRE_MS, () => {
@@ -290,9 +292,9 @@ export class ZoomController {
     });
   }
 
-  // Drop the anchor immediately, for the zoom paths that must NOT anchor
-  // (slider, Fit) — a still-live anchor from a just-finished Ctrl+scroll must
-  // not re-assert itself on their relayouts.
+  // Clear the anchor immediately, for the zoom paths that must NOT anchor
+  // (slider, Fit) — a still-active anchor from a just-finished Ctrl+scroll must
+  // not be re-applied on their relayouts.
   private clearAnchor(): void {
     this.pendingAnchor = null;
     if (this.anchorRetireId !== 0) {
@@ -324,20 +326,21 @@ export class ZoomController {
     this.zoomToCenter(target);
   }
 
-  // Re-apply the in-flight anchor after a zoom-driven canvas relayout (wired
-  // to the canvas 'resize' signal by the window), pre-paint. Does NOT retire
+  // Re-apply the active anchor after a zoom-driven canvas relayout (connected
+  // to the canvas 'resize' signal by the window), pre-paint. Does NOT clear
   // the anchor: ranges can still be mid-update here, and a scroll burst needs
-  // it alive across events — the debounced timer retires it.
+  // it across events — the debounced timer clears it.
   applyPendingScroll(): void {
     this.applyAnchor();
   }
 
   private onZoomSliderChanged(): void {
     if (this.updatingZoom) return;
-    // Plain zoom (no scroll anchoring): the slider fires continuously while
-    // dragging, and re-anchoring the scroll on every event yanks the view —
-    // especially as the scrollable size crosses a scrollbar boundary. Let
-    // GTK keep the scroll position; anchoring is for Ctrl+scroll and keys.
+    // Plain zoom (no scroll anchoring): the slider emits continuously while
+    // dragging, and re-anchoring the scroll on every event moves the view
+    // abruptly — especially as the scrollable size crosses a scrollbar
+    // boundary. Let GTK keep the scroll position; anchoring is for Ctrl+scroll
+    // and keys.
     this.setZoomFactor(Math.pow(2, this.zoomSlider.get_value()));
   }
 
@@ -354,9 +357,9 @@ export class ZoomController {
       if (!this.canvas.hasImage()) return false;
       const cur = this.canvas.getZoomScale() ?? 1;
       const factor = cur * Math.exp(-dy * ZOOM_SCROLL_STEP);
-      // Anchor on the live seat-queried pointer, not the canvas's cached
-      // motion position: a touchpad zoom moves no pointer, so nothing
-      // refreshes the cache while the content scrolls underneath it.
+      // Anchor on the pointer position queried from the Gdk.Seat, not the
+      // canvas's cached motion position: a touchpad zoom moves no pointer, so
+      // nothing refreshes the cache while the content scrolls underneath it.
       const ptr = this.pointerScreenPosition();
       if (ptr) this.zoomTo(factor, ptr[0], ptr[1]);
       else this.zoomToCenter(factor);
@@ -366,13 +369,13 @@ export class ZoomController {
   }
 
   // Right-click-drag pans the view, whatever tool is active (the secondary
-  // button never draws or selects on the canvas). The gesture rides the
-  // ScrolledWindow rather than the canvas: a GestureDrag reports offsets in its
-  // own widget's coordinate space, and the canvas's space translates as the
+  // button never draws or selects on the canvas). The gesture is attached to
+  // the ScrolledWindow rather than the canvas: a GestureDrag reports offsets in
+  // its own widget's coordinate space, and the canvas's space translates as the
   // content scrolls — so a pan measured there would scroll the very frame it
-  // measures against, folding each applied delta back into the next offset. The
-  // ScrolledWindow stays put while its child scrolls, so its offsets are pure
-  // pointer movement. Adjustment.set_value self-clamps to the scrollable range,
+  // measures against, adding each applied delta back into the next offset. The
+  // ScrolledWindow doesn't move while its child scrolls, so its offsets are
+  // pure pointer movement. Adjustment.set_value clamps to the scrollable range,
   // so an over-drag at an edge simply stops.
   private installPan(): void {
     const pan = new Gtk.GestureDrag();
@@ -382,8 +385,8 @@ export class ZoomController {
     pan.connect('drag-begin', () => {
       const h = this.scrolled.get_hadjustment();
       const v = this.scrolled.get_vadjustment();
-      // Nothing to scroll (image fits): don't engage, so the grabbing hand
-      // doesn't flash on a no-op gesture.
+      // Nothing to scroll (image fits): don't begin, so the grabbing hand
+      // doesn't appear on a no-op gesture.
       if (h.get_upper() - h.get_page_size() <= 0 && v.get_upper() - v.get_page_size() <= 0) {
         return;
       }
@@ -403,12 +406,12 @@ export class ZoomController {
   }
 
   // The pointer's position in the scrolled window's frame, queried live from
-  // the seat (scroll events carry no position on some stacks; see the caller
-  // for why the motion cache won't do). Deliberately NOT canvas coordinates:
-  // the canvas's scroll translation updates only when a layout consumes the
-  // adjustments, and this zoom path writes them outside that flow
-  // (applyAnchorPredicted before layout, the resize hook during it), so a
-  // canvas-frame position can be arbitrarily stale against the live
+  // the Gdk.Seat (scroll events have no position on some input stacks; see the
+  // caller for why the motion cache is unusable). Deliberately NOT canvas
+  // coordinates: the canvas's scroll translation updates only when a layout
+  // consumes the adjustments, and this zoom path writes them outside that
+  // sequence (applyAnchorPredicted before layout, the resize handler during
+  // it), so a canvas-frame position can be arbitrarily stale against the live
   // adjustments. The scrolled window's frame doesn't depend on scrolling:
   // surface coords → native widget (minus the shadow/decoration surface
   // transform) → scrolled window. Null when the pointer isn't over the window.

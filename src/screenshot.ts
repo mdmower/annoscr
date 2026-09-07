@@ -8,8 +8,8 @@ const portal = new Xdp.Portal();
 // Resolves to a file:// URI for the saved image. Rejects (GLib.Error) if the
 // user cancels or the portal fails — the caller treats both the same way.
 //
-// GJS doesn't surface libportal's promise overload, so we drive the async
-// callback form ourselves rather than awaiting take_screenshot directly.
+// GJS doesn't expose libportal's promise overload, so this calls the async
+// callback form rather than awaiting take_screenshot directly.
 export function takeScreenshot(): Promise<string | null> {
   return new Promise((resolve, reject) => {
     portal.take_screenshot(null, Xdp.ScreenshotFlags.INTERACTIVE, null, (_source, result) => {

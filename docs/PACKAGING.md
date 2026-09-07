@@ -1,6 +1,6 @@
 # Packaging and releases
 
-Building Annoscr's distribution packages, and cutting a signed release. For building and running from source, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+Building Annoscr's distribution packages, and making a signed release. For building and running from source, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 The package builds reuse the Meson build and run `npm install` to fetch the TypeScript compiler, so the build host needs network access.
 
@@ -9,7 +9,7 @@ The package builds reuse the Meson build and run `npm install` to fetch the Type
 ```sh
 sudo apt install debhelper devscripts
 dpkg-buildpackage -us -uc -b
-# .deb lands in the parent directory
+# the .deb is written to the parent directory
 ```
 
 Check the built package against Debian policy (the script lints the most recent `../annoscr_*.deb` with `lintian`):
@@ -24,7 +24,7 @@ The package installs a man page, so `man annoscr` documents the command-line opt
 
 ## Fedora / openSUSE (RPM) and Arch
 
-RPM and Arch packaging live under [packaging/](../packaging/). Run these from the repo root.
+RPM and Arch packaging are under [packaging/](../packaging/). Run these from the repo root.
 
 ```sh
 # RPM (Fedora / openSUSE) - dnf builddep installs the spec's BuildRequires
@@ -39,9 +39,9 @@ rpmlint -r packaging/rpm/annoscr.rpmlintrc \
 cd packaging/arch && makepkg -si
 ```
 
-The `git archive` line stages a source tarball for `rpmbuild`; for an actual release, fetch the published tarball instead (e.g. `spectool -g`). The RPM declares its runtime libraries explicitly because a noarch GJS payload has no ELF links for RPM to scan, so `annoscr.rpmlintrc` filters the resulting (expected) `explicit-lib-dependency` advisory.
+The `git archive` line creates a source tarball for `rpmbuild`; for an actual release, fetch the published tarball instead (e.g. `spectool -g`). The RPM declares its runtime libraries explicitly because a noarch GJS payload has no ELF links for RPM to scan, so `annoscr.rpmlintrc` filters the resulting (expected) `explicit-lib-dependency` advisory.
 
-## Cutting a release
+## Making a release
 
 ```sh
 # Sync the version across package.json (+ lockfile), the spec, and the PKGBUILD.

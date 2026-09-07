@@ -80,11 +80,12 @@ export interface TextEditRequestOptions {
   rotation?: number;
   editorSize?: EditorSize;
   // Canvas display scale at request time, so the standalone editor previews
-  // text at its rendered on-screen size (box mode carries its own scale).
+  // text at its rendered on-screen size (box mode has its own scale field).
   scale?: number;
   // Shape-text edit: the box shape's index, its current text style, and the
-  // box's inner text rect in widget px (+ zoom). The window turns these into the
-  // editor's box mode + commit target. Absent → a standalone TextAction edit.
+  // box's inner text rect in widget px (+ zoom). The window turns these into
+  // the editor's box mode + commit target. Absent → a standalone TextAction
+  // edit.
   shapeIndex?: number;
   textStyle?: TextStyle;
   boxMode?: {boxW: number; boxH: number; scale: number};
@@ -100,8 +101,8 @@ export type TextEditRequest = (
 
 // Asks the host to commit any in-progress text edit. The canvas holds no
 // editor reference of its own (it reaches the editor only through callbacks),
-// so a canvas press that should finish a re-edit routes the commit back out
-// through this. The window wires it to TextEditor.commitIfActive.
+// so a canvas press that should finish a re-edit requests the commit through
+// this. The window connects it to TextEditor.commitIfActive.
 export type CommitRequest = () => void;
 
 function isShift(gesture: Gtk.GestureDrag): boolean {
@@ -113,7 +114,7 @@ function isAlt(gesture: Gtk.GestureDrag): boolean {
 }
 
 // Unit [dx, dy] for an arrow keyval (including the keypad arrows), or null for
-// any other key. Drives both the keyboard nudge and candidate browse.
+// any other key. Used by both the keyboard move and the candidate walk.
 function arrowDirection(keyval: number): [number, number] | null {
   switch (keyval) {
     case Gdk.KEY_Up:
@@ -147,10 +148,10 @@ function normalizeRegion(r: {x1: number; y1: number; x2: number; y2: number}): R
   // Snap the edges to whole pixels: drag coordinates are fractional (widget px
   // ÷ zoom), but a Cairo surface has integral dimensions — GJS truncates
   // fractional ones — so without snapping the applied canvas comes out a pixel
-  // smaller than the (rounded) status readout, the crop lands off the dashed
-  // preview, and actions translate by a fractional origin that leaves them
-  // sub-pixel offset from the pixels they were drawn over. Rounding here keeps
-  // every consumer (overlay, readout, apply) on one integral rectangle.
+  // smaller than the (rounded) status readout, the crop is offset from the
+  // dashed preview, and actions translate by a fractional origin that leaves
+  // them sub-pixel offset from the pixels they were drawn over. Rounding here
+  // keeps every consumer (overlay, readout, apply) on one integral rectangle.
   const minX = Math.round(Math.min(r.x1, r.x2));
   const maxX = Math.round(Math.max(r.x1, r.x2));
   const minY = Math.round(Math.min(r.y1, r.y2));
@@ -169,23 +170,24 @@ const HISTORY_CAP = 100;
 // Widget-space hit tolerance for resize edge/corner grabs.
 const HANDLE_HIT_PX = 8;
 
-// Widget-space radius within which a dragged curve handle is pulled onto the
-// straight position, so a bend can be undone by hand. The action's own collapse
-// threshold is a fraction of an image pixel — exact, but far too small to aim
-// at on screen, and smaller still the further out you zoom. Alt bypasses this:
-// on a long segment an apex offset of a few widget px is a real, gentle arc
-// rather than noise, so there has to be a way to hold one.
+// Widget-space radius within which a dragged curve handle snaps to the straight
+// position, so a bend can be undone by hand. The action's own collapse
+// threshold is a fraction of an image pixel — exact, but far too small to hit
+// on screen, and smaller still the further out you zoom. Alt bypasses this:
+// on a long segment an apex offset of a few widget px is a real, shallow arc
+// rather than jitter, so there has to be a way to keep one.
 //
-// Sized for perceptibility rather than precision. The magnet has no resistance,
-// so the only feedback is the bow collapsing as the zone is entered — which has
-// to be a visible jump, not a couple of pixels straightening out. Matched to the
-// handle's own hit region (HANDLE_HIT_PX), so the zone that snaps the handle
-// straight is the same size as the zone that grabs it.
+// Sized for perceptibility rather than precision. The snap gives no feedback
+// before it happens, so the only cue is the bow collapsing as the zone is
+// entered — which has to be a visible jump, not a couple of pixels
+// straightening out. Matched to the handle's own hit region (HANDLE_HIT_PX), so
+// the zone that snaps the handle straight is the same size as the zone that
+// selects it.
 const CURVE_DETENT_PX = 8;
 
-// Rotate gizmo: the handle sits this many widget px past the selection box edge
-// (along the action's "up" direction), on a short connector stick. Shift snaps
-// the angle to multiples of ROTATE_SNAP.
+// Rotate gizmo: the handle is this many widget px past the selection box edge
+// (along the action's "up" direction), at the end of a short connector line.
+// Shift snaps the angle to multiples of ROTATE_SNAP.
 const ROTATE_ARM_PX = 22;
 const ROTATE_SNAP = Math.PI / 12; // 15°
 
@@ -200,27 +202,29 @@ const SCROLL_DIG_STEP = 1;
 // zoomed out — same convention as Photoshop / GIMP.
 const CHECKER_CELL = 8;
 
-// Diagonal nudge applied to cloned actions, in widget pixels — converted to
-// image space through the current scale so the offset looks the same at any
-// zoom. South-of-east (down-right), enough to read as a distinct copy.
+// Offset applied to cloned actions on both axes (equal dx and dy, so
+// down-right), in widget pixels — converted to image space through the current
+// scale so the offset looks the same at any zoom. Large enough that the copy is
+// visibly distinct from the original.
 const CLONE_OFFSET_PX = 16;
 
-// Keyboard nudge distances, in widget pixels (converted to image space through
-// the current scale, like CLONE_OFFSET_PX, so a press moves the same on-screen
+// Keyboard move step, in widget pixels (converted to image space through the
+// current scale, like CLONE_OFFSET_PX, so a press moves the same on-screen
 // amount at any zoom). Plain arrow = fine, Shift+arrow = coarse.
 const NUDGE_SMALL_PX = 1;
 const NUDGE_LARGE_PX = 10;
 
 // Keyboard pan step, in widget pixels (the scroll adjustments are widget-space,
 // so a fixed step scrolls the same on-screen amount at any zoom). Used when an
-// arrow key isn't nudging a selection or placing. Plain = fine, Shift = coarse.
+// arrow key isn't moving a selection or placing. Plain = fine, Shift = coarse.
 const KEY_PAN_PX = 50;
 const KEY_PAN_LARGE_PX = 250;
 
-// Drag auto-scroll: while a marquee or selection-move drag's pointer sits within
+// Drag auto-scroll: while a marquee or selection-move drag's pointer is within
 // this many widget pixels of a viewport edge, the view scrolls so the drag can
-// reach past what's currently visible. Speed ramps from 0 at the inner edge of
-// the band to the max (widget px/sec) at the boundary, and stays maxed past it.
+// reach past what's currently visible. Speed increases linearly from 0 at the
+// inner edge of the band to the maximum (widget px/sec) at the boundary, and
+// stays at the maximum past it.
 // Driven by a tick callback because a pointer held still over programmatically
 // scrolling content emits no motion/drag events, so nothing else would advance
 // the drag.
@@ -228,7 +232,7 @@ const MARQUEE_EDGE_PX = 36;
 const MARQUEE_SCROLL_MAX = 1400;
 
 // The eyedropper loupe: an odd source-pixel count keeps the target pixel
-// centered; the per-pixel magnification is chosen so the loupe lands around
+// centered; the per-pixel magnification is chosen so the loupe is about
 // 120 px across. Both are screen-space constants — sampling is about image
 // pixels, so the canvas zoom deliberately doesn't change what the loupe shows.
 const LOUPE_GRID = 11;
@@ -307,14 +311,14 @@ function handleBaseAngle(id: HandleId): number {
 
 // Cursor for a per-action resize handle on a box rotated by `rotation`. Box
 // handles map to one of the four directional resize cursors, snapped to the
-// handle's actual (rotated) outward direction so a tilted box gets sensible
+// handle's actual (rotated) outward direction so a tilted box gets matching
 // cursors; endpoints, the curve control point and the callout tail tip aren't
 // directional (free drag) → crosshair.
 function cursorForHandle(id: HandleId, rotation: number): string {
   if (id === 'p1' || id === 'p2' || id === 'curve' || id === 'tail') return 'crosshair';
   if (rotation === 0) return cursorForResizeGrab(id);
   let a = handleBaseAngle(id) + rotation;
-  a = ((a % Math.PI) + Math.PI) % Math.PI; // fold to [0, π); resize cursors are symmetric
+  a = ((a % Math.PI) + Math.PI) % Math.PI; // reduce to [0, π); resize cursors are symmetric
   switch (Math.round(a / (Math.PI / 4)) % 4) {
     case 1:
       return 'nwse-resize';
@@ -343,9 +347,9 @@ export const CanvasView = GObject.registerClass(
     private mode: 'fit' | 'fixed' = 'fit';
     private zoomFactor: number = 1;
 
-    // Last known pointer position in widget-local coords, for the hover/dig
-    // aim (the stack under the pointer). null when the pointer is outside the
-    // widget.
+    // Last known pointer position in widget-local coords, for the hover
+    // candidate and dig (the stack under the pointer). null when the pointer is
+    // outside the widget.
     private lastPointer: [number, number] | null = null;
 
     private liveStroke: LiveStroke | null = null;
@@ -354,10 +358,11 @@ export const CanvasView = GObject.registerClass(
     private dragStartX: number = 0;
     private dragStartY: number = 0;
 
-    // True while a right-click-drag pan is in progress. The gesture itself lives
-    // on the ScrolledWindow (a frame that doesn't move as the content scrolls,
-    // so the drag offsets are real pointer movement — see ZoomController); the
-    // canvas only needs to know a pan is active so its hover/cursor logic holds.
+    // True while a right-click-drag pan is in progress. The gesture itself is
+    // attached to the ScrolledWindow (a frame that doesn't move as the content
+    // scrolls, so the drag offsets are real pointer movement — see
+    // ZoomController); the canvas only needs to know a pan is active so its
+    // hover/cursor logic stays unchanged for the duration.
     private panning: boolean = false;
 
     // Selection state (select tool only). A set of action indices, in
@@ -369,39 +374,41 @@ export const CanvasView = GObject.registerClass(
     private moveDy: number = 0;
     private moving: boolean = false;
     // True while the active drag began as a Shift-click toggle, so it adjusts
-    // membership only and never turns into a move (a Shift-click is a toggle
-    // gesture, not a grab).
+    // membership only and never becomes a move (a Shift-click is a toggle
+    // gesture, not a drag).
     private shiftToggleDrag: boolean = false;
 
     // Marquee (rubber-band) selection. A select-tool drag begun on empty canvas
-    // sweeps a dashed rectangle; on release, every action whose box is fully
+    // draws a dashed rectangle; on release, every action whose box is fully
     // inside it becomes the selection (replacing any prior one). Both corners
-    // are stored in IMAGE space (anchor + live corner) so the band stays pinned
-    // to the image if the view scrolls mid-drag. `bandStart` non-null = a band
-    // is armed (set on the empty press); `bandCurrent` stays null until the
-    // pointer actually moves, so a bare click clears without selecting.
+    // are stored in IMAGE space (anchor + live corner) so the band stays fixed
+    // relative to the image if the view scrolls mid-drag. `bandStart` non-null
+    // = a band has begun (set on the empty press); `bandCurrent` stays null
+    // until the pointer actually moves, so a bare click clears without
+    // selecting.
     private bandStart: [number, number] | null = null;
     private bandCurrent: [number, number] | null = null;
 
     // Drag auto-scroll (see MARQUEE_EDGE_PX). `autoScrollTickId` is the active
     // GtkTickCallback id (0 = none); `autoScrollVel` is the scroll velocity in
     // widget px/sec, recomputed on each band/move drag-update and held constant
-    // while the pointer is still (no events fire then, so the tick alone advances
-    // the drag); `autoScrollLastFrame` is the previous frame time (us, 0 = unset)
-    // for framerate-independent integration.
+    // while the pointer is still (no events are emitted then, so the tick alone
+    // advances the drag); `autoScrollLastFrame` is the previous frame time (us,
+    // 0 = unset) for framerate-independent integration.
     private autoScrollTickId: number = 0;
     private autoScrollVel: [number, number] = [0, 0];
     private autoScrollLastFrame: number = 0;
-    // Per-axis armed scroll direction (-1 low / 0 none / +1 high) and the
-    // pointer's previous VIEWPORT position, both reset per drag (`onSelectPress`).
-    // Direction is judged in viewport space (scroll-independent physical motion,
-    // so it never accumulates the scroll) and latched while the pointer stays in
-    // an edge band, so a hold sustains the scroll and a reverse engages on
-    // reaching the opposite edge rather than after undoing the scrolled distance.
+    // Per-axis active scroll direction (-1 low / 0 none / +1 high) and the
+    // pointer's previous VIEWPORT position, both reset per drag
+    // (`onSelectPress`). Direction is judged in viewport space
+    // (scroll-independent physical motion, so it never accumulates the scroll)
+    // and kept while the pointer stays in an edge band, so a held pointer
+    // sustains the scroll and a reverse starts on reaching the opposite edge
+    // rather than after undoing the scrolled distance.
     private autoScrollArm: [number, number] = [0, 0];
     private autoScrollPrevVP: [number, number] | null = null;
 
-    // "Aim" state for digging through overlapping actions (select tool). The
+    // Hover state for digging through overlapping actions (select tool). The
     // hover candidate is the action the next click acts on, drawn with a
     // distinct outline. `digDepth` indexes into the hit-stack under the
     // pointer; Alt+scroll changes it, and it resets to the top whenever the
@@ -421,7 +428,8 @@ export const CanvasView = GObject.registerClass(
     // same press's drag-begin/update/end must not also select, move, or
     // toggle: they can run after the commit cleared editingActionIndex (or
     // after the tool switch), so those checks alone can't stop them. Reset in
-    // onDragEnd (fires for every primary press) so it never leaks.
+    // onDragEnd (emitted for every primary press) so it never persists into the
+    // next press.
     private suppressSelectThisPress: boolean = false;
 
     // Pending color-sample request (the in-canvas eyedropper). While non-null
@@ -446,8 +454,8 @@ export const CanvasView = GObject.registerClass(
       y2: number;
     } | null = null;
 
-    // Tracks which edges/corners of the resize region the active drag is
-    // grabbing. null when not currently dragging in resize mode.
+    // Which edges/corners of the resize region the active drag is moving. null
+    // when not currently dragging in resize mode.
     private resizeGrab: ResizeGrab | null = null;
 
     // Per-action reshape (select tool, single selection). `actionGrab` is the
@@ -479,9 +487,9 @@ export const CanvasView = GObject.registerClass(
     // the text tool has one; other tools never get an entry.
     private toolTextColors: Map<ToolId, ColorRGBA> = new Map();
 
-    // Per-tool current stroke/outline width. Same lifetime story as
-    // toolColors; tools without a width (text, number, select, resize)
-    // never have an entry here.
+    // Per-tool current stroke/outline width. Same lifetime as toolColors;
+    // tools without a width (text, number, select, resize) never have an entry
+    // here.
     private toolWidths: Map<ToolId, number> = new Map();
 
     // Per-tool current fill color. Only rect, oval, number, and resize have an
@@ -496,17 +504,18 @@ export const CanvasView = GObject.registerClass(
     // other tool has no arrowhead (returns null).
     private toolFilledHeads: Map<ToolId, boolean> = new Map();
 
-    // Per-tool rectangle corner radius (image-space px). Only 'rect' ever has an
-    // entry; every other tool has no corner radius (returns null).
+    // Per-tool rectangle corner radius (image-space px). Only 'rect' ever has
+    // an entry; every other tool has no corner radius (returns null).
     private toolCornerRadii: Map<ToolId, number> = new Map();
 
-    // Stamp groups. Stamps carry a stable groupId; numbering runs per group.
-    // `placementGroupId` is the group new stamps land in (number tool); it is
-    // tool state, not document state — undo/redo never changes it. `nextGroupId`
-    // mints fresh stable ids (monotonic, never reused). `groupVariants` holds a
-    // group's chosen Number/Letter even while it has no stamps yet (the freshly
-    // created placement group), falling back to `defaultStampVariant` — the
-    // remembered, persisted preference that also seeds new groups.
+    // Stamp groups. Each stamp stores a stable groupId; numbering runs per
+    // group. `placementGroupId` is the group new stamps are placed in (number
+    // tool); it is tool state, not document state — undo/redo never changes it.
+    // `nextGroupId` allocates new stable ids (monotonic, never reused).
+    // `groupVariants` holds a group's chosen Number/Letter even while it has no
+    // stamps yet (the newly created placement group), falling back to
+    // `defaultStampVariant` — the remembered, persisted preference that is also
+    // the initial variant of new groups.
     private placementGroupId: number = 1;
     private nextGroupId: number = 2;
     private groupVariants: Map<number, StampVariant> = new Map();
@@ -523,13 +532,13 @@ export const CanvasView = GObject.registerClass(
     // Per-tool remembered number-stamp radius (image-space pixels). Only
     // 'number' ever has an entry — set when a stamp is resized (so the next
     // placement inherits the size), read at placement. Not a "width", so
-    // it gets its own slot rather than reusing toolWidths.
+    // it has its own map rather than reusing toolWidths.
     private toolStampRadii: Map<ToolId, number> = new Map();
 
     // Pixel-memory budget (bytes) for the distinct surfaces history retains;
     // null = unbounded. Annotation edits share their surface by reference, but
     // every rotate / canvas-resize pushes a freshly allocated full-resolution
-    // surface — a transform-heavy history is where the memory goes, so the
+    // surface — a transform-heavy history is what consumes memory, so the
     // bound is on surface bytes (stride × height), not entry count. The value
     // is policy and comes from the window (the user's undo-memory preference);
     // the canvas only enforces it.
@@ -545,8 +554,8 @@ export const CanvasView = GObject.registerClass(
     // Last pushState's coalesce key. Successive pushes with the same key
     // replace the top entry instead of growing history (the slider drag
     // case — one history entry per drag, not per tick). Any push without
-    // a key, or with a different key, breaks the chain. Operations that
-    // don't push but should still break the chain (undo/redo/setTool/...
+    // a key, or with a different key, ends the sequence. Operations that
+    // don't push but should still end the sequence (undo/redo/setTool/...
     // /selection change) clear it explicitly.
     private lastCoalesceKey: string | null = null;
 
@@ -561,7 +570,7 @@ export const CanvasView = GObject.registerClass(
 
     constructor() {
       // focusable so the canvas joins the Tab chain and can be driven by the
-      // keyboard (select/nudge/place); GROUP role + a name so AT announces it
+      // keyboard (select/move/place); GROUP role + a name so AT announces it
       // as a meaningful region rather than a bare drawing surface.
       super({
         hexpand: true,
@@ -573,13 +582,14 @@ export const CanvasView = GObject.registerClass(
       setAccessibleLabel(this, _('Annotation canvas'));
       this.set_draw_func(this.onDraw.bind(this));
       this.connect('resize', () => this.maybeApplyInitialZoom());
-      // Repaint the backdrop when the effective light/dark state flips (system
-      // change or the Preferences color-scheme picker). The StyleManager is a
-      // process-global singleton, so connect/disconnect on realize/unrealize to
-      // bind the closure to this widget's lifetime instead of the singleton's
-      // (otherwise the handler would pin the canvas for the whole app run). The
-      // draw path reads get_dark() live, so missing notifications while
-      // unrealized is harmless — the next paint picks up the current state.
+      // Repaint the background when the effective light/dark state changes
+      // (system change or the Preferences color-scheme picker). The
+      // StyleManager is a process-global singleton, so connect/disconnect on
+      // realize/unrealize to bind the closure to this widget's lifetime instead
+      // of the singleton's (otherwise the handler would keep the canvas
+      // reachable for the whole app run). The draw path reads get_dark() live,
+      // so missing notifications while unrealized is harmless — the next paint
+      // reads the current state.
       this.connect('realize', () => {
         if (this.darkHandlerId) return;
         this.darkHandlerId = Adw.StyleManager.get_default().connect('notify::dark', () =>
@@ -637,15 +647,15 @@ export const CanvasView = GObject.registerClass(
       this.notifyStateChange();
     }
 
-    // Drop the oldest history entries until the distinct surfaces the
-    // survivors reference fit surfaceBytesCap. The trim is a strict prefix: an
-    // entry can't outlive its surface (the entry IS {surface, actions}), so
-    // evicting a surface takes every entry that references it — and everything
-    // older — with it. The newest distinct surface is always retained
-    // regardless of size (the current image must exist), so on a source whose
-    // single surface busts the budget, only cross-transform undo is lost —
-    // annotation entries sharing the current surface cost nothing and survive.
-    // The cut is clamped to the cursor for the live budget-lowering case
+    // Drop the oldest history entries until the distinct surfaces the survivors
+    // reference fit surfaceBytesCap. The trim is a strict prefix: an entry
+    // can't outlive its surface (the entry IS {surface, actions}), so evicting
+    // a surface removes every entry that references it — and everything older —
+    // with it. The newest distinct surface is always retained regardless of
+    // size (the current image must exist), so on a source whose single surface
+    // exceeds the budget, only cross-transform undo is lost — annotation
+    // entries sharing the current surface cost nothing and survive. The cut is
+    // clamped to the cursor for the live budget-lowering case
     // (setUndoMemoryBudget after undos): the state being viewed is never
     // trimmed, even if redo entries alone exceed the budget.
     private enforceSurfaceCap(): void {
@@ -687,8 +697,8 @@ export const CanvasView = GObject.registerClass(
       this.actionPreview = null;
     }
 
-    // Clear the dig/aim state so a stale candidate doesn't linger across tool
-    // switches, undo/redo, or image loads.
+    // Clear the dig/hover state so a stale candidate doesn't persist across
+    // tool switches, undo/redo, or image loads.
     private resetHoverDig(): void {
       this.hoverCandidate = -1;
       this.digDepth = 0;
@@ -701,8 +711,8 @@ export const CanvasView = GObject.registerClass(
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
       this.lastCoalesceKey = null;
-      // Fresh document → fresh groups. The remembered defaultStampVariant (a
-      // tool preference, like the per-tool colors) survives across images.
+      // New document → new groups. The remembered defaultStampVariant (a
+      // tool preference, like the per-tool colors) is kept across images.
       this.placementGroupId = 1;
       this.nextGroupId = 2;
       this.groupVariants.clear();
@@ -719,19 +729,20 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Load a saved annotation document: the source surface plus its editable
-    // actions, as a fresh single-entry history (no undo across the load — opening
+    // actions, as a new single-entry history (no undo across the load — opening
     // a file is a clean baseline, not an edit). Mirrors setImage's reset, then
-    // restores stamp-group bookkeeping from the loaded stamps and marks clean.
+    // restores stamp-group state from the loaded stamps and marks clean.
     loadDocument(surface: Cairo.ImageSurface, actions: ReadonlyArray<Action>): void {
       const restored = renumberStamps(actions);
       this.history = [{surface, actions: restored}];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
       this.lastCoalesceKey = null;
-      // Mint future group ids above the highest loaded one (never reused) and
-      // continue placement in the last group present. Variants are read straight
-      // from the stamps by groupVariantFor, so groupVariants stays empty; the
-      // remembered defaultStampVariant (a tool preference) survives the load.
+      // Allocate future group ids above the highest loaded one (never reused)
+      // and continue placement in the last group present. Variants are read
+      // straight from the stamps by groupVariantFor, so groupVariants stays
+      // empty; the remembered defaultStampVariant (a tool preference) is kept
+      // across the load.
       let maxGroup = 0;
       for (const a of restored) {
         const g = numberStampGroup(a);
@@ -750,7 +761,7 @@ export const CanvasView = GObject.registerClass(
       this.maybeApplyInitialZoom();
     }
 
-    // Choose the opening zoom for a freshly-loaded image: 1:1 when it fits the
+    // Choose the opening zoom for a newly loaded image: 1:1 when it fits the
     // viewport (native, crisp), fit when it's larger. Runs once per load, when
     // a real allocation is available.
     private maybeApplyInitialZoom(): void {
@@ -778,7 +789,7 @@ export const CanvasView = GObject.registerClass(
       return this.state !== this.cleanStateRef;
     }
 
-    // Pin the current state as the new "clean" reference. Call after a
+    // Record the current state as the new "clean" reference. Call after a
     // successful save to disk.
     markClean(): void {
       this.cleanStateRef = this.state;
@@ -835,7 +846,7 @@ export const CanvasView = GObject.registerClass(
 
     // The post-layout geometry for a fixed zoom: the content size the canvas
     // will occupy (viewport-bounded below) and where image-space (0, 0) will
-    // land. Mirrors updateSizeRequest + computeTransform so the zoom
+    // be. Mirrors updateSizeRequest + computeTransform so the zoom
     // controller can scroll for a new zoom BEFORE the relayout — until then
     // the live transform still reflects the old allocation. Null with no
     // image.
@@ -1029,11 +1040,12 @@ export const CanvasView = GObject.registerClass(
       this.toolFontSizes.set(toolId, size);
     }
 
-    // The text style a fresh (textless) shape edit seeds from: the last style
+    // The initial text style for a shape that has no text yet: the last style
     // committed for this shape tool, or one set via a select-mode text edit,
     // falling back to the static shape-text default. Color/font/size only —
     // alignment and the (unused) background plate stay the shape-text defaults.
-    // Mirrors how a drawing tool seeds a new placement from its remembered style.
+    // Mirrors how a drawing tool starts a new placement from its remembered
+    // style.
     private rememberedShapeTextStyle(toolId: ToolId): TextStyle {
       return {
         ...SHAPE_TEXT_STYLE,
@@ -1059,10 +1071,10 @@ export const CanvasView = GObject.registerClass(
 
     // ---------- Stamp groups ----------
 
-    // The groups that actually have stamps, as stable ids sorted ascending
-    // (= creation order). The style bar renders these as a gap-free "Group 1..K"
-    // by position, so emptying a group relabels the rest. The number tool folds
-    // in its (possibly still-empty) placement group on top of this; select mode
+    // The groups that actually have stamps, as stable ids sorted ascending (=
+    // creation order). The style bar renders these as a gap-free "Group 1..K"
+    // by position, so emptying a group relabels the rest. The number tool adds
+    // its (possibly still-empty) placement group to this list; select mode
     // shows only these populated groups as reassignment targets.
     getStampGroupIds(): number[] {
       const ids = new Set<number>();
@@ -1095,11 +1107,11 @@ export const CanvasView = GObject.registerClass(
     }
 
     // After a move or delete (pass the resulting action list), if the placement
-    // group has been emptied and other groups survive, snap placement to the
-    // last surviving group so the emptied group disappears instead of lingering
-    // as a phantom empty entry. A freshly created, still-empty placement group
-    // (from newPlacementGroup) is the intended exception — that path never
-    // empties a group, so it never reaches here.
+    // group has been emptied and other groups remain, move placement to the
+    // last remaining group so the emptied group disappears instead of remaining
+    // as an empty entry. A newly created, still-empty placement group (from
+    // newPlacementGroup) is the intended exception — that path never empties a
+    // group, so it never reaches here.
     private collapseEmptyPlacementGroup(actions: ReadonlyArray<Action>): void {
       let placementPresent = false;
       let last = -1;
@@ -1112,14 +1124,15 @@ export const CanvasView = GObject.registerClass(
       if (!placementPresent && last >= 0) this.placementGroupId = last;
     }
 
-    // Switch the group new stamps land in. Pure tool state — no history push.
+    // Switch the group new stamps are placed in. Pure tool state — no history
+    // push.
     setPlacementGroup(groupId: number): void {
       if (this.placementGroupId === groupId) return;
       this.placementGroupId = groupId;
       this.notifyStateChange();
     }
 
-    // Begin a fresh placement group. Capped at one empty group at a time: if the
+    // Begin a new placement group. Capped at one empty group at a time: if the
     // current group has no stamps yet, this is a no-op (you're already in an
     // empty group). Returns whether a new group was actually started.
     newPlacementGroup(): boolean {
@@ -1129,9 +1142,9 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Set the active placement group's variant: remember it (so the not-yet-
-    // populated case sticks), seed the persisted default, and rewrite that
-    // group's existing stamps in one undoable entry.
+    // Set the active placement group's variant: remember it (so it persists for
+    // a group with no stamps yet), update the persisted default, and rewrite
+    // that group's existing stamps in one undoable entry.
     setPlacementGroupVariant(variant: StampVariant): void {
       this.groupVariants.set(this.placementGroupId, variant);
       this.defaultStampVariant = variant;
@@ -1144,7 +1157,7 @@ export const CanvasView = GObject.registerClass(
       this.notifyStateChange();
     }
 
-    // Flip the variant of every group represented in the current selection (a
+    // Change the variant of every group represented in the current selection (a
     // group stays uniformly Number or Letter, so this affects the whole group,
     // not just the selected stamps). One history entry.
     setSelectedGroupsVariant(variant: StampVariant): boolean {
@@ -1169,11 +1182,11 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Move the selected stamps into a group ('new' mints one), each spliced to
-    // just after that group's last existing member so it lands at the end of the
-    // group's numbers; moved stamps adopt the target group's variant. Non-stamp
-    // members of the selection are left where they are. One history entry; the
-    // moved stamps become the new selection.
+    // Move the selected stamps into a group ('new' allocates one), each spliced
+    // to just after that group's last existing member so it takes the last
+    // number in the group; moved stamps adopt the target group's variant.
+    // Non-stamp members of the selection are left where they are. One history
+    // entry; the moved stamps become the new selection.
     reassignSelectedGroup(target: number | 'new'): boolean {
       const cur = this.state.actions;
       const moveIdx = [...this.selectedIndices]
@@ -1187,8 +1200,8 @@ export const CanvasView = GObject.registerClass(
       const moved = moveIdx.map((i) => reassignStamp(cur[i], groupId, variant));
       const rest = cur.filter((_a, i) => !moveSet.has(i));
 
-      // Insert after the target group's last surviving member; if the target has
-      // none (a new or emptied group), append at the end of the document.
+      // Insert after the target group's last surviving member; if the target
+      // has none (a new or emptied group), append at the end of the document.
       let insertAt = rest.length;
       for (let i = rest.length - 1; i >= 0; i--) {
         if (numberStampGroup(rest[i]) === groupId) {
@@ -1211,8 +1224,8 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Snapshot only the styles the user has actually changed (present in the
-    // per-tool maps), so persisted prefs don't pin a tool to a value that was
-    // merely its static default at save time.
+    // per-tool maps), so persisted prefs don't fix a tool to a value that was
+    // only its static default at save time.
     exportToolStyles(): ToolStylesSnapshot {
       const tools: Record<string, ToolStyleEntry> = {};
       const ensure = (id: ToolId): ToolStyleEntry => (tools[id] ??= {});
@@ -1233,7 +1246,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Restore a snapshot into the per-tool maps. Called once at startup before
-    // any image exists, so the persisted variant only seeds the default for new
+    // any image exists, so the persisted variant only sets the default for new
     // groups — there are no stamps to rewrite yet.
     importToolStyles(snap: ToolStylesSnapshot): void {
       for (const [id, e] of Object.entries(snap.tools ?? {})) {
@@ -1283,8 +1296,8 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Select exactly one action by index, clearing any prior selection. Used by
-    // the select-after-placement flow once the tool has been switched to select.
-    // No-op for an out-of-range index.
+    // the select-after-placement flow once the tool has been switched to
+    // select. No-op for an out-of-range index.
     selectIndex(index: number): void {
       if (index < 0 || index >= this.state.actions.length) return;
       this.selectedIndices.clear();
@@ -1296,7 +1309,7 @@ export const CanvasView = GObject.registerClass(
 
     // Select every action (Ctrl+A). Consumes the key (returns true) only with
     // the select tool active and at least one action — whether or not the set
-    // actually changed — so it doesn't leak to the scroller; returns false
+    // actually changed — so it doesn't propagate to the scroller; returns false
     // otherwise so the accelerator falls through.
     selectAll(): boolean {
       if (this.currentToolId !== 'select' || this.state.actions.length === 0) return false;
@@ -1311,12 +1324,12 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Replace the selection with every action whose footprint is fully inside
-    // the marquee rectangle (image-space corners). Rotatable actions test their
-    // oriented (tilted) box, so a rotated shape counts only when its real
-    // footprint fits — not its looser axis-aligned bounds; everything else uses
-    // its axis-aligned bounds. Selection isn't undo history, so this only
-    // notifies (no pushState).
+    // Replace the selection with every action whose box is fully inside the
+    // marquee rectangle (image-space corners). Rotatable actions test their
+    // oriented (tilted) box, so a rotated shape counts only when its real box
+    // fits — not its looser axis-aligned bounds; everything else uses its
+    // axis-aligned bounds. Selection isn't undo history, so this only notifies
+    // (no pushState).
     private selectBand(x1: number, y1: number, x2: number, y2: number): void {
       const minX = Math.min(x1, x2);
       const maxX = Math.max(x1, x2);
@@ -1341,7 +1354,7 @@ export const CanvasView = GObject.registerClass(
 
     // Cancel an in-progress marquee drag (Escape). Returns true if a band was
     // active so the caller consumes the key; the pending drag-end then finds no
-    // band and ends inertly. Leaves the selection untouched — Escape with no
+    // band and does nothing. Leaves the selection untouched — Escape with no
     // band falls through to clearSelection.
     cancelBand(): boolean {
       if (!this.bandStart) return false;
@@ -1365,7 +1378,7 @@ export const CanvasView = GObject.registerClass(
       if (!this.state.surface) return;
       this.colorSampleHandler = onPick;
       // The loupe is the mode indicator; the pointer keeps the plain arrow
-      // (a crosshair would read as a drawing tool's aim).
+      // (a crosshair would be mistaken for a drawing tool's cursor).
       this.set_cursor_from_name('default');
       announce(this, _('Click the image to pick a color'));
       this.queue_draw();
@@ -1440,15 +1453,16 @@ export const CanvasView = GObject.registerClass(
       value: T,
       // Coalesce key, or null for discrete toggles. Coalescing exists to
       // compress a picker drag into one entry; for a binary toggle it would
-      // instead collapse an on/off pair into a single no-op history entry
-      // (a state identical to its predecessor), leaving a dead undo step.
+      // instead collapse an on/off pair into a single no-op history entry (a
+      // state identical to its predecessor), leaving an undo step with no
+      // effect.
       key: string | null,
       setToolDefault: (toolId: ToolId, v: T) => void
     ): boolean {
       const cur = this.state.actions;
       if (this.selectedIndices.size === 0) return false;
       // Broadcast to every selected action that supports the property (its
-      // getter returns non-null). Actions that don't carry it pass through
+      // getter returns non-null). Actions that don't have it pass through
       // untouched; this is the "shared control" rule the style bar mirrors.
       let applicable = false;
       let changed = false;
@@ -1473,8 +1487,8 @@ export const CanvasView = GObject.registerClass(
       // been active; treat as not handled.
       if (!applicable) return false;
       // Remember this select-mode edit as the matching tools' default so the
-      // next placement with that tool inherits it. Only the edited types'
-      // tools are touched — recoloring a rect updates rect's default, not pen's.
+      // next placement with that tool inherits it. Only the edited types' tools
+      // are touched — recoloring a rect updates rect's default, not pen's.
       // Written even when nothing changed (every selected item already had the
       // value), since the user still explicitly chose it.
       for (const tid of tools) setToolDefault(tid, value);
@@ -1482,7 +1496,7 @@ export const CanvasView = GObject.registerClass(
       // but nothing to push.
       if (!changed) return true;
       // Coalesce on the property AND the selection, so a slider drag over one
-      // selection is a single entry but re-selecting starts a fresh one.
+      // selection is a single entry but re-selecting starts a new one.
       this.pushState(
         {
           surface: this.state.surface,
@@ -1584,8 +1598,9 @@ export const CanvasView = GObject.registerClass(
       );
     }
 
-    // Alignment only lives on a shape's embedded text (a document property), so
-    // there's no tool default to write — the setToolDefault callback is a no-op.
+    // Alignment exists only on a shape's embedded text (a document property),
+    // so there's no tool default to write — the setToolDefault callback is a
+    // no-op.
     replaceSelectedAlign(align: TextAlign): boolean {
       return this.replaceSelectedProperty(
         (a) => a.getAlign(),
@@ -1598,7 +1613,7 @@ export const CanvasView = GObject.registerClass(
 
     // A callout tail is per-shape geometry, deliberately excluded from tool
     // defaults (a new rect/oval always starts plain), so like Align the
-    // setToolDefault callback is a no-op. No coalesce key: each flip of the
+    // setToolDefault callback is a no-op. No coalesce key: each toggle of the
     // switch is its own undo step (see replaceSelectedProperty).
     replaceSelectedTail(on: boolean): boolean {
       return this.replaceSelectedProperty(
@@ -1610,10 +1625,10 @@ export const CanvasView = GObject.registerClass(
       );
     }
 
-    // Drop the bend from every selected line/arrow. Like the callout tail, a
+    // Remove the bend from every selected line/arrow. Like the callout tail, a
     // curve is per-segment geometry with no tool default (a newly drawn segment
-    // is always straight), so the setToolDefault callback is a no-op and there's
-    // no coalesce key — each straighten is its own undo step.
+    // is always straight), so the setToolDefault callback is a no-op and
+    // there's no coalesce key — each straighten is its own undo step.
     straightenSelected(): boolean {
       return this.replaceSelectedProperty(
         (a) => a.getCurve(),
@@ -1674,7 +1689,7 @@ export const CanvasView = GObject.registerClass(
       announce(this, _('%s added').replace('%s', this.describeAction(action)));
       // Report the placement (last index) so the window can apply the
       // select-after-placement preference. Every placement path — shapes,
-      // stamps, new text — funnels through here.
+      // stamps, new text — goes through here.
       if (this.onPlaced) this.onPlaced(this.state.actions.length - 1);
     }
 
@@ -1710,8 +1725,8 @@ export const CanvasView = GObject.registerClass(
       if (this.editingActionIndex === index) this.editingActionIndex = -1;
       this.selectedIndices.clear();
       // Removal shifted every index above it; re-derive the cached hover
-      // candidate or it would outline (and Space-select) whatever slid into
-      // the old slot (see reorderSelected).
+      // candidate or it would outline (and Space-select) whichever action now
+      // has the old index (see reorderSelected).
       this.refreshHoverCandidate();
       this.queue_draw();
     }
@@ -1720,8 +1735,8 @@ export const CanvasView = GObject.registerClass(
       const cur = this.state.actions;
       if (this.selectedIndices.size === 0) return false;
       const sel = this.selectedIndices;
-      // Drop every selected action in one history entry. Renumber stamps so
-      // deleting "2" from "1,2,3" leaves "1,2" — not "1,3" with a hole that
+      // Remove every selected action in one history entry. Renumber stamps so
+      // deleting "2" from "1,2,3" leaves "1,2" — not "1,3" with a gap that
       // the next placement would duplicate.
       const survivors = renumberStamps(cur.filter((_a, i) => !sel.has(i)));
       this.collapseEmptyPlacementGroup(survivors);
@@ -1739,17 +1754,17 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Duplicate every selected action, nudged diagonally down-right, and leave
-    // the clones selected — so clone-then-drag works and a repeated clone steps
-    // further away. The same offset is applied to each, so a multi-selection
-    // keeps its relative layout. Renumbers stamps so a cloned stamp takes the
-    // next number (the gap-free 1..N invariant deleteSelected also maintains).
-    // One history entry.
+    // Duplicate every selected action, offset by CLONE_OFFSET_PX on both axes
+    // (down-right), and leave the clones selected — so clone-then-drag works
+    // and a repeated clone moves further away. The same offset is applied to
+    // each, so a multi-selection keeps its relative layout. Renumbers stamps so
+    // a cloned stamp takes the next number (the gap-free 1..N invariant
+    // deleteSelected also maintains). One history entry.
     cloneSelected(): boolean {
       const cur = this.state.actions;
       if (this.selectedIndices.size === 0) return false;
-      // Document order so appended clones (and any stamp renumbering) follow the
-      // visual stacking rather than selection-insertion order.
+      // Document order so appended clones (and any stamp renumbering) follow
+      // the visual stacking rather than selection-insertion order.
       const indices = [...this.selectedIndices]
         .sort((a, b) => a - b)
         .filter((i) => i >= 0 && i < cur.length);
@@ -1793,9 +1808,9 @@ export const CanvasView = GObject.registerClass(
       const block = sel.map((i) => cur[i]);
       const rest = cur.filter((_a, i) => !selSet.has(i));
       const clamp = (p: number): number => Math.max(0, Math.min(rest.length, p));
-      // Insertion point into `rest` (the block lands after `at` unselected
+      // Insertion point into `rest` (the block is placed after `at` unselected
       // items). lo/hi are the block's lowest/highest current indices; because
-      // lo is the minimum no selected item sits below it, so the count of
+      // lo is the minimum no selected item is below it, so the count of
       // unselected items below lo is just lo, and below hi it is hi-(k-1).
       let at: number;
       switch (op) {
@@ -1819,8 +1834,9 @@ export const CanvasView = GObject.registerClass(
       for (let k = 0; k < block.length; k++) this.selectedIndices.add(at + k);
       this.pushState({surface: this.state.surface, actions: renumberStamps(reordered)});
       // The hover candidate is a cached index; reordering just moved every
-      // action, so recompute it from the pointer or it would outline whatever
-      // slid into the old slot (e.g. a button/key z-order with no pointer move).
+      // action, so recompute it from the pointer or it would outline whichever
+      // action now has the old index (e.g. a button/key z-order with no pointer
+      // move).
       this.refreshHoverCandidate();
       this.queue_draw();
       this.notifyStateChange();
@@ -1863,8 +1879,8 @@ export const CanvasView = GObject.registerClass(
       this.queue_draw();
     }
 
-    // Rotate the source surface and every action together (positions follow
-    // the image; text and number-stamp content rotates too).
+    // Rotate the source surface and every action together (positions transform
+    // with the image; text and number-stamp content rotates too).
     rotate(direction: RotateDirection): void {
       const s = this.state.surface;
       if (!s) return;
@@ -1879,7 +1895,8 @@ export const CanvasView = GObject.registerClass(
       this.editingActionIndex = -1;
       // The actions moved with the image, so the cached candidate index now
       // points at a different on-screen spot than the (motionless) pointer.
-      // Re-derive it from what's actually under the cursor in the rotated frame.
+      // Re-derive it from what's actually under the cursor in the rotated
+      // frame.
       this.refreshHoverCandidate();
       this.queue_draw();
     }
@@ -1944,7 +1961,7 @@ export const CanvasView = GObject.registerClass(
       const click = new Gtk.GestureClick();
       click.set_button(Gdk.BUTTON_PRIMARY);
       click.connect('pressed', (_g, n_press, x, y) => {
-        // Take focus so the keyboard path (select/nudge/place) works after a
+        // Take focus so the keyboard path (select/move/place) works after a
         // click without a separate Tab to the canvas.
         if (!this.has_focus) this.grab_focus();
         // A pending color sample consumes this press entirely: sample (or
@@ -1960,14 +1977,15 @@ export const CanvasView = GObject.registerClass(
           this.onSelectDoubleClick(x, y);
           return;
         }
-        // Past the first press, a placement tool would just re-place at the same
-        // spot — a hidden stacked stamp (number jumps by 2), a doubled pen dot.
-        // Ignore it. GTK only reports n_press >= 2 for near-coincident clicks,
-        // so rapid placement at distinct spots (n_press resets to 1) is
-        // unaffected; this only drops the degenerate stacked placement.
+        // Past the first press, a placement tool would just re-place at the
+        // same spot — a hidden stacked stamp (number jumps by 2), a doubled pen
+        // dot. Ignore it. GTK only reports n_press >= 2 for clicks close in
+        // time and position, so rapid placement at distinct spots (n_press
+        // resets to 1) is unaffected; this only drops the degenerate stacked
+        // placement.
         if (n_press >= 2 && this.currentToolId !== 'select') return;
         // A first press on the canvas (necessarily outside the editor frame,
-        // which would have swallowed it) while a text is being re-edited
+        // which would have consumed it) while a text is being re-edited
         // finishes that edit, consistent with the text tool. The press is
         // consumed — it doesn't select or move anything; a second press
         // selects normally. n_press === 1 keeps this off the press that opens
@@ -1981,10 +1999,10 @@ export const CanvasView = GObject.registerClass(
         const toolAtPress = this.currentToolId;
         this.onCanvasPress(x, y);
         // A text-tool press that commits an open editor can switch the tool to
-        // select mid-press (select-after-placement picks the new text). Latch
-        // so the rest of THIS press's gesture doesn't also run the select
-        // path: drag-begin would re-resolve at the click point and clear (or
-        // steal) that fresh selection, and a moving release would drag it.
+        // select mid-press (select-after-placement selects the new text). Set
+        // the latch so the rest of THIS press's gesture doesn't also run the
+        // select path: drag-begin would re-resolve at the click point and clear
+        // (or replace) that new selection, and a moving release would drag it.
         // Same consumed-press rule as the re-edit commit above.
         if (toolAtPress === 'text' && this.currentToolId === 'select') {
           this.suppressSelectThisPress = true;
@@ -1995,9 +2013,9 @@ export const CanvasView = GObject.registerClass(
       this.set_cursor_from_name(cursorForTool(this.currentToolId));
     }
 
-    // The keyboard path for placed annotations. The key controller drives
-    // select/nudge/place (bubble phase — a true return consumes the event so a
-    // nudge doesn't also scroll the enclosing ScrolledWindow, a false return
+    // The keyboard path for placed annotations. The key controller handles
+    // select/move/place (bubble phase — a true return consumes the event so a
+    // move doesn't also scroll the enclosing ScrolledWindow, a false return
     // lets it fall through). The focus ring is CSS (:focus-visible), so GTK
     // repaints it on focus changes — no manual redraw needed here.
     private installKeyboard(): void {
@@ -2019,7 +2037,7 @@ export const CanvasView = GObject.registerClass(
 
       // Modifier + arrow transforms the lone selection: Alt+Left/Right rotates
       // 15° (Left = CCW, Right = CW), Ctrl+arrows resize. Other modifier+arrow
-      // combos aren't ours.
+      // combos aren't handled here.
       if (arrow && (ctrl || alt)) {
         if (alt && !ctrl && arrow[1] === 0) return this.rotateSelectionStep(arrow[0]);
         if (ctrl && !alt) return this.resizeSelectionStep(arrow[0], arrow[1], shift);
@@ -2031,9 +2049,10 @@ export const CanvasView = GObject.registerClass(
       return this.onPlainKey(keyval, arrow, isSpace, shift);
     }
 
-    // Unmodified key routing (split out to keep onKeyPressed's branching modest).
-    // Placement tools place on Space; select-tool keys are handled separately;
-    // in every tool a bare arrow that isn't nudging a selection pans the canvas.
+    // Unmodified key routing (split out to keep onKeyPressed's branching
+    // modest). Placement tools place on Space; select-tool keys are handled
+    // separately; in every tool a bare arrow that isn't moving a selection pans
+    // the canvas.
     private onPlainKey(
       keyval: number,
       arrow: [number, number] | null,
@@ -2052,9 +2071,9 @@ export const CanvasView = GObject.registerClass(
     // method's branching modest):
     //   [ / ]   walk the candidate through the whole stack (pointer-free); bare
     //           brackets only — Ctrl+[/] is the window's z-order restack.
-    //   Space   select the aimed candidate (Shift+Space toggles — a window
+    //   Space   select the hover candidate (Shift+Space toggles — a window
     //           binding, so leave it).
-    //   arrows  nudge the selection; pan the canvas when none picked.
+    //   arrows  move the selection; pan the canvas when none is selected.
     private onSelectKey(
       keyval: number,
       arrow: [number, number] | null,
@@ -2073,9 +2092,9 @@ export const CanvasView = GObject.registerClass(
 
     // Walk the candidate one step through the whole action stack (topmost
     // first), independent of the pointer — the keyboard alternative to the
-    // mouse aim/dig. Establishes it at the topmost action on the first press,
-    // wraps at the ends, and announces what it landed on; the dashed candidate
-    // outline shows where the next Space will select. False when there are no
+    // mouse hover/dig. Starts at the topmost action on the first press, wraps
+    // at the ends, and announces the new candidate; the dashed candidate
+    // outline shows what the next Space will select. False when there are no
     // annotations to walk.
     private keyboardBrowseCandidate(dir: number): boolean {
       const acts = this.state.actions;
@@ -2088,18 +2107,19 @@ export const CanvasView = GObject.registerClass(
       const next = pos < 0 ? 0 : (((pos + dir) % list.length) + list.length) % list.length;
       this.hoverCandidate = list[next];
       // Drop the pointer-stack key so a later pointer move re-resolves from
-      // scratch instead of treating this keyboard pick as a dig in an old stack.
+      // scratch instead of treating this keyboard pick as a dig in an old
+      // stack.
       this.digStackKey = '';
       this.digDepth = 0;
       this.queue_draw();
-      // Speak what the candidate is now, since the dashed outline is the only
-      // other cue — this is how a screen-reader user "sees" the walk.
+      // Announce the new candidate, since the dashed outline is the only other
+      // cue — this is how a screen-reader user follows the walk.
       announce(this, this.describeAction(acts[this.hoverCandidate]));
       return true;
     }
 
-    // Select the current candidate alone — the keyboard twin of a plain click.
-    // False when there's no candidate so Space can fall through.
+    // Select the current candidate alone — the keyboard equivalent of a plain
+    // click. False when there's no candidate so Space can fall through.
     private selectCandidate(): boolean {
       const i = this.hoverCandidate;
       if (i < 0 || i >= this.state.actions.length || i === this.editingActionIndex) return false;
@@ -2112,10 +2132,10 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Move the selection one keyboard step in image space (widget-px / scale, so
-    // the on-screen step is zoom-independent). Coalesced so a run of presses is
-    // one undo entry, like a drag. Always consumes the arrow (so it doesn't also
-    // scroll the viewport).
+    // Move the selection one keyboard step in image space (widget-px / scale,
+    // so the on-screen step is zoom-independent). Coalesced so a run of presses
+    // is one undo entry, like a drag. Always consumes the arrow (so it doesn't
+    // also scroll the viewport).
     private nudgeSelection(dx: number, dy: number, large: boolean): boolean {
       const cur = this.state.actions;
       const sel = this.selectedIndices;
@@ -2133,10 +2153,10 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Scroll (pan) the view one keyboard step when an arrow isn't nudging a
+    // Scroll (pan) the view one keyboard step when an arrow isn't moving a
     // selection or placing — the keyboard counterpart to right-drag panning.
-    // The step is widget pixels (set_value self-clamps to the scrollable range).
-    // False with no scrolled ancestor, so the arrow can fall through.
+    // The step is widget pixels (set_value self-clamps to the scrollable
+    // range). False with no scrolled ancestor, so the arrow can fall through.
     private panByKey(dx: number, dy: number, large: boolean): boolean {
       const sw = this.scrolledAncestor();
       if (!sw) return false;
@@ -2154,10 +2174,10 @@ export const CanvasView = GObject.registerClass(
 
     // Rotate the lone selected action to the next 15° increment (dir > 0 = CW,
     // < 0 = CCW), reusing the gizmo's per-action rotation. Snaps to the next
-    // grid line in the travel direction so repeated presses land on clean
-    // multiples even from an odd gizmo angle. Coalesced into one undo entry per
-    // run; false (so Alt+arrow falls through) unless a rotatable item is solely
-    // selected.
+    // multiple in the travel direction so repeated presses reach exact
+    // multiples even from an arbitrary gizmo angle. Coalesced into one undo
+    // entry per run; false (so Alt+arrow falls through) unless a rotatable item
+    // is solely selected.
     private rotateSelectionStep(dir: number): boolean {
       const i = this.soleSelectedIndex();
       if (i < 0) return false;
@@ -2182,13 +2202,13 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Resize the lone selected action one keyboard step by driving its primary
-    // handle — the bottom-right corner of a box/stamp, or the second endpoint of
-    // a line/arrow (the handle a mouse user grabs to grow it). Reuses
+    // handle — the bottom-right corner of a box/stamp, or the second endpoint
+    // of a line/arrow (the handle a mouse user drags to enlarge it). Reuses
     // resizeByHandle, so a rotated box resizes in its own frame and the stamp
     // stays square. Step is widget-px / scale (Shift = larger), coalesced into
     // one undo entry per run; a no-op (clamped at the minimum) is consumed but
-    // not pushed. False (so Ctrl+arrow falls through) unless a resizable item is
-    // solely selected.
+    // not pushed. False (so Ctrl+arrow falls through) unless a resizable item
+    // is solely selected.
     private resizeSelectionStep(dx: number, dy: number, large: boolean): boolean {
       const i = this.soleSelectedIndex();
       if (i < 0) return false;
@@ -2226,9 +2246,9 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Keyboard placement: drop a number stamp, or open the text editor, at the
-    // center of the visible viewport. The placed item lands selected (via the
-    // placement callback) so it's immediately arrow-nudgeable.
+    // Keyboard placement: place a number stamp, or open the text editor, at the
+    // center of the visible viewport. The placed item is selected (via the
+    // placement callback) so it can immediately be moved with the arrow keys.
     private placeAtViewportCenter(): boolean {
       const [cx, cy] = this.viewportCenterWidget();
       const [ix, iy] = this.widgetToImage(cx, cy);
@@ -2285,13 +2305,14 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Recompute the auto-scroll velocity from the pointer's position within the
-    // viewport. Each axis arms a scroll direction when the pointer is within
-    // MARQUEE_EDGE_PX of an edge and moving toward it (see armEdge); an armed
-    // edge with scrollable range left scrolls (speed ramped by depth) so the
-    // drag can reach past the visible region, else the tick stops. Called on
-    // every band or selection-move drag-update, so the armed direction + velocity
-    // stay put while the pointer is held still (no events fire as the content
-    // scrolls beneath it, so the tick alone keeps advancing the drag).
+    // viewport. Each axis activates a scroll direction when the pointer is
+    // within MARQUEE_EDGE_PX of an edge and moving toward it (see armEdge);
+    // an active edge with scrollable range left scrolls (speed proportional to
+    // depth) so the drag can reach past the visible region, else the tick
+    // stops. Called on every band or selection-move drag-update, so the active
+    // direction + velocity stay unchanged while the pointer is held still (no
+    // events are emitted as the content scrolls beneath it, so the tick alone
+    // keeps advancing the drag).
     private updateAutoScroll(wx: number, wy: number): void {
       const sw = this.scrolledAncestor();
       if (!sw) {
@@ -2318,12 +2339,13 @@ export const CanvasView = GObject.registerClass(
       else this.stopAutoScroll();
     }
 
-    // Update one axis's armed auto-scroll direction (-1 low / 0 none / +1 high).
-    // Arm toward an edge when the pointer is in that edge's band AND moving
-    // toward it (`inst`, physical viewport motion this update); keep it armed
-    // while the pointer stays in the band, so a held-still pointer or small
-    // jitter sustains the scroll (a ~MARQUEE_EDGE_PX hysteresis zone); disarm in
-    // the middle, which also re-enables arming the opposite edge on arrival.
+    // Update one axis's active auto-scroll direction (-1 low / 0 none / +1
+    // high). Activate toward an edge when the pointer is in that edge's band
+    // AND moving toward it (`inst`, physical viewport motion this update); keep
+    // it active while the pointer stays in the band, so a held-still pointer or
+    // small jitter sustains the scroll (a ~MARQUEE_EDGE_PX hysteresis zone);
+    // deactivate in the middle, which also allows activating the opposite edge
+    // on arrival.
     private armEdge(arm: number, p: number, size: number, inst: number): number {
       const inLow = p < MARQUEE_EDGE_PX;
       const inHigh = size - p < MARQUEE_EDGE_PX;
@@ -2332,10 +2354,11 @@ export const CanvasView = GObject.registerClass(
       return 0;
     }
 
-    // Signed scroll speed (widget px/sec) for one axis from its armed direction,
-    // ramped by how deep the pointer is into the armed edge's band (full speed at
-    // the boundary). Zero if not armed or that edge is already at its scroll
-    // limit. `p` is the pointer's viewport offset, `size` the viewport extent,
+    // Signed scroll speed (widget px/sec) for one axis from its active
+    // direction, proportional to how deep the pointer is into the active edge's
+    // band (full speed at the boundary). Zero if not active or that edge is
+    // already at its scroll limit. `p` is the pointer's viewport offset, `size`
+    // the viewport extent,
     // `value`/`lo`/`hi` the adjustment's current/min/max positions.
     private edgeVelocity(
       arm: number,
@@ -2361,9 +2384,9 @@ export const CanvasView = GObject.registerClass(
     // Per-frame auto-scroll step: scroll by velocity × frame-delta (so it's
     // framerate-independent), then advance the live drag by the actual scrolled
     // amount in image space (the band's corner, or a selection move's offset),
-    // since the held-still pointer emits no drag-update to do it. Stops when the
-    // drag ends or both axes have hit their scroll limit (a later drag-update
-    // with range restarts it).
+    // since the held-still pointer emits no drag-update to do it. Stops when
+    // the drag ends or both axes have hit their scroll limit (a later
+    // drag-update with range restarts it).
     private autoScrollTick(clock: Gdk.FrameClock): boolean {
       const sw = this.scrolledAncestor();
       const [vx, vy] = this.autoScrollVel;
@@ -2398,7 +2421,7 @@ export const CanvasView = GObject.registerClass(
         // double-count).
         this.bandCurrent = [this.bandCurrent[0] + ax / scale, this.bandCurrent[1] + ay / scale];
       } else if (this.moving) {
-        // Selection move: grow the move offset, so the dragged actions stay
+        // Selection move: increase the move offset, so the dragged actions stay
         // under the pointer as the content scrolls beneath it.
         this.moveDx += ax / scale;
         this.moveDy += ay / scale;
@@ -2414,10 +2437,10 @@ export const CanvasView = GObject.registerClass(
       this.autoScrollVel = [0, 0];
     }
 
-    // Right-click-drag pan hooks, driven by ZoomController (which owns the
-    // ScrolledWindow the gesture rides). The canvas shows the grabbing hand and
-    // suspends its hover/cursor tracking for the duration; the actual scrolling
-    // is the ScrolledWindow's job.
+    // Right-click-drag pan callbacks, invoked by ZoomController (which owns the
+    // ScrolledWindow the gesture is attached to). The canvas shows the grabbing
+    // hand and suspends its hover/cursor tracking for the duration; the actual
+    // scrolling is the ScrolledWindow's job.
     beginPan(): void {
       this.panning = true;
       this.set_cursor_from_name('grabbing');
@@ -2426,7 +2449,7 @@ export const CanvasView = GObject.registerClass(
     endPan(): void {
       this.panning = false;
       // Restore the tool's cursor (or the sampling arrow — panning to the
-      // target pixel mid-sample is fine); the next pointer motion refines it
+      // target pixel mid-sample is allowed); the next pointer motion updates it
       // (resize handles, hover candidate) where the tool tracks hover.
       this.set_cursor_from_name(
         this.colorSampleHandler ? 'default' : cursorForTool(this.currentToolId)
@@ -2470,16 +2493,16 @@ export const CanvasView = GObject.registerClass(
       return tool ? _(tool.label) : _('Annotation');
     }
 
-    // Update cursor while hovering in resize mode so edge/corner handles
-    // advertise themselves before the user even clicks. Other tools keep
-    // their cursor from `cursorForTool` (set in setTool / installPointer).
+    // Update cursor while hovering in resize mode so edge/corner handles show
+    // a resize cursor before the user clicks. Other tools keep their cursor
+    // from `cursorForTool` (set in setTool / installPointer).
     private onPointerMotion(wx: number, wy: number): void {
       this.lastPointer = [wx, wy];
       // Mid-pan (right-drag): keep the grabbing hand and don't re-resolve the
-      // hover candidate — the gesture is navigation, not aiming.
+      // hover candidate — the gesture is navigation, not selection.
       if (this.panning) return;
-      // Color-sampling mode: freeze the hover candidate (the pointer is
-      // aiming at a pixel, not an annotation) and repaint so the loupe
+      // Color-sampling mode: keep the hover candidate unchanged (the pointer
+      // is targeting a pixel, not an annotation) and repaint so the loupe
       // follows the pointer.
       if (this.colorSampleHandler) {
         this.queue_draw();
@@ -2493,8 +2516,8 @@ export const CanvasView = GObject.registerClass(
         const prev = this.hoverCandidate;
         this.resolveCandidate(ix, iy);
         if (this.hoverCandidate !== prev) this.queue_draw();
-        // A resize handle or rotate gizmo of the lone selection advertises
-        // itself before the drag; everywhere else falls back to the arrow.
+        // A resize handle or rotate gizmo of the lone selection shows its
+        // cursor before the drag; everywhere else falls back to the arrow.
         this.set_cursor_from_name(this.handleCursorAt(ix, iy));
         return;
       }
@@ -2507,9 +2530,9 @@ export const CanvasView = GObject.registerClass(
       this.set_cursor_from_name(cursorForResizeGrab(grab));
     }
 
-    // Update the selection on a select-tool press, acting on the current aim
-    // (the hover candidate — the topmost action under the cursor, or a deeper
-    // one if the user dug in with Alt+scroll). Shift toggles that candidate's
+    // Update the selection on a select-tool press, acting on the hover
+    // candidate (the topmost action under the cursor, or a deeper one if the
+    // user dug in with Alt+scroll). Shift toggles that candidate's
     // membership without starting a move. A plain press selects the candidate
     // alone, UNLESS the candidate is already selected — then the selection is
     // kept so a drag moves the whole set as a unit. A plain press on empty
@@ -2523,16 +2546,17 @@ export const CanvasView = GObject.registerClass(
       this.shiftToggleDrag = false;
       this.bandStart = null;
       this.bandCurrent = null;
-      // Fresh drag: clear auto-scroll arming and seed the viewport reference at
-      // the press, so the new drag's direction is judged from its own start.
+      // New drag: clear the auto-scroll direction and set the viewport
+      // reference to the press position, so the new drag's direction is judged
+      // from its own start.
       const r0 = this.visibleRect();
       this.autoScrollArm = [0, 0];
       this.autoScrollPrevVP = [wx - r0.x, wy - r0.y];
 
       const candidate = this.resolveCandidate(ix, iy);
       if (isShift(gesture)) {
-        // Shift edits membership only (never a move). Toggling the aimed
-        // candidate works at any depth, so a buried item can be added or
+        // Shift edits membership only (never a move). Toggling the hover
+        // candidate works at any depth, so an item under others can be added or
         // removed without disturbing the ones above it.
         this.shiftToggleDrag = true;
         if (candidate >= 0) {
@@ -2542,7 +2566,7 @@ export const CanvasView = GObject.registerClass(
       } else if (candidate < 0 || !this.selectedIndices.has(candidate)) {
         this.selectedIndices.clear();
         if (candidate >= 0) this.selectedIndices.add(candidate);
-        // Empty press: arm a marquee. The drag builds it; a bare click (no
+        // Empty press: begin a marquee. The drag extends it; a bare click (no
         // motion) just leaves the cleared selection.
         else this.bandStart = [ix, iy];
       }
@@ -2571,12 +2595,12 @@ export const CanvasView = GObject.registerClass(
       return this.hoverCandidate;
     }
 
-    // Recompute the hover candidate from the last pointer position. Used after a
-    // structural reorder of the action stack (z-order): the candidate is a
+    // Recompute the hover candidate from the last pointer position. Used after
+    // a structural reorder of the action stack (z-order): the candidate is a
     // cached index, so once actions move it must be re-derived from what's
     // actually under the cursor in the new order — otherwise it outlines
-    // whatever slid into the old slot. Clears it when there's no pointer (or
-    // we're not in select mode); the next pointer motion would refresh it
+    // whichever action now has the old index. Clears it when there's no pointer
+    // (or we're not in select mode); the next pointer motion would refresh it
     // anyway, but a button/key reorder produces no motion.
     private refreshHoverCandidate(): void {
       if (this.currentToolId !== 'select' || !this.state.surface || !this.lastPointer) {
@@ -2589,7 +2613,7 @@ export const CanvasView = GObject.registerClass(
 
     // The hit-stack under the current pointer, or [] when there's no pointer /
     // no image / not the select tool. Both the Alt+scroll and , / . dig paths
-    // aim at whatever the pointer is hovering.
+    // operate on the stack under the pointer.
     private hoverStack(): number[] {
       if (this.currentToolId !== 'select' || !this.state.surface || !this.lastPointer) return [];
       const [ix, iy] = this.widgetToImage(this.lastPointer[0], this.lastPointer[1]);
@@ -2626,10 +2650,11 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Dig the hover candidate one step through the stack under the POINTER (the
-    // keyboard twin of Alt+scroll; , toward the top, . deeper). Pointer-anchored
-    // by design — the pointer-free walk through all annotations is the bracket
-    // keys (keyboardBrowseCandidate). Returns true only when a 2+ pile is under
-    // the cursor, so the key is consumed only then.
+    // keyboard equivalent of Alt+scroll; , toward the top, . deeper).
+    // Pointer-relative by design — the pointer-independent walk through all
+    // annotations is the bracket keys (keyboardBrowseCandidate). Returns true
+    // only when 2+ actions are under the cursor, so the key is consumed only
+    // then.
     digHoverCandidate(dir: number): boolean {
       const hits = this.hoverStack();
       if (hits.length <= 1) return false;
@@ -2638,10 +2663,10 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Toggle the hover candidate's membership in the selection — the keyboard
-    // equivalent of Shift+Click on it (bound to Shift+Space). Aims at whatever
-    // the pointer is hovering (after any , / . dig). Returns true if it acted,
-    // so the key is consumed only when there's a candidate. Gated during a
-    // text re-edit, the same as onDragBegin's select branch.
+    // equivalent of Shift+Click on it (bound to Shift+Space). Acts on the
+    // candidate under the pointer (after any , / . dig). Returns true if it
+    // acted, so the key is consumed only when there's a candidate. Gated during
+    // a text re-edit, the same as onDragBegin's select branch.
     toggleHoverCandidate(): boolean {
       if (this.currentToolId !== 'select' || this.editingActionIndex >= 0) return false;
       const i = this.hoverCandidate;
@@ -2658,7 +2683,7 @@ export const CanvasView = GObject.registerClass(
       if (!this.state.surface) return;
       // A consumed press must not start any gesture — no draw, selection,
       // move, or resize. That's a press the GestureClick controller already
-      // spent (committing a text edit, or completing a color sample — the
+      // handled (committing a text edit, or completing a color sample — the
       // latch), or one with a color sample still pending because this begin
       // dispatched before the click handler ran (gesture order isn't fixed).
       if (this.suppressSelectThisPress || this.colorSampleHandler !== null) return;
@@ -2683,9 +2708,9 @@ export const CanvasView = GObject.registerClass(
         const t = this.currentTransform();
         const tol = HANDLE_HIT_PX / t.scale;
         const grab = this.hitTestResizeRegion(ix, iy, tol);
-        // Edge / corner grabs adjust the existing region. Everything else
+        // Edge / corner drags adjust the existing region. Everything else
         // (inside body, outside the region, or no region yet) starts a
-        // fresh region from this point with BR-drag semantics.
+        // new region from this point with BR-drag semantics.
         if (grab === 'inside' || grab === 'outside' || !this.resizeRegion) {
           this.resizeRegion = {x1: ix, y1: iy, x2: ix, y2: iy};
           this.resizeGrab = 'br';
@@ -2723,12 +2748,13 @@ export const CanvasView = GObject.registerClass(
       if (this.currentToolId === 'select') {
         // A press consumed by an editor commit must not move the selection
         // either — the commit may have left the fresh text selected, and
-        // drag-begin may have run before the latch was armed (gesture
+        // drag-begin may have run before the latch was set (gesture
         // dispatch order isn't guaranteed), so the begin-guard alone isn't
         // enough.
         if (this.suppressSelectThisPress) return;
         // Marquee in progress: extend the band to the cursor (image space) and
-        // repaint. Armed only on an empty press, so no handle/move can be live.
+        // repaint. Begun only on an empty press, so no handle/move can be
+        // active.
         if (this.bandStart) {
           this.bandCurrent = this.widgetToImage(wx, wy);
           this.updateAutoScroll(wx, wy);
@@ -2736,7 +2762,7 @@ export const CanvasView = GObject.registerClass(
           return;
         }
         // Per-action resize: reshape the lone selected action live from the
-        // grabbed handle. Shift squares a corner (rect/oval) or snaps an
+        // dragged handle. Shift squares a corner (rect/oval) or snaps an
         // endpoint's angle (line/arrow). Takes precedence over the move path.
         if (this.actionGrab) {
           const i = this.soleSelectedIndex();
@@ -2748,8 +2774,8 @@ export const CanvasView = GObject.registerClass(
           this.queue_draw();
           return;
         }
-        // Per-action rotate: spin the lone selected action so its gizmo points
-        // at the cursor (up = 0). Shift snaps to ROTATE_SNAP increments.
+        // Per-action rotate: rotate the lone selected action so its gizmo
+        // points at the cursor (up = 0). Shift snaps to ROTATE_SNAP increments.
         if (this.rotateGrab) {
           const i = this.soleSelectedIndex();
           if (i < 0) return;
@@ -2772,8 +2798,8 @@ export const CanvasView = GObject.registerClass(
           this.moving = true;
         }
         // Drag a selection toward a viewport edge to auto-scroll, so it can be
-        // moved into off-screen areas (only once actually moving, so a jiggle
-        // near an edge doesn't scroll).
+        // moved into off-screen areas (only once actually moving, so small
+        // pointer motion near an edge doesn't scroll).
         if (this.moving) {
           this.updateAutoScroll(wx, wy);
           this.queue_draw();
@@ -2796,7 +2822,7 @@ export const CanvasView = GObject.registerClass(
 
     // Mutate the active resize region's edges according to the current grab.
     // Only edges/corners adjust the region; drags that began inside or
-    // outside the region take the BR-grab path on a freshly-seeded region
+    // outside the region take the BR-grab path on a newly created region
     // (see onDragBegin), so 'inside' never reaches here.
     private applyResizeGrab(ix: number, iy: number): void {
       const r = this.resizeRegion;
@@ -2812,14 +2838,14 @@ export const CanvasView = GObject.registerClass(
       // Any drag ending stops marquee auto-scroll (the band release below reads
       // the final corner the tick left).
       this.stopAutoScroll();
-      // Capture and clear the commit-press latch: drag-end fires for every
+      // Read and clear the commit-press latch: drag-end is emitted for every
       // primary press (clicks included), so it's reset before the next press
       // whatever order GestureClick and GestureDrag ran in.
       const suppressed = this.suppressSelectThisPress;
       this.suppressSelectThisPress = false;
       if (this.currentToolId === 'select') {
-        // A latched press never started a select gesture (begin/update bail
-        // on it), so end it inertly — releasing must not push a move of
+        // A latched press never started a select gesture (begin/update return
+        // early on it), so do nothing here — releasing must not push a move of
         // whatever the commit left selected.
         if (suppressed) {
           this.moving = false;
@@ -2844,8 +2870,8 @@ export const CanvasView = GObject.registerClass(
           return;
         }
         // Per-action resize/rotate: commit the reshaped/rotated action in one
-        // history entry (a click without a drag, or a drag back to the original,
-        // pushes nothing).
+        // history entry (a click without a drag, or a drag back to the
+        // original, pushes nothing).
         if (this.commitActionReshape()) return;
         // A Shift-click toggle gesture only adjusts membership — no move push.
         if (this.shiftToggleDrag) {
@@ -2855,7 +2881,7 @@ export const CanvasView = GObject.registerClass(
           this.moveDy = 0;
           return;
         }
-        // Skip a drag that ended back at the origin: translate(0, 0) would
+        // Skip a drag that ended at its start point: translate(0, 0) would
         // still push a new (content-identical) state.
         if (
           this.moving &&
@@ -2885,8 +2911,8 @@ export const CanvasView = GObject.registerClass(
         }
         const [ix, iy] = this.widgetToImage(wx, wy);
         this.applyResizeGrab(ix, iy);
-        // Drop the region if it collapsed to nothing (click without drag from
-        // a fresh-region start).
+        // Discard the region if it collapsed to nothing (click without drag
+        // from a new-region start).
         if (this.getResizeRect() === null) this.resizeRegion = null;
         this.resizeGrab = null;
         this.queue_draw();
@@ -2920,17 +2946,18 @@ export const CanvasView = GObject.registerClass(
     private onSelectDoubleClick(wx: number, wy: number): void {
       if (!this.state.surface) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      // Prefer a selected action under the cursor, so a buried text action
-      // picked via the dig gesture still opens for editing; otherwise fall
-      // back to the current aim (hover candidate), not just the topmost.
+      // Prefer a selected action under the cursor, so a text action under
+      // others, selected via the dig gesture, still opens for editing;
+      // otherwise fall back to the hover candidate, not just the topmost.
       const selHit = this.selectedIndexAt(ix, iy);
       this.openTextEditor(selHit >= 0 ? selHit : this.resolveCandidate(ix, iy));
     }
 
     // Open the floating editor on the action at `idx` — a standalone TextAction
-    // or a box shape's embedded text. Hides the action from the canvas while the
-    // live editor stands in. No-op (false) for any other action type. Shared by
-    // double-click, the Enter shortcut, and the style bar's Add/Edit text.
+    // or a box shape's embedded text. Hides the action from the canvas while
+    // the live editor replaces it. No-op (false) for any other action type.
+    // Shared by double-click, the Enter shortcut, and the style bar's Add/Edit
+    // text.
     private openTextEditor(idx: number): boolean {
       if (idx < 0 || idx >= this.state.actions.length) return false;
       const action = this.state.actions[idx];
@@ -2938,8 +2965,8 @@ export const CanvasView = GObject.registerClass(
         const state = getTextEditState(action);
         if (!state || !this.onTextEditRequest) return false;
         this.beginEditingAt(idx);
-        // Re-place the editor at the action's anchor in widget coordinates so the
-        // editor visually replaces the hidden action.
+        // Re-place the editor at the action's anchor in widget coordinates so
+        // the editor visually replaces the hidden action.
         const t = this.currentTransform();
         this.onTextEditRequest(
           state.x,
@@ -2960,18 +2987,19 @@ export const CanvasView = GObject.registerClass(
         const st = getShapeTextEditState(action);
         if (!st || !this.onTextEditRequest) return false;
         this.beginEditingAt(idx);
-        // Overlay the editor on the box's inner text rect (in widget coords). For
-        // a rotated shape the editor stays upright over the box center; the text
-        // commits rotated with the box.
+        // Overlay the editor on the box's inner text rect (in widget coords).
+        // For a rotated shape the editor stays upright over the box center; the
+        // text commits rotated with the box.
         const t = this.currentTransform();
         const {cx, cy, halfW, halfH} = st.bounds;
-        // The editor card covers the whole box (positioned at its top-left); the
-        // text wraps to the card width and centers within it.
+        // The editor card covers the whole box (positioned at its top-left);
+        // the text wraps to the card width and centers within it.
         const boxLeft = cx - halfW;
         const boxTop = cy - halfH;
-        // A textless shape seeds its first edit from the style last used on a
-        // shape of this tool (like a drawing tool seeds a fresh placement); a
-        // re-edit keeps the shape's own style so its current look is preserved.
+        // A shape without text starts its first edit from the style last used
+        // on a shape of this tool (like a drawing tool starts a new placement
+        // from its remembered style); a re-edit keeps the shape's own style so
+        // its current appearance is preserved.
         const tool = actionToolId(action);
         const seedStyle =
           st.markup || tool === null ? st.style : this.rememberedShapeTextStyle(tool);
@@ -2992,18 +3020,18 @@ export const CanvasView = GObject.registerClass(
       return false;
     }
 
-    // Hide the action being edited and drop the selection while the live editor
-    // stands in (shared by the text + shape edit paths).
+    // Hide the action being edited and clear the selection while the live
+    // editor replaces it (shared by the text + shape edit paths).
     private beginEditingAt(idx: number): void {
       this.editingActionIndex = idx;
       this.selectedIndices.clear();
       this.queue_draw();
     }
 
-    // Open the editor on the sole selected action when it's a text annotation or
-    // a box shape (the Enter shortcut and the style-bar Add/Edit-text button).
-    // Returns true only when it opened, so the key falls through otherwise
-    // (multi-selection, a non-editable selection, or nothing).
+    // Open the editor on the sole selected action when it's a text annotation
+    // or a box shape (the Enter shortcut and the style-bar Add/Edit-text
+    // button). Returns true only when it opened, so the key falls through
+    // otherwise (multi-selection, a non-editable selection, or nothing).
     editSelectedText(): boolean {
       if (this.currentToolId !== 'select' || this.editingActionIndex >= 0) return false;
       return this.openTextEditor(this.soleSelectedIndex());
@@ -3034,7 +3062,7 @@ export const CanvasView = GObject.registerClass(
 
     // The id of the resize handle of `action` within `tol` (image-space px) of
     // (ix, iy), or null. Square hit region matching the drawn handles; the
-    // handle list leads with corners so a corner wins over an overlapping edge.
+    // handle list has corners first so a corner wins over an overlapping edge.
     private hitTestActionHandle(
       action: Action,
       ix: number,
@@ -3049,12 +3077,12 @@ export const CanvasView = GObject.registerClass(
       return null;
     }
 
-    // Pull a dragged curve handle onto the straight position when the cursor is
+    // Snap a dragged curve handle to the straight position when the cursor is
     // within CURVE_DETENT_PX of it, giving the drag a detent that collapses the
     // bend; any other handle, or a held Alt, passes the cursor through
-    // unchanged. The target is read off the straightened action rather than
-    // recomputed from the endpoints, so where the apex sits when straight stays
-    // defined in exactly one place.
+    // unchanged. The target is read from the straightened action rather than
+    // recomputed from the endpoints, so the straight apex position is defined
+    // in exactly one place.
     private curveDetent(action: Action, ix: number, iy: number, bypass: boolean): [number, number] {
       if (bypass || this.actionGrab !== 'curve') return [ix, iy];
       const target = action
@@ -3082,7 +3110,7 @@ export const CanvasView = GObject.registerClass(
 
     // Cursor name for hovering (ix, iy) in select mode: a directional/endpoint
     // resize cursor over a resize handle, 'grab' over the rotate gizmo (which
-    // sits outside the box, so it's checked first), else 'default'.
+    // is outside the box, so it's checked first), else 'default'.
     private handleCursorAt(ix: number, iy: number): string {
       const i = this.soleSelectedIndex();
       if (i < 0) return 'default';
@@ -3099,7 +3127,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Geometry of the rotate gizmo for `action` in image space, or null for a
-    // non-rotatable action: the pivot (center), the connector stick's base on
+    // non-rotatable action: the pivot (center), the connector line's base on
     // the box edge, and the draggable handle. The direction is the action's
     // content rotation (so the gizmo tracks a rotated stamp/text), the distance
     // its up-extent plus a fixed widget-px arm.
@@ -3125,9 +3153,9 @@ export const CanvasView = GObject.registerClass(
       };
     }
 
-    // Begin a per-action rotation if the press lands on the rotate gizmo of the
+    // Begin a per-action rotation if the press is on the rotate gizmo of the
     // lone selected (rotatable) action. Checked after tryBeginActionResize, but
-    // the gizmo sits outside the box so they never overlap.
+    // the gizmo is outside the box so they never overlap.
     private tryBeginActionRotate(wx: number, wy: number): boolean {
       const i = this.soleSelectedIndex();
       if (i < 0) return false;
@@ -3145,10 +3173,10 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Commit an in-progress per-action resize or rotate at drag-end, pushing one
-    // history entry only if the geometry (resize) or angle (rotate) actually
-    // changed — so a click on a handle/gizmo without a drag, or a drag back to
-    // the original, pushes nothing. Returns true if a reshape was in
+    // Commit an in-progress per-action resize or rotate at drag-end, pushing
+    // one history entry only if the geometry (resize) or angle (rotate)
+    // actually changed — so a click on a handle/gizmo without a drag, or a drag
+    // back to the original, pushes nothing. Returns true if a reshape was in
     // progress, so onDragEnd consumes the gesture.
     private commitActionReshape(): boolean {
       const wasResize = this.actionGrab !== null;
@@ -3182,11 +3210,11 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Begin a per-action resize if the press lands on a handle of the lone
-    // selected action. Returns true when it grabs (the caller then skips the
+    // Begin a per-action resize if the press is on a handle of the lone
+    // selected action. Returns true when it begins (the caller then skips the
     // normal select/move path). Handles take priority over move + reselection,
     // so a corner drag reshapes rather than moves. Non-resizable selections
-    // (text/pen/highlighter return null handles) never grab.
+    // (text/pen/highlighter return null handles) never begin one.
     private tryBeginActionResize(wx: number, wy: number): boolean {
       const i = this.soleSelectedIndex();
       if (i < 0) return false;
@@ -3217,7 +3245,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Classify (ix, iy) relative to the current resize region. Edges and
-    // corners get a tolerance band so the user doesn't have to land exactly
+    // corners get a tolerance band so the user doesn't have to press exactly
     // on a 1-pixel-wide line. `tol` is in image-space pixels.
     // eslint-disable-next-line complexity
     private hitTestResizeRegion(ix: number, iy: number, tol: number): ResizeGrab {
@@ -3311,8 +3339,8 @@ export const CanvasView = GObject.registerClass(
         this.mode === 'fixed' ? this.zoomFactor : Math.min(widgetW / area.w, widgetH / area.h);
       const drawW = area.w * scale;
       const drawH = area.h * scale;
-      // Image-space (area.x, area.y) lands at the centered top-left of the
-      // displayed area. Image-space (0, 0) lands at offsetX, offsetY.
+      // Image-space (area.x, area.y) maps to the centered top-left of the
+      // displayed area. Image-space (0, 0) maps to offsetX, offsetY.
       return {
         scale,
         offsetX: Math.floor((widgetW - drawW) / 2 - area.x * scale),
@@ -3336,7 +3364,8 @@ export const CanvasView = GObject.registerClass(
         // Mid-reshape: frame the live preview (no move offset — a reshape and a
         // move can't share a gesture). Otherwise the stored action, shifted by
         // any in-progress move. Rotatable actions draw an oriented box (text
-        // tilts; the stamp's stays an upright square); everything else the AABB.
+        // tilts; the stamp's stays an upright square); everything else the
+        // AABB.
         let action: Action = acts[i];
         let ox = this.moving ? this.moveDx : 0;
         let oy = this.moving ? this.moveDy : 0;
@@ -3355,9 +3384,10 @@ export const CanvasView = GObject.registerClass(
       }
     }
 
-    // Resize handles for the lone selected action (when resizable). Drawn at the
-    // live preview's positions mid-resize so they track the drag. Hidden during
-    // a move or a rotate (clutter) and while a text re-edit is open.
+    // Resize handles for the lone selected action (when resizable). Drawn at
+    // the live preview's positions mid-resize so they follow the drag. Hidden
+    // during a move or a rotate (visual clutter) and while a text re-edit is
+    // open.
     private drawResizeHandles(cr: Cairo.Context, scale: number): void {
       if (this.moving || this.rotateGrab) return;
       const i = this.soleSelectedIndex();
@@ -3369,9 +3399,10 @@ export const CanvasView = GObject.registerClass(
       for (const h of handles) drawResizeHandle(cr, h.x, h.y, scale, h.id === 'curve');
     }
 
-    // The rotate gizmo (a connector stick + round handle) for the lone selected
-    // rotatable action. Drawn at the preview's angle mid-rotate so it tracks the
-    // drag; hidden during a move or a resize, and while a text re-edit is open.
+    // The rotate gizmo (a connector line + round handle) for the lone selected
+    // rotatable action. Drawn at the preview's angle mid-rotate so it follows
+    // the drag; hidden during a move or a resize, and while a text re-edit is
+    // open.
     private drawRotateGizmo(cr: Cairo.Context, scale: number): void {
       if (this.moving || this.actionGrab) return;
       const i = this.soleSelectedIndex();
@@ -3404,8 +3435,9 @@ export const CanvasView = GObject.registerClass(
       const i = this.hoverCandidate;
       if (i < 0 || i >= acts.length || i === this.editingActionIndex) return;
       if (this.selectedIndices.size === 1 && this.selectedIndices.has(i)) return;
-      // A rotatable action gets a tilted outline matching its selection box (the
-      // loose AABB of a steeply rotated shape reads as the wrong target).
+      // A rotatable action gets a tilted outline matching its selection box
+      // (the loose AABB of a steeply rotated shape would suggest the wrong
+      // target).
       const ob = acts[i].getOrientedBounds();
       if (ob) {
         drawOrientedCandidateBox(cr, ob, scale);
@@ -3415,9 +3447,9 @@ export const CanvasView = GObject.registerClass(
       if (bounds) drawCandidateBox(cr, bounds, scale);
     }
 
-    // A small "G<n>" badge floating at the top-right of every stamp that shares
-    // a group with the current selection — so selecting one stamp reveals where
-    // the rest of its group is. <n> is the group's gap-free ordinal, the same
+    // A small "G<n>" badge at the top-right of every stamp that shares a group
+    // with the current selection — so selecting one stamp shows where the rest
+    // of its group is. <n> is the group's gap-free ordinal, the same
     // label the Group dropdown shows. Only drawn when more than one group has
     // stamps; with a single group there's nothing to find. Overlay-only: it
     // decorates the canvas on screen and never enters an export (which replays
@@ -3426,8 +3458,8 @@ export const CanvasView = GObject.registerClass(
       if (this.selectedIndices.size === 0) return;
       const groupIds = this.getStampGroupIds();
       if (groupIds.length < 2) return;
-      // The groups represented in the selection; every stamp in any of them gets
-      // a badge, selected or not.
+      // The groups represented in the selection; every stamp in any of them
+      // gets a badge, selected or not.
       const activeGroups = new Set<number>();
       for (const i of this.selectedIndices) {
         if (i < 0 || i >= acts.length) continue;
@@ -3456,7 +3488,7 @@ export const CanvasView = GObject.registerClass(
       widgetW: number,
       widgetH: number
     ): void {
-      // Backdrop around the image follows the theme: a deep neutral in dark
+      // Background around the image follows the theme: a dark neutral in dark
       // mode, a light gray in light mode. The 1px image-bounds border (drawn
       // below) keeps the image edge visible against either.
       if (Adw.StyleManager.get_default().get_dark()) cr.setSourceRGB(0.12, 0.12, 0.12);
@@ -3495,9 +3527,9 @@ export const CanvasView = GObject.registerClass(
       const sole = this.soleSelectedIndex();
       for (let i = 0; i < acts.length; i++) {
         if (i === this.editingActionIndex) {
-          // The edited action is hidden so the live editor stands in. A box
+          // The edited action is hidden so the live editor replaces it. A box
           // shape, though, keeps its outline/fill drawn (only its text is
-          // suppressed) so the box being labelled doesn't vanish.
+          // hidden) so the box being labelled doesn't disappear.
           const box = shapeWithoutText(acts[i]);
           if (box) box.draw(cr, t.scale);
           continue;
@@ -3529,7 +3561,7 @@ export const CanvasView = GObject.registerClass(
       // Thin border around the current image so the canvas is distinguishable
       // from the app background — important once the surface has transparent
       // areas (resize-enlarged region; loaded PNGs with alpha) where the dark
-      // backdrop would otherwise blend with the surrounding dead space.
+      // background would otherwise blend with the surrounding empty area.
       cr.setSourceRGBA(0, 0, 0, 0.55);
       cr.setLineWidth(1 / t.scale);
       cr.setDash([], 0);
@@ -3553,8 +3585,8 @@ export const CanvasView = GObject.registerClass(
     // composited pixels around the target, plus its hex readout. Placement
     // prefers above-right of the pointer, flipping per axis to stay inside
     // the visible viewport (the widget can extend far beyond it at high
-    // zoom, so clamping against widget bounds alone would let the loupe
-    // land off-screen).
+    // zoom, so clamping against widget bounds alone could place the loupe
+    // off-screen).
     private drawSampleLoupe(cr: Cairo.Context, t: Transform, w: number): void {
       if (!this.colorSampleHandler || !this.lastPointer) return;
       const s = this.state.surface;
@@ -3595,7 +3627,7 @@ function drawResizeOverlay(
   cr.save();
 
   // Dim the parts of the *current image* that fall outside the new region —
-  // visually signals what will be dropped. Areas where the new region extends
+  // showing what will be discarded. Areas where the new region extends
   // beyond the current image stay as canvas background (no dim), which is
   // what transparent fill will look like after apply.
   cr.setSourceRGBA(0, 0, 0, 0.5);
@@ -3618,8 +3650,9 @@ function drawResizeOverlay(
   cr.restore();
 }
 
-// An oriented (rotated) selection box: same solid-blue look as drawSelectionBox
-// but tilted to the action's angle. ox/oy is the in-progress move offset.
+// An oriented (rotated) selection box: same solid-blue style as
+// drawSelectionBox but tilted to the action's angle. ox/oy is the in-progress
+// move offset.
 function drawOrientedSelectionBox(
   cr: Cairo.Context,
   ob: OrientedBounds,
@@ -3641,7 +3674,7 @@ function drawOrientedSelectionBox(
   cr.restore();
 }
 
-// The rotate gizmo: a connector stick from the box edge (ex, ey) to a round
+// The rotate gizmo: a connector line from the box edge (ex, ey) to a round
 // white handle at (hx, hy), in the same blue as the selection box.
 function drawRotateGizmo(
   cr: Cairo.Context,
@@ -3699,9 +3732,9 @@ function drawSelectionBox(
 // blue as the selection box), centered on (x, y). Sized in widget pixels via
 // 1/scale so it's a constant on-screen size at any zoom, and matched to
 // HANDLE_HIT_PX so the visible square is also the hit target. `round` draws the
-// disc used for a segment's curve control point, so it reads as a different
-// kind of control from the square geometry handles it sits between (and matches
-// the rotate gizmo's round grip).
+// disc used for a segment's curve control point, so it is visually distinct
+// from the square geometry handles on either side of it (and matches the rotate
+// gizmo's round handle).
 function drawResizeHandle(
   cr: Cairo.Context,
   x: number,
@@ -3727,10 +3760,10 @@ function drawResizeHandle(
   cr.restore();
 }
 
-// Outline for the hover candidate: dashed light blue, so it reads as a
-// transient "this is what a click will hit" marker, distinct from the solid
-// blue selection box. Slightly tighter pad than the selection box so the two
-// don't sit exactly on top of each other when both are shown.
+// Outline for the hover candidate: dashed light blue, a transient "this is
+// what a click will hit" marker, distinct from the solid blue selection box.
+// Slightly smaller pad than the selection box so the two don't coincide
+// exactly when both are shown.
 function setCandidateStroke(cr: Cairo.Context, scale: number): void {
   cr.setSourceRGBA(0.45, 0.75, 1.0, 0.95); // light blue
   cr.setLineWidth(1.5 / scale);
@@ -3753,10 +3786,10 @@ function drawCandidateBox(cr: Cairo.Context, bounds: Bounds, scale: number): voi
   cr.restore();
 }
 
-// The four corner points (image space) of an action's selection footprint:
-// the oriented (tilted) box for rotatable actions, else the axis-aligned
-// bounds. Drives the marquee containment test, so a rotated shape is judged by
-// its real tilted box rather than its looser AABB. Null when the action has no
+// The four corner points (image space) of an action's selection box: the
+// oriented (tilted) box for rotatable actions, else the axis-aligned bounds.
+// Used by the marquee containment test, so a rotated shape is judged by its
+// real tilted box rather than its looser AABB. Null when the action has no
 // bounds.
 function actionCorners(action: Action): Array<[number, number]> | null {
   const ob = action.getOrientedBounds();
@@ -3783,9 +3816,9 @@ function actionCorners(action: Action): Array<[number, number]> | null {
 }
 
 // The marquee (rubber-band) rectangle, drawn in image space with the same
-// dashed light-blue stroke as the hover candidate plus a faint wash, so it
-// reads as a transient sweep region. Corners are the two stored image-space
-// points; the cairo context is already image-transformed.
+// dashed light-blue stroke as the hover candidate plus a faint translucent
+// fill, marking a transient selection region. Corners are the two stored
+// image-space points; the cairo context is already image-transformed.
 function drawSelectionBand(
   cr: Cairo.Context,
   start: [number, number],
@@ -3806,7 +3839,7 @@ function drawSelectionBand(
 }
 
 // The candidate outline for a rotatable action: the same dashed light-blue
-// look, tilted to the action's oriented box like drawOrientedSelectionBox.
+// style, tilted to the action's oriented box like drawOrientedSelectionBox.
 function drawOrientedCandidateBox(cr: Cairo.Context, ob: OrientedBounds, scale: number): void {
   const pad = 2 / scale;
   cr.save();
@@ -3818,11 +3851,12 @@ function drawOrientedCandidateBox(cr: Cairo.Context, ob: OrientedBounds, scale: 
   cr.restore();
 }
 
-// The magnifier drawn while the eyedropper is pending: a circular loupe at
-// (cx, cy) in WIDGET space showing the composite's pixels around (px, py)
-// with NEAREST filtering (a crisp pixel grid, no smoothing), the target
-// pixel outlined in the center, and a hex readout pill below. Pure drawing —
-// placement/flipping is the caller's job. Toy text API, as for the badges.
+// The magnifier drawn while the eyedropper is pending: a circular loupe at (cx,
+// cy) in WIDGET space showing the composite's pixels around (px, py) with
+// NEAREST filtering (a crisp pixel grid, no smoothing), the target pixel
+// outlined in the center, and a hex readout pill below. Pure drawing —
+// placement/flipping is the caller's job. Cairo toy text API, as for the
+// badges.
 export function drawColorLoupe(
   cr: Cairo.Context,
   composite: Cairo.ImageSurface,
@@ -3834,8 +3868,9 @@ export function drawColorLoupe(
 ): void {
   cr.save();
 
-  // Magnified pixels, clipped to the circle. The neutral backdrop shows as
-  // "beyond the image edge" when the target sits near a border.
+  // Magnified pixels, clipped to the circle. The neutral background shows
+  // through for source pixels beyond the image edge when the target is near a
+  // border.
   cr.save();
   cr.arc(cx, cy, LOUPE_RADIUS, 0, 2 * Math.PI);
   cr.clip();
@@ -3849,7 +3884,7 @@ export function drawColorLoupe(
   cr.paint();
   cr.restore();
 
-  // Target-pixel outline: dark under light so it reads on any color.
+  // Target-pixel outline: dark under light so it is visible on any color.
   cr.setDash([], 0);
   cr.rectangle(cx - LOUPE_PIXEL_PX / 2, cy - LOUPE_PIXEL_PX / 2, LOUPE_PIXEL_PX, LOUPE_PIXEL_PX);
   cr.setSourceRGBA(0, 0, 0, 0.8);
@@ -3923,8 +3958,8 @@ function drawGroupBadge(
   const boxW = te.width + 2 * padX * u;
   const boxH = te.height + 2 * padY * u;
 
-  // Lower-left corner of the pill sits at the stamp's top-right, with a few
-  // pixels of overlap so it reads as attached rather than floating loose.
+  // Lower-left corner of the pill is at the stamp's top-right, with a few
+  // pixels of overlap so it appears attached rather than detached.
   const overlap = 3 * u;
   const x = bounds.x2 - overlap;
   const y = bounds.y1 - boxH + overlap;
@@ -3934,8 +3969,9 @@ function drawGroupBadge(
   cr.fill();
 
   cr.setSourceRGBA(1, 1, 1, 0.97);
-  // Offset by the glyph bearings so the text sits padded inside the pill: x by
-  // the left side bearing, y by the (negative) top bearing to drop the baseline.
+  // Offset by the glyph bearings so the text is padded inside the pill: x by
+  // the left side bearing, y by the (negative) top bearing to lower the
+  // baseline.
   cr.moveTo(x + padX * u - te.xBearing, y + padY * u - te.yBearing);
   cr.showText(text);
   cr.restore();

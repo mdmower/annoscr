@@ -11,7 +11,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 - **Styling**
   - Color and fill: type a hex value, drag the opacity slider, open the full palette, or pick a color from the image with the eyedropper (a magnifier follows the pointer for pixel-accurate picks; Esc cancels).
   - Stroke width, line style (solid / dashed / dotted), arrowheads (open or filled), and rounded rectangle corners.
-  - Text color, font, size, and alignment; a text fill (rounded corner backing plate, transparent by default) keeps lettering legible over busy images.
+  - Text color, font, size, and alignment; a text fill (rounded corner background plate, transparent by default) keeps lettering legible over detailed images.
   - Remembered styles: each tool's defaults update when you create or restyle an annotation, so the next one matches.
 
 - **Selecting and editing**
@@ -28,7 +28,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Text labels**: give a rectangle or oval a centered caption; the text wraps to the box, aligns left / center / right, and rotates with the shape.
 
-- **Callouts**: flip the Callout switch on a selected rectangle or oval to fuse a pointer tail into its border, then drag the tail's tip to aim it at whatever the box is describing. Combined with a text label, the shape becomes a speech bubble; the tail follows the shape's fill, line style, and rotation.
+- **Callouts**: turn on the Callout switch for a selected rectangle or oval to add a pointer tail to its border, then drag the tail's tip to point it at whatever the box is describing. Combined with a text label, the shape becomes a speech bubble; the tail follows the shape's fill, line style, and rotation.
 
 - **Number stamps**: numbered or lettered per group. Pick or reassign a stamp's group from the style bar, start a new group, and select a stamp to quickly identify all others in the group (if multiple groups exist).
 
@@ -36,7 +36,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Image I/O**: open a file, paste, drag-and-drop, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard.
 
-- **Recent files**: a strip of thumbnails below the status bar remembers the images and annotation files you open, so getting back to an earlier screenshot is one click. Drop a selection of files onto the strip, or press Insert, to line files up there without opening any of them. Show or hide it from the status bar, right-click a thumbnail to reveal it in Files or forget it, and turn the whole thing off (which also clears the list) in Preferences.
+- **Recent files**: a strip of thumbnails below the status bar remembers the images and annotation files you open, so returning to an earlier screenshot is one click. Drop a selection of files onto the strip, or press Insert, to add files to it without opening any of them. Show or hide it from the status bar, right-click a thumbnail to reveal it in Files or forget it, and turn the feature off (which also clears the list) in Preferences.
 
 - **Annotation files**: save an editable `.annoscr` file (the canvas image plus your annotations) from the primary menu, then reopen it later to add, change, or remove annotations.
   - Annoscr 1.5 introduced a new annotation file format. Files written by Annoscr 1.5 or later cannot be opened by earlier releases; files saved by earlier releases still open normally.
@@ -44,19 +44,19 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **View**: Fit-to-window, 1:1, or a continuous zoom slider from 25% to 400%; when zoomed in, right-click and drag to pan the canvas.
 
-- **Keyboard & accessibility**: the canvas is keyboard-drivable (pan, walk, select, nudge, resize, rotate, and edit most annotations without the mouse), and every control carries an accessible label for screen readers. The complete shortcut list lives in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
+- **Keyboard & accessibility**: the canvas is keyboard-operable (pan, step through, select, move, resize, rotate, and edit most annotations without the mouse), and every control has an accessible label for screen readers. The complete shortcut list is in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
 
 - **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, style bar position (dock the style controls on any window edge; the left and right docks are a vertical panel), default tool at launch, remember tool styles between sessions, default save folder and format, saving images without a location prompt, confirm before discarding, select-after-placement, close-after-saving/copying, remembering recent files, and an undo-memory budget; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
 
 ## Requirements
 
-Annoscr targets **GNOME 46** and newer. The floors are set by the newest APIs it calls:
+Annoscr targets **GNOME 46** and newer. The minimum versions are set by the newest APIs it calls:
 
 - **GTK ≥ 4.14**: accessibility (`Gtk.Accessible.announce`, `Gtk.AccessibleList`)
 - **libadwaita ≥ 1.5**: `Adw.AlertDialog`, `Adw.Dialog`, `Adw.PreferencesDialog`
 - **GJS ≥ 1.72**: ESM `gi://` imports
 
-It also loads GdkPixbuf 2, Pango / PangoCairo, and libportal (for screenshot capture), all of which have far older floors satisfied by any system meeting the above. By distribution:
+It also loads GdkPixbuf 2, Pango / PangoCairo, and libportal (for screenshot capture), all of which have far older minimum versions satisfied by any system meeting the above. By distribution:
 
 | Distribution | Minimum           |
 | ------------ | ----------------- |
@@ -146,7 +146,7 @@ sha256sum -c SHA256SUMS
 # expect: each artifact OK
 ```
 
-Each artifact also carries its own detached signature (`.asc` for the `.deb` and `.rpm`, `.sig` for the Arch package) if you'd rather check one directly:
+Each artifact also has its own detached signature (`.asc` for the `.deb` and `.rpm`, `.sig` for the Arch package) if you'd rather check one directly:
 
 ```sh
 gpg --verify annoscr_1.5.0_all.deb.asc annoscr_1.5.0_all.deb
@@ -215,7 +215,7 @@ Application Options:
 
 ### Capture with a keyboard shortcut (GNOME)
 
-To grab and annotate a screenshot with a single keypress, bind `annoscr --screenshot` to a custom shortcut:
+To capture and annotate a screenshot with a single keypress, bind `annoscr --screenshot` to a custom shortcut:
 
 1. Open **Settings > Keyboard**, then click **View and Customize Shortcuts**.
 2. Scroll to **Custom Shortcuts**, click **+**, and fill in:
@@ -224,14 +224,14 @@ To grab and annotate a screenshot with a single keypress, bind `annoscr --screen
    - **Shortcut**: press your chosen combination, for example `Ctrl+Alt+A`.
 3. Click **Add**.
 
-Pressing the shortcut launches Annoscr, which immediately captures through the desktop portal (it may ask which screen or window to capture). Cancelling the capture exits without leaving a window behind. To use the **Print** key itself, first clear GNOME's built-in screenshot binding under **Settings > Keyboard > Keyboard Shortcuts > Screenshots**, since it claims that key by default.
+Pressing the shortcut launches Annoscr, which immediately captures through the desktop portal (it may ask which screen or window to capture). Cancelling the capture exits without opening a window. To use the **Print** key itself, first clear GNOME's built-in screenshot binding under **Settings > Keyboard > Keyboard Shortcuts > Screenshots**, since that key is bound to it by default.
 
 ## Roadmap
 
 Annoscr is in active development. Planned work:
 
 - **Paste image as a canvas item**: paste an image as a resizable, movable annotation on the canvas, rather than replacing the whole document, so multiple screenshots can be arranged side by side (e.g. for before/after comparisons) and annotated together.
-- **Scale image**: scale the whole image to new dimensions, typically to shrink an oversized screenshot, with its annotations scaling along so they stay editable and sharp at the new size.
+- **Scale image**: scale the whole image to new dimensions, typically to shrink an oversized screenshot, with its annotations scaled by the same factor so they stay editable and sharp at the new size.
 - **Select annotations by type**: choose all pen strokes, all arrows, all text, and so on from the selection menu, adding each type to the current selection, so a whole class of annotations can be restyled, moved, or deleted at once.
 
 ## Contributing

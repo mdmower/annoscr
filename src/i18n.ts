@@ -30,10 +30,10 @@ export function _(msgid: string): string {
   return Gettext.gettext(msgid);
 }
 
-// Translate a format string carrying a single `%d`, then substitute `n`. Keeps
-// the number out of the msgid so translators get a clean "Group %d" to render
-// per their locale (and can move the placeholder). Only the first `%d` is
-// replaced — all current call sites pass one.
+// Translate a format string containing a single `%d`, then substitute `n`.
+// Keeps the number out of the msgid so translators get a clean "Group %d" to
+// render per their locale (and can move the placeholder). Only the first `%d`
+// is replaced — all current call sites pass one.
 export function formatN(msgid: string, n: number): string {
   return Gettext.gettext(msgid).replace('%d', String(n));
 }
@@ -42,7 +42,8 @@ export function formatN(msgid: string, n: number): string {
 // Use it for string literals defined at module load (constant tables like TOOLS
 // / SIZE_PRESETS), which are evaluated before initI18n() binds the domain;
 // translate them at the point of use with _(). xgettext extracts N_ too (it's
-// in meson's glib keyword preset), so the strings still land in the catalogue.
+// in meson's glib keyword preset), so the strings still appear in the
+// catalogue.
 export function N_(msgid: string): string {
   return msgid;
 }

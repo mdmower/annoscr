@@ -53,8 +53,9 @@ export class ToolBar {
         tooltip_text: tooltip,
         active: tool.id === this.canvas.getTool(),
       });
-      // The visible tooltip can be multi-line (the select tool's aim hints);
-      // the accessible name stays the concise "<tool> (<key>)".
+      // The visible tooltip can be multi-line (the select tool's
+      // hover-candidate hints); the accessible name stays the concise "<tool>
+      // (<key>)".
       setAccessibleLabel(btn, base);
       if (group) btn.set_group(group);
       else group = btn;
@@ -68,15 +69,16 @@ export class ToolBar {
   }
 
   selectTool(id: ToolId): void {
-    // Switching to a non-resize tool while in resize mode = "I changed my
-    // mind." Cancel any in-progress region and hide the toolbar inline
+    // Switching to a non-resize tool while in resize mode cancels the resize.
+    // Discard any in-progress region and hide the toolbar inline
     // (calling exitResizeMode here would recurse — it also calls back into
     // setActiveTool).
     if (this.canvas.getTool() === 'resize' && id !== 'resize') {
       this.canvas.cancelResize();
       this.resizeToolbar.set_visible(false);
     }
-    // Commit any in-progress text edit before switching away from the text tool.
+    // Commit any in-progress text edit before switching away from the text
+    // tool.
     this.editor.commitIfActive();
     this.setActiveTool(id);
   }
@@ -121,12 +123,12 @@ export class ToolBar {
     if (!this.canvas.hasImage()) return;
     this.editor.commitIfActive();
     // Resize needs the whole canvas (image + orphans) visible to drag the
-    // edges; a fixed zoom would leave it cramped behind scrollbars.
+    // edges; a fixed zoom could leave part of it behind scrollbars.
     this.canvas.setFitMode();
     this.canvas.setTool('resize');
     this.resizeToolbar.set_visible(true);
-    // Focus Apply so Enter applies the resize (the window's Return shortcut also
-    // applies). Otherwise the first-appended Cancel button holds focus and
+    // Focus Apply so Enter applies the resize (the window's Return shortcut
+    // also applies). Otherwise the first-appended Cancel button holds focus and
     // activates on Enter, cancelling. Tab still reaches both buttons.
     this.applyBtn.grab_focus();
   }

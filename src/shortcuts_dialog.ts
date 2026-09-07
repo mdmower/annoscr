@@ -18,13 +18,13 @@ interface Section {
   items: Shortcut[];
 }
 
-// Mirrors the bindings wired in window.ts (installShortcuts + the menu accels)
-// and, for the Recent files section, the per-thumbnail controller in
-// recent_strip.ts.
-// Kept in sync by hand — there's no single source of truth for accelerators yet.
-// Section titles + descriptions are N_-marked (this table is built at module
-// load, pre-init); presentShortcuts translates them with _() at display time.
-// Keycap names (Ctrl, Shift, …) stay literal — they mirror physical keys.
+// Mirrors the bindings installed in window.ts (installShortcuts + the menu
+// accels) and, for the Recent files section, the per-thumbnail controller in
+// recent_strip.ts. Kept in sync by hand — there's no single source of truth for
+// accelerators yet. Section titles + descriptions are N_-marked (this table is
+// built at module load, pre-init); presentShortcuts translates them with _() at
+// display time. Keycap names (Ctrl, Shift, …) stay literal — they mirror
+// physical keys.
 const SECTIONS: Section[] = [
   {
     title: N_('General'),
@@ -124,7 +124,8 @@ const SECTIONS: Section[] = [
 ];
 
 // Append one accelerator (a chord) as keycap chips joined by dim "+" labels.
-// Relies on the .annoscr-keycap CSS class installed with WINDOW_CSS (window.ts).
+// Relies on the .annoscr-keycap CSS class installed with WINDOW_CSS
+// (window.ts).
 function appendCombo(box: Gtk.Box, keys: string[]): void {
   const combo = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 4});
   keys.forEach((k, i) => {

@@ -56,8 +56,8 @@ export interface FontEntry {
 
 let cached: FontEntry[] | null = null;
 
-// The user's chosen families (Preferences), pushed in via setChosenFonts so this
-// module needs no settings import — that would close an import cycle
+// The user's chosen families (Preferences), pushed in via setChosenFonts so
+// this module needs no settings import — that would create an import cycle
 // settings → actions → font_catalogue. Empty = automatic selection.
 let chosenFonts: ReadonlyArray<string> = [];
 
@@ -105,7 +105,8 @@ function resolve(): FontEntry[] {
     for (const name of chosenFonts) {
       const family = installed.get(name);
       // The label is the bare family name: the user curated and ordered this
-      // list, so the sans/serif/mono suffix the automatic set carries is noise.
+      // list, so the sans/serif/mono suffix of the automatic set is
+      // unnecessary.
       if (family)
         entries.push({family: name, group: family.is_monospace ? 'mono' : 'sans', label: name});
     }
@@ -128,7 +129,7 @@ export function getAvailableFonts(): ReadonlyArray<FontEntry> {
   return resolve();
 }
 
-// Set the user's chosen font families (from settings) and drop the cached
+// Set the user's chosen font families (from settings) and discard the cached
 // catalogue so the next read rebuilds it. Called once at startup and again
 // whenever the set changes in Preferences.
 export function setChosenFonts(families: ReadonlyArray<string>): void {

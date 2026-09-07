@@ -64,8 +64,9 @@ import {labelFromTooltip} from './a11y.js';
 import {_} from './i18n.js';
 
 // After an autoclose export we close the window but keep the process alive this
-// long, so the just-sent notification's async D-Bus delivery flushes before the
-// app exits. The window is already gone, so the app looks closed meanwhile.
+// long, so the just-sent notification's async D-Bus delivery completes before
+// the app exits. The window is already destroyed, so the app appears closed
+// meanwhile.
 const NOTIFY_GRACE_MS = 1000;
 
 // How long a cold-relaunch paste waits for the clipboard to advertise content
@@ -92,12 +93,13 @@ export const AnnoscrWindow = GObject.registerClass(
     private saveButton: Gtk.Button;
     private copyButton: Gtk.Button;
 
-    // Path of the annotation file currently being edited (set on open or save of
-    // a .annoscr), so a re-save offers the same name/folder. Cleared whenever a
-    // plain image replaces the canvas (open/blank/paste/drop/screenshot), since
-    // that's no longer "this document".
+    // Path of the annotation file currently being edited (set on open or save
+    // of a .annoscr), so a re-save offers the same name/folder. Cleared
+    // whenever a plain image replaces the canvas
+    // (open/blank/paste/drop/screenshot), since that's no longer "this
+    // document".
     private currentDocPath: string | null = null;
-    // The collaborators the window builds and wires together. Each owns one
+    // The collaborators the window builds and connects. Each owns one
     // region of the shell: the dockable style-picker bar, the scrolled view
     // plus bottom zoom bar, and the tool selector plus resize toolbar.
     private styleBar: StyleBar;
@@ -174,17 +176,18 @@ export const AnnoscrWindow = GObject.registerClass(
       labelFromTooltip(this.copyButton);
       header.pack_start(this.copyButton);
 
-      // Primary menu — packed first so it lands at the right edge, next to the
-      // window controls (the standard GNOME spot).
+      // Primary menu — packed first so it is placed at the right edge, next to
+      // the window controls (the standard GNOME position).
       const menu = new Gio.Menu();
-      // Always-dialog image export — the escape hatch for picking a one-off
-      // location when "save without choosing a location" makes the header Save
-      // button (and Ctrl+S) write silently to the default folder.
+      // Always-dialog image export — the way to pick a one-off location when
+      // "save without choosing a location" makes the header Save button (and
+      // Ctrl+S) write silently to the default folder.
       const imageSection = new Gio.Menu();
       imageSection.append(_('Save image as…'), 'win.saveas');
       menu.append_section(null, imageSection);
       // Annotation-file open/save: a reopenable document (image + editable
-      // actions), distinct from the prominent PNG/JPEG export on the header bar.
+      // actions), distinct from the prominent PNG/JPEG export on the header
+      // bar.
       const fileSection = new Gio.Menu();
       fileSection.append(_('Open annotation file…'), 'win.opendoc');
       fileSection.append(_('Save annotation file…'), 'win.savedoc');
@@ -202,8 +205,9 @@ export const AnnoscrWindow = GObject.registerClass(
       labelFromTooltip(menuButton);
       header.pack_end(menuButton);
 
-      // pack_end stacks right-to-left in source order, so to land the buttons
-      // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize first.
+      // pack_end stacks right-to-left in source order, so to order the buttons
+      // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize
+      // first.
       const resizeButton = new Gtk.Button({
         icon_name: 'view-fullscreen-symbolic',
         tooltip_text: _('Resize canvas… (Ctrl+E)'),
@@ -246,16 +250,18 @@ export const AnnoscrWindow = GObject.registerClass(
           editTarget?
         ) => {
           // Shape text: write the (possibly empty) markup + style onto the box
-          // shape at the target index, keeping the shape selected so it stays in
-          // hand. Empty markup clears the text but keeps the shape.
+          // shape at the target index, keeping the shape selected so it can be
+          // edited further. Empty markup clears the text but keeps the shape.
           if (editTarget) {
             const shape = this.canvas.getActionAt(editTarget.index);
             if (shape) {
-              // TextEditorStyle and the shape's TextStyle carry identical fields.
+              // TextEditorStyle and the shape's TextStyle have identical
+              // fields.
               this.canvas.replaceAction(editTarget.index, withShapeText(shape, markup, style));
               this.canvas.selectIndex(editTarget.index);
-              // Remember this style as the shape tool's seed for the next shape
-              // (empty markup = text cleared, so there's nothing to remember).
+              // Remember this style as the shape tool's initial text style for
+              // the next shape (empty markup = text cleared, so there's nothing
+              // to remember).
               if (markup) this.canvas.rememberShapeTextStyle(editTarget.index, style);
             } else {
               this.canvas.clearEditing();
@@ -264,7 +270,7 @@ export const AnnoscrWindow = GObject.registerClass(
           }
           // The editor is the source of truth for style + size during an
           // edit; pickers update style via refreshStyle and the corner grip
-          // updates editorSize — both land here at commit.
+          // updates editorSize — both arrive here at commit.
           const action = makeTextAction(
             ix,
             iy,
@@ -302,9 +308,9 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.canvas.setTextEditRequestHandler(
         (ix: number, iy: number, wx: number, wy: number, options?: TextEditRequestOptions) => {
-          // Click on canvas with text tool active (or double-click with select tool):
-          // commit any prior edit, then begin a new one. Pass-through options
-          // carry markup + (replaceIndex | shapeIndex) for re-edit.
+          // Click on canvas with text tool active (or double-click with select
+          // tool): commit any prior edit, then begin a new one. Pass-through
+          // options hold markup + (replaceIndex | shapeIndex) for re-edit.
           const wasActive = this.editor.isActive();
           this.editor.commitIfActive();
           // Shape text: the canvas supplies the box geometry + the shape's text
@@ -398,8 +404,8 @@ export const AnnoscrWindow = GObject.registerClass(
         (message) => this.showToast(message)
       );
 
-      // The strip it reveals is directly below, and the status bar already holds
-      // the other view controls.
+      // The strip it reveals is directly below, and the status bar already
+      // holds the other view controls.
       const statusBar = this.zoom.getStatusBar();
       this.zoom.setStatusCenterWidget(this.buildRecentToggle());
 
@@ -446,7 +452,7 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.restoreToolStyles();
       this.applyUndoMemory();
-      // Files deleted since the last session are dropped once, here.
+      // Files deleted since the last session are removed once, here.
       pruneMissingRecentFiles();
       this.applyRecentPreference();
       this.zoom.refresh();
@@ -479,8 +485,8 @@ export const AnnoscrWindow = GObject.registerClass(
       return this.recentToggle;
     }
 
-    // Switching the preference off also clears the list: having asked Annoscr to
-    // stop remembering, the user shouldn't be left with the remembered paths
+    // Switching the preference off also clears the list: having asked Annoscr
+    // to stop remembering, the user shouldn't be left with the remembered paths
     // still on disk. Deliberately unconfirmed — the subtitle is what warns.
     private onRecentPreferenceChanged(): void {
       if (!getSettings().rememberRecentFiles) {
@@ -490,8 +496,8 @@ export const AnnoscrWindow = GObject.registerClass(
       this.applyRecentPreference();
     }
 
-    // The preference gates the whole feature (strip and toggle both go away);
-    // the toggle only controls whether the strip is expanded.
+    // The preference gates the whole feature (strip and toggle are both
+    // hidden); the toggle only controls whether the strip is expanded.
     private applyRecentPreference(): void {
       const enabled = getSettings().rememberRecentFiles;
       const shown = enabled && isStripVisible();
@@ -501,7 +507,7 @@ export const AnnoscrWindow = GObject.registerClass(
       if (shown) this.recentStrip.refresh();
     }
 
-    // Screenshots arrive here too: the portal hands back a file:// URI, so they
+    // Screenshots arrive here too: the portal returns a file:// URI, so they
     // have a path like any other open.
     private recordOpened(file: Gio.File, kind: RecentKind): void {
       if (!getSettings().rememberRecentFiles) return;
@@ -525,7 +531,8 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     // Reopen through the same guarded entry point the file manager and command
-    // line use, so the unsaved-changes prompt and the image/document split apply.
+    // line use, so the unsaved-changes prompt and the image/document dispatch
+    // apply.
     private openRecent(entry: RecentEntry): void {
       const file = Gio.File.new_for_path(entry.path);
       if (!file.query_exists(null)) {
@@ -537,7 +544,8 @@ export const AnnoscrWindow = GObject.registerClass(
       this.openFileChecked(file);
     }
 
-    // Restore per-tool styles saved in a previous session, if the user opted in.
+    // Restore per-tool styles saved in a previous session, if the user opted
+    // in.
     private restoreToolStyles(): void {
       const s = getSettings();
       if (s.rememberToolStyles && s.toolStyles) this.canvas.importToolStyles(s.toolStyles);
@@ -579,8 +587,8 @@ export const AnnoscrWindow = GObject.registerClass(
       this.canvas.setUndoMemoryBudget(undoMemoryBytes(getSettings().undoMemory));
     }
 
-    // Persist per-tool styles on the way out, if the user opted in. Called from
-    // the close guard, the choke point every quit path passes through.
+    // Persist per-tool styles on close, if the user opted in. Called from the
+    // close guard, which every quit path passes through.
     private flushSettings(): void {
       const partial: Partial<AnnoscrSettings> = {};
       if (getSettings().rememberToolStyles) {
@@ -714,7 +722,8 @@ export const AnnoscrWindow = GObject.registerClass(
           const file = dialog.open_finish(result);
           if (file) this.openFile(file);
         } catch (e) {
-          // Cancellation surfaces as a Gtk DialogError; ignore those and log the rest.
+          // Cancellation is reported as a Gtk DialogError; ignore those and log
+          // the rest.
           if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
             console.warn('open_finish failed', e);
           }
@@ -737,7 +746,7 @@ export const AnnoscrWindow = GObject.registerClass(
       );
     }
 
-    // Entry point for files handed in from outside (file manager "Open With",
+    // Entry point for files passed in from outside (file manager "Open With",
     // command-line argument). Routes a .annoscr to the document opener and any
     // other file to the image loader, guarding an unsaved canvas first.
     openFileChecked(file: Gio.File): void {
@@ -757,11 +766,11 @@ export const AnnoscrWindow = GObject.registerClass(
       return name !== null && isDocumentName(name);
     }
 
-    // abandonOnCancel is set when this window was created solely to host a fresh
-    // `annoscr --screenshot` launch (no instance was already running). In that
-    // case a cancelled or failed capture closes the never-shown window rather
-    // than leaving an empty welcome window behind; when Annoscr was already
-    // running, a cancel keeps the window and shows a toast instead.
+    // abandonOnCancel is set when this window was created solely to host a
+    // fresh `annoscr --screenshot` launch (no instance was already running). In
+    // that case a cancelled or failed capture closes the never-shown window
+    // rather than leaving an empty welcome window behind; when Annoscr was
+    // already running, a cancel keeps the window and shows a toast instead.
     captureScreenshot(abandonOnCancel = false): void {
       // Unmap the window first so Annoscr isn't in the shot when the user picks
       // a screen or full-screen region. The short delay gives the compositor
@@ -771,8 +780,8 @@ export const AnnoscrWindow = GObject.registerClass(
         takeScreenshot()
           .then((uri) => {
             if (!uri && abandonOnCancel) {
-              // Fresh `--screenshot` launch with nothing captured: tear the
-              // window down so the app exits. destroy() (not close()) is
+              // New `--screenshot` launch with nothing captured: destroy the
+              // window so the app exits. destroy() (not close()) is
               // required since gtk_window_close() no-ops on a window that was
               // never realized, and this one stayed hidden for the capture, so
               // close() would leave it registered and the process would hang.
@@ -788,18 +797,18 @@ export const AnnoscrWindow = GObject.registerClass(
             }
           })
           .catch((e: unknown) => {
-            // A user cancel and a portal failure both land here (the portal
+            // A user cancel and a portal failure both arrive here (the portal
             // reports them the same way).
             if (abandonOnCancel) {
-              // Fresh `--screenshot` launch: just go away (see the destroy()
-              // note above). Cancelling is routine, so this names the cause in
-              // one line instead of reading as a failure.
+              // New `--screenshot` launch: exit (see the destroy() note above).
+              // Cancelling is routine, so this logs the cause in one line
+              // instead of as an error.
               console.log(`screenshot capture did not complete: ${causeOf(e)}; exiting`);
               this.destroy();
               return;
             }
             // Log the cause so a genuine failure is diagnosable even though the
-            // toast reads as a cancel.
+            // toast says cancelled.
             console.log(`takeScreenshot failed: ${causeOf(e)}`);
             this.set_visible(true);
             this.present();
@@ -816,7 +825,7 @@ export const AnnoscrWindow = GObject.registerClass(
       } catch (e) {
         // Covers both load/decode failures and I/O errors (missing file,
         // permission denied), so the message stays general rather than always
-        // blaming the file format.
+        // citing the file format.
         console.log(`openFile failed: ${causeOf(e)}`);
         const name = file.get_basename() ?? file.get_uri();
         this.showToast(_('Could not open "%s"').replace('%s', name));
@@ -824,7 +833,8 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private setImage(surface: Cairo.ImageSurface): void {
-      // Discard any in-progress text edit or resize — they belonged to the old image.
+      // Discard any in-progress text edit or resize — they belonged to the old
+      // image.
       this.editor.cancel();
       if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
       // A plain image isn't tied to any annotation file.
@@ -881,7 +891,7 @@ export const AnnoscrWindow = GObject.registerClass(
     // the user works elsewhere is invisible, and the next canvas click would
     // pick a color instead of doing what the tool says. Presses inside the
     // scroller - the canvas, its scrollbars, the text editor overlaid on it -
-    // keep the mode: they're aiming, scrolling, or editing in place.
+    // keep the mode: they're targeting a pixel, scrolling, or editing in place.
     private installColorSampleCancel(): void {
       const canvasArea = this.zoom.getScrolled();
       const press = new Gtk.GestureClick();
@@ -890,7 +900,8 @@ export const AnnoscrWindow = GObject.registerClass(
       press.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
       press.connect('pressed', (gesture, _n, x, y) => {
         // Observe only: denying the sequence leaves the pressed widget its
-        // click (a claim in the capture phase would cancel every gesture below).
+        // click (a claim in the capture phase would cancel every gesture
+        // below).
         gesture.set_state(Gtk.EventSequenceState.DENIED);
         if (!this.canvas.isColorSampling()) return;
         const target = this.pick(x, y, Gtk.PickFlags.DEFAULT);
@@ -906,12 +917,13 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>o', () => this.openImageDialog());
       this.bindShortcut(controller, '<Control><Shift>s', () => this.captureScreenshot());
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
-      // Add files to the recent strip without opening any — the keyboard twin
-      // of dropping them on it, and Insert to the strip's Delete. App-wide
+      // Add files to the recent strip without opening any — the keyboard
+      // equivalent of dropping them on it, and Insert to the strip's Delete.
+      // App-wide
       // rather than scoped to a focused thumbnail because it acts on the list
       // as a whole, so it has to work while the strip is empty or collapsed.
-      // Two gates: the preference (with the feature off there's no list to add
-      // to), and the text editor, which keeps Insert for its own overwrite
+      // Two conditions: the preference (with the feature off there's no list to
+      // add to), and the text editor, which keeps Insert for its own overwrite
       // toggle in both standalone and shape-text edits.
       this.bindShortcut(controller, 'Insert', () => {
         if (this.editor.isActive() || !getSettings().rememberRecentFiles) return false;
@@ -922,7 +934,7 @@ export const AnnoscrWindow = GObject.registerClass(
       // Undo/redo are disabled while resize mode is active: a pending region
       // is transient state that hasn't been committed, and rolling history
       // out from under it would be confusing (the resize would silently
-      // target whatever surface the undo landed on).
+      // target whatever surface the undo produced).
       //
       // They're also gated while the text editor is open: the focused TextView
       // consumes Ctrl+Z for its own buffer undo, but once that stack is empty
@@ -946,9 +958,9 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>s', () => {
         this.saveImage();
       });
-      // Ctrl+C must not steal the editor's text-copy shortcut when the editor
-      // is open. The TextView's built-in handler normally consumes the event
-      // before it bubbles here; this is a belt-and-suspenders gate.
+      // Ctrl+C must not override the editor's text-copy shortcut when the
+      // editor is open. The TextView's built-in handler normally consumes the
+      // event before it bubbles here; this is a redundant guard.
       this.bindShortcut(controller, '<Control>c', () => {
         if (this.editor.isActive()) return false;
         if (this.canvas.hasImage()) this.copyImageToClipboard();
@@ -972,8 +984,8 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>minus', zoomOut);
       this.bindShortcut(controller, '<Control>KP_Subtract', zoomOut);
       // Whole-canvas rotate (Ctrl+R clockwise, Ctrl+Shift+R counter-clockwise)
-      // and resize (Ctrl+E) — the keyboard twins of the header buttons. Gated
-      // while the text editor is open so the chords stay with the focused
+      // and resize (Ctrl+E) — the keyboard equivalents of the header buttons.
+      // Gated while the text editor is open so the chords stay with the focused
       // TextView mid-edit.
       this.bindShortcut(controller, '<Control>r', () => {
         if (this.editor.isActive()) return false;
@@ -992,21 +1004,22 @@ export const AnnoscrWindow = GObject.registerClass(
       });
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());
       this.bindShortcut(controller, 'BackSpace', () => this.canvas.deleteSelected());
-      // Select all annotations (select tool only; falls through otherwise so the
-      // editor keeps Ctrl+A as select-all-text).
+      // Select all annotations (select tool only; falls through otherwise so
+      // the editor keeps Ctrl+A as select-all-text).
       this.bindShortcut(controller, '<Control>a', () => {
         if (this.editor.isActive()) return false;
         return this.canvas.selectAll();
       });
-      // Duplicate the selection. Guarded so the chord falls through when nothing
-      // is selected (or the editor is open) rather than swallowing the event.
+      // Duplicate the selection. Guarded so the chord falls through when
+      // nothing is selected (or the editor is open) rather than consuming the
+      // event.
       this.bindShortcut(controller, '<Control>d', () => {
         if (this.editor.isActive()) return false;
         return this.canvas.cloneSelected();
       });
       // Start a new stamp group: with the number tool, bump the placement group
-      // so the next stamp restarts at 1; with the select tool, move the selected
-      // stamps into a fresh group. Falls through otherwise.
+      // so the next stamp restarts at 1; with the select tool, move the
+      // selected stamps into a fresh group. Falls through otherwise.
       this.bindShortcut(controller, '<Control>g', () => {
         if (this.editor.isActive()) return false;
         const tool = this.canvas.getTool();
@@ -1017,12 +1030,12 @@ export const AnnoscrWindow = GObject.registerClass(
         if (tool === 'select') return this.canvas.reassignSelectedGroup('new');
         return false;
       });
-      // Shift+Space toggles the aimed item in/out of the selection — the
-      // keyboard twin of Shift+Click. Shift avoids bare Space activating a
-      // focused tool button; the editor captures it while typing.
+      // Shift+Space toggles the hover candidate in/out of the selection — the
+      // keyboard equivalent of Shift+Click. Shift avoids bare Space activating
+      // a focused tool button; the editor captures it while typing.
       this.bindShortcut(controller, '<Shift>space', () => this.canvas.toggleHoverCandidate());
       // Enter confirms resize mode, or — with the select tool — opens the
-      // editor on a lone selected text annotation (the keyboard twin of
+      // editor on a lone selected text annotation (the keyboard equivalent of
       // double-clicking it). Escape only acts in resize/select. The text editor
       // consumes both in its CAPTURE-phase controller before they reach here,
       // so we never conflict during editing.
@@ -1060,9 +1073,9 @@ export const AnnoscrWindow = GObject.registerClass(
     // accelerators, which can't be trusted for shifted punctuation — Shift+[
     // delivers braceleft, not bracketleft):
     //
-    //   Aim:  , / . (and their < / > shifted twins) dig the select-tool hover
-    //         candidate down/up through overlapping items — the precise,
-    //         one-step alternative to Alt+scroll. Fired regardless of Shift so
+    //   Dig:  , / . (and their shifted < / > keyvals) move the select-tool
+    //         hover candidate down/up through overlapping items — the precise,
+    //         one-step alternative to Alt+scroll. Handled regardless of Shift so
     //         it works mid-gesture (e.g. while holding Shift to toggle).
     //
     //   Z-order:  Ctrl+[ / Ctrl+] lower/raise the selection one slot;
@@ -1072,7 +1085,7 @@ export const AnnoscrWindow = GObject.registerClass(
     // Both target methods return false when they don't act (no candidate /
     // empty selection / already at the end), so a stray key still falls
     // through. The focused text editor consumes these in its CAPTURE-phase
-    // controller while typing; isActive() is a belt-and-suspenders gate.
+    // controller while typing; isActive() is a redundant guard.
     private installStackKeys(): void {
       const keys = new Gtk.EventControllerKey();
       keys.connect('key-pressed', (_c, keyval, _keycode, state) => {
@@ -1080,7 +1093,8 @@ export const AnnoscrWindow = GObject.registerClass(
         if ((state & Gdk.ModifierType.CONTROL_MASK) !== 0) {
           const toEnd = (state & Gdk.ModifierType.SHIFT_MASK) !== 0;
           // Match both the unshifted and shifted keyvals of each bracket so the
-          // Ctrl+Shift chord works whether the layout reports bracket* or brace*.
+          // Ctrl+Shift chord works whether the layout reports bracket* or
+          // brace*.
           if (keyval === Gdk.KEY_bracketleft || keyval === Gdk.KEY_braceleft) {
             return this.canvas.reorderSelected(toEnd ? 'back' : 'lower');
           }
@@ -1125,7 +1139,8 @@ export const AnnoscrWindow = GObject.registerClass(
       else this.saveImageDialog();
     }
 
-    // Dialog-free save: default folder + format, auto-generated timestamped name.
+    // Dialog-free save: default folder + format, auto-generated timestamped
+    // name.
     private saveImageSilent(): void {
       this.editor.commitIfActive();
       const surface = this.canvas.exportSnapshot();
@@ -1145,8 +1160,9 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     // Shared post-save handling for both the dialog and silent paths. On
-    // autoclose the window is going away, so feedback is a system notification
-    // (a toast would die with the window). Clicking it reopens the saved file;
+    // autoclose the window is closing, so feedback is a system notification
+    // (a toast would be destroyed with the window). Clicking it reopens the
+    // saved file;
     // the "Show in Files" button is offered only for a silent save, since a
     // dialog save already let the user pick (and see) the folder.
     private onImageSaved(path: string, silent: boolean, surface: Cairo.ImageSurface): void {
@@ -1169,8 +1185,9 @@ export const AnnoscrWindow = GObject.registerClass(
 
     // Post-autoclose feedback. A notification is owned by the session, so it
     // outlives the closing window. The image is shown as the icon — a square
-    // letterboxed thumbnail (as the screenshot portal shows one); a raw FileIcon
-    // would be distorted by GNOME's square icon slot just like a copy's bytes.
+    // letterboxed thumbnail (as the screenshot portal shows one); a raw
+    // FileIcon would be distorted by GNOME's square icon slot just like a
+    // copy's bytes.
     private sendExportNotification(opts: {
       title: string;
       body?: string;
@@ -1207,8 +1224,9 @@ export const AnnoscrWindow = GObject.registerClass(
       app.send_notification('annoscr-export', notification);
     }
 
-    // Close the window after an autoclose export, holding the process briefly so
-    // the notification's async delivery completes before the app exits.
+    // Close the window after an autoclose export, keeping the process alive
+    // briefly so the notification's async delivery completes before the app
+    // exits.
     private closeAfterExport(skipConfirm: boolean): void {
       const app = this.get_application();
       if (skipConfirm) this.skipCloseConfirm = true;
@@ -1286,17 +1304,18 @@ export const AnnoscrWindow = GObject.registerClass(
       });
     }
 
-    // Save the canvas as a reopenable annotation file (image + editable actions).
-    // Counts as "saved" for the unsaved-changes guard, same as an image export.
+    // Save the canvas as a reopenable annotation file (image + editable
+    // actions). Counts as "saved" for the unsaved-changes guard, same as an
+    // image export.
     private saveDocumentDialog(): void {
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
 
       const settings = getSettings();
       const dialog = new Gtk.FileDialog({title: _('Save annotation file'), modal: true});
-      // Re-saving an opened/saved document offers its own name + folder; renaming
-      // is how the user makes a copy. Otherwise fall back to a fresh timestamped
-      // name in the configured default folder.
+      // Re-saving an opened/saved document offers its own name + folder;
+      // renaming is how the user makes a copy. Otherwise fall back to a fresh
+      // timestamped name in the configured default folder.
       const docFolder = this.currentDocPath
         ? Gio.File.new_for_path(this.currentDocPath).get_parent()
         : null;
@@ -1342,8 +1361,9 @@ export const AnnoscrWindow = GObject.registerClass(
             null
           );
           this.canvas.markClean();
-          // Track the saved path so a later re-save offers it (Save-As behavior:
-          // saving to a new name switches the working document to that name).
+          // Track the saved path so a later re-save offers it (Save-As
+          // behavior: saving to a new name switches the working document to
+          // that name).
           this.currentDocPath = path;
           this.recordSaved(path, 'document');
         } catch (e) {
@@ -1392,7 +1412,7 @@ export const AnnoscrWindow = GObject.registerClass(
         this.currentDocPath = file.get_path();
         this.recordOpened(file, 'document');
       } catch (e) {
-        // parseDocument's DocumentError and any I/O error both land here; the
+        // parseDocument's DocumentError and any I/O error both arrive here; the
         // specific cause is logged, the user sees one general message.
         console.log(`openDocumentFile failed: ${causeOf(e)}`);
         this.showToast(_('Could not open annotation file'));
@@ -1409,7 +1429,7 @@ export const AnnoscrWindow = GObject.registerClass(
         if (getSettings().closeAfterImageCopy) {
           // Clicking the notification reopens the copied image from the
           // clipboard. A copy doesn't mark the canvas saved, so skip the
-          // discard prompt on the way out (the prefs info text warns of this).
+          // discard prompt on close (the prefs info text warns of this).
           this.sendExportNotification({
             title: _('Image copied to clipboard'),
             pasteOnClick: true,
@@ -1483,9 +1503,9 @@ export const AnnoscrWindow = GObject.registerClass(
         if (!stream) return;
 
         // Decoding must be async: the local clipboard delivers bytes via a
-        // pipe pumped by the main loop. A synchronous Pixbuf.new_from_stream
-        // would block the loop waiting for bytes that never arrive — the
-        // classic same-process clipboard deadlock.
+        // pipe serviced by the main loop. A synchronous Pixbuf.new_from_stream
+        // would block the loop waiting for bytes that never arrive — a
+        // same-process clipboard deadlock.
         GdkPixbuf.Pixbuf.new_from_stream_async(stream, null, (_pbSrc, pbResult) => {
           try {
             const pixbuf = GdkPixbuf.Pixbuf.new_from_stream_finish(pbResult);

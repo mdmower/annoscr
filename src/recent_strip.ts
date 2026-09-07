@@ -15,7 +15,7 @@ import {IMAGE_MIME_TYPES} from './window_constants.js';
 
 // A horizontally scrolling list of recently opened files. Gtk.ListView recycles
 // item widgets, so only visible thumbnails are ever realized and a long list
-// costs a handful of widgets rather than hundreds.
+// costs a few widgets rather than hundreds.
 
 // Thumbnail box in widget px; the strip's height follows from it.
 const THUMB_W = 192;
@@ -23,24 +23,23 @@ const THUMB_H = 108;
 // Placeholder icon size for a file that can't be previewed.
 const PLACEHOLDER_ICON_PX = 48;
 
-// Above this size an image isn't worth its preview and gets a placeholder; it
-// scales during its decode, so the limit is generous and a screenshot never
-// reaches it.
+// Above this size an image gets a placeholder instead of a preview; it scales
+// during its decode, so the limit is large and a screenshot never reaches it.
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
 // Documents written before the container format parse whole on the main loop to
-// reach their preview, so they keep a tighter limit. Container documents need no
-// limit: their preview costs the same few reads at any size.
+// reach their preview, so they keep a tighter limit. Container documents need
+// no limit: their preview costs the same few reads at any size.
 const MAX_LEGACY_DOCUMENT_BYTES = 32 * 1024 * 1024;
 
 // An intact file that is simply too big to preview — distinct from a decode
 // failure so each gets its own placeholder icon.
 class OversizeError extends Error {}
 
-// Boxes a RecentEntry so it can live in a Gio.ListStore.
+// Boxes a RecentEntry so it can be stored in a Gio.ListStore.
 const RecentItem = GObject.registerClass(
   {GTypeName: 'AnnoscrRecentItem'},
   class extends GObject.Object {
-    // Assigned right after construction: GObject construction can't carry a
+    // Assigned right after construction: GObject construction can't take a
     // plain JS value.
     entry: RecentEntry = {path: '', kind: 'image'};
   }
@@ -122,7 +121,7 @@ function pixbufAtScale(
           const pixbuf = GdkPixbuf.Pixbuf.new_from_stream_finish(res);
           if (!pixbuf) throw new Error('decode produced no pixbuf');
           // The new_from_stream family ignores EXIF orientation, so apply it
-          // here as the image loader does — otherwise a rotated JPEG sits
+          // here as the image loader does — otherwise a rotated JPEG appears
           // sideways in the strip but opens upright on the canvas.
           resolve(pixbuf.apply_embedded_orientation() ?? pixbuf);
         } catch (e) {
@@ -135,7 +134,8 @@ function pixbufAtScale(
 
 // The preview payload of a container document, or null when the file predates
 // the container. Only the chunk headers and the preview itself are read, where
-// parseDocument would decode the full-resolution image and rebuild every action.
+// parseDocument would decode the full-resolution image and rebuild every
+// action.
 async function containerPreviewBytes(
   file: Gio.File,
   cancellable: Gio.Cancellable
@@ -159,7 +159,7 @@ async function containerPreviewBytes(
 
 // The same preview out of a pre-container document: a JSON envelope with the
 // image base64-encoded inside it, so the whole file parses to reach it. Those
-// carry no composited preview, so one built on a blank fill shows as a flat
+// have no composited preview, so one built on a blank fill shows as a flat
 // rectangle.
 async function legacyPreviewBytes(
   file: Gio.File,
@@ -219,7 +219,7 @@ export class RecentStrip {
   // Whether focus was in the strip when the context menu was opened — i.e.
   // where focus returns when the menu closes. The menu itself takes focus, so
   // this can't be read at activation time; a menu-driven Forget uses it to
-  // decide whether focus belongs on a surviving thumbnail.
+  // decide whether focus should move to a remaining thumbnail.
   private menuFocusInStrip = false;
 
   constructor(onOpen: (entry: RecentEntry) => void, onNotify: (message: string) => void) {
@@ -236,7 +236,8 @@ export class RecentStrip {
       factory.connect('teardown', (_f, obj: GObject.Object) => {
         const listItem = obj as Gtk.ListItem;
         this.cancelLoad(listItem);
-        // A popover must be dismissed and unparented before its parent goes.
+        // A popover must be dismissed and unparented before its parent is
+        // destroyed.
         const menu = this.items.get(listItem)?.menu;
         menu?.popdown();
         menu?.unparent();
@@ -274,8 +275,8 @@ export class RecentStrip {
     this.stack.add_named(scroller, 'list');
     setAccessibleLabel(scroller, _('Recent files'));
 
-    // Backs the per-thumbnail context menu; Show in Files reuses the
-    // application's own action, so only Forget is local.
+    // The action group for the per-thumbnail context menu; Show in Files reuses
+    // the application's own action, so only Forget is local.
     const forget = new Gio.SimpleAction({
       name: 'forget',
       parameter_type: GLib.VariantType.new('s'),
@@ -291,12 +292,12 @@ export class RecentStrip {
   }
 
   // Files dropped on the strip are listed, not opened: this is how a set of
-  // screenshots gets staged for annotating one at a time, without disturbing
+  // screenshots is queued for annotating one at a time, without disturbing
   // whatever is on the canvas. The window's own drop target still opens a file
-  // dropped anywhere else; this one sits deeper in the widget tree, so it takes
-  // the drop before that one sees it.
+  // dropped anywhere else; this one is deeper in the widget tree, so it
+  // receives the drop before that one.
   private installDropTarget(): void {
-    // GdkFileList rather than GFile, which carries only the first of a
+    // GdkFileList rather than GFile, which receives only the first of a
     // multi-file drag. A single file arrives as a one-entry list, and a source
     // offering a plain GFile still advertises text/uri-list, which GDK
     // deserializes to this - so one type covers every file drag.
@@ -322,12 +323,12 @@ export class RecentStrip {
     return true;
   }
 
-  // List files without opening any - the tail shared by the two ways files are
-  // staged, a drop on the strip and the Add dialog. Reports whether the list
-  // actually grew, which the caller uses to reveal a collapsed strip.
+  // List files without opening any - the final step shared by the two ways
+  // files are added, a drop on the strip and the Add dialog. Reports whether
+  // the list actually grew, which the caller uses to reveal a collapsed strip.
   private addFiles(files: Gio.File[]): boolean {
-    // An offer of nothing is silently nothing; the toasts below are for files
-    // that were genuinely rejected.
+    // An empty list produces no message; the toasts below are for files that
+    // were rejected.
     if (files.length === 0) return false;
 
     const entries: RecentEntry[] = [];
@@ -335,8 +336,8 @@ export class RecentStrip {
       const entry = listableEntry(file);
       if (entry) entries.push(entry);
     }
-    // Both dead ends are otherwise invisible: nothing opens and the strip
-    // doesn't move, so without a word the request reads as having been ignored.
+    // Both failures are otherwise invisible: nothing opens and the strip
+    // doesn't change, so without a message the request appears ignored.
     if (entries.length === 0) {
       this.onNotify(_('Only images and annotation files can be added'));
       return false;
@@ -353,7 +354,7 @@ export class RecentStrip {
   // The keyboard counterpart to dropping files on the strip: pick several at
   // once and list them without opening any. `onAdded` runs only when the list
   // grew, so the window can reveal a collapsed strip rather than leaving the
-  // result where nobody can see it. Returns whether the dialog opened at all.
+  // result hidden. Returns whether the dialog opened at all.
   presentAddDialog(onAdded: () => void): boolean {
     const root = this.stack.get_root();
     if (!(root instanceof Gtk.Window)) return false;
@@ -374,7 +375,8 @@ export class RecentStrip {
       try {
         picked = dialog.open_multiple_finish(result);
       } catch (e) {
-        // Cancelling is routine and surfaces as a Gtk.DialogError; log the rest.
+        // Cancelling is routine and is reported as a Gtk.DialogError; log the
+        // rest.
         if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
           console.warn('open_multiple_finish failed', e);
         }
@@ -398,7 +400,7 @@ export class RecentStrip {
     this.stack.set_visible(visible);
   }
 
-  // Release the factory's JS callbacks while the JS context is still healthy.
+  // Release the factory's JS callbacks while the JS context is still valid.
   // Closing the window makes GTK emit unbind and teardown for every live item,
   // and those wrappers can be mid-GC-sweep by then, which GJS refuses to call
   // into (one CRITICAL per bound item).
@@ -415,21 +417,21 @@ export class RecentStrip {
     this.factoryHandlers = [];
   }
 
-  // Drop every cached thumbnail. Clearing the history shouldn't leave decoded
-  // images of those files sitting in memory for the rest of the session.
+  // Discard every cached thumbnail. Clearing the history shouldn't leave
+  // decoded images of those files in memory for the rest of the session.
   clearThumbnailCache(): void {
     this.textures.clear();
   }
 
-  // Drop one cached thumbnail so the next bind decodes afresh. Saving over an
+  // Discard one cached thumbnail so the next bind decodes again. Saving over an
   // already-listed image would otherwise keep showing its pre-annotation
   // thumbnail for the rest of the session.
   invalidateThumbnail(path: string): void {
     this.textures.delete(path);
   }
 
-  // Rebuild the model from the stored list. Cheap: the items are small boxes,
-  // and only the visible ones get widgets.
+  // Rebuild the model from the stored list. Cheap: the items are small
+  // GObject wrappers, and only the visible ones get widgets.
   refresh(): void {
     const entries = getRecentFiles();
     this.store.remove_all();
@@ -471,8 +473,8 @@ export class RecentStrip {
     menu.set_parent(button);
 
     // A GtkButton only activates on the primary button, so a secondary press
-    // reaches this gesture without also opening the image; claiming the sequence
-    // keeps it that way.
+    // reaches this gesture without also opening the image; claiming the
+    // sequence keeps it that way.
     const secondary = new Gtk.GestureClick({button: Gdk.BUTTON_SECONDARY});
     secondary.connect('pressed', (gesture, _n, x, y) => {
       gesture.set_state(Gtk.EventSequenceState.CLAIMED);
@@ -482,7 +484,7 @@ export class RecentStrip {
 
     // Keyboard counterparts to the pointer. These are LOCAL to the focused
     // thumbnail and run before the window's own controller, so Delete forgets
-    // the aimed file rather than reaching the canvas selection.
+    // the focused file rather than reaching the canvas selection.
     const itemKeys = new Gtk.ShortcutController({scope: Gtk.ShortcutScope.LOCAL});
     const bind = (keys: string, run: () => boolean): void => {
       const trigger = Gtk.ShortcutTrigger.parse_string(keys);
@@ -490,7 +492,7 @@ export class RecentStrip {
       itemKeys.add_shortcut(new Gtk.Shortcut({trigger, action: Gtk.CallbackAction.new(run)}));
     };
     // The right-click menu, on the two keys GTK uses for it elsewhere. With no
-    // pointer to aim at, it opens centered.
+    // pointer position, it opens centered.
     for (const keys of ['Menu', '<Shift>F10']) {
       bind(keys, () => {
         this.showContextMenu(listItem);
@@ -556,9 +558,9 @@ export class RecentStrip {
   }
 
   // The two menu entries as key handlers. Both report "not handled" with no
-  // bound file, so the key falls through to the window rather than being eaten
-  // by a recycled item that currently shows nothing. Delete is LOCAL to the
-  // focused thumbnail, so focus is in the strip by definition.
+  // bound file, so the key falls through to the window rather than being
+  // consumed by a recycled item that currently shows nothing. Delete is LOCAL
+  // to the focused thumbnail, so focus is in the strip by definition.
   private forgetItem(listItem: Gtk.ListItem): boolean {
     const entry = this.items.get(listItem)?.entry;
     if (!entry) return false;
@@ -572,17 +574,17 @@ export class RecentStrip {
     return this.stack.activate_action('app.show-in-files', GLib.Variant.new_string(entry.path));
   }
 
-  // Drop one entry. Nothing special-cases the image currently on the canvas:
+  // Remove one entry. Nothing special-cases the image currently on the canvas:
   // forgetting it only removes the list entry, and saving puts it back through
   // the normal save path.
   //
   // `focusStrip` says whether focus belongs in the strip afterwards. Rebuilding
-  // the model destroys the focused thumbnail, so a keyboard-driven forget hands
-  // focus to the item that took the freed slot (the new last one when the tail
-  // went) — otherwise a keyboard walk through the strip ends at the first
-  // Delete. A pointer-driven forget must not do that: pulling focus off the
-  // canvas would make a later Delete forget another file instead of deleting
-  // the canvas selection.
+  // the model destroys the focused thumbnail, so a keyboard-driven forget moves
+  // focus to the item now at the removed position (the new last one when the
+  // last entry was removed) — otherwise a keyboard walk through the strip ends
+  // at the first Delete. A pointer-driven forget must not do that: moving focus
+  // off the canvas would make a later Delete forget another file instead of
+  // deleting the canvas selection.
   private forgetEntry(path: string, focusStrip: boolean): void {
     const position = getRecentFiles().findIndex((e) => e.path === path);
     forgetRecentFile(path);
@@ -633,8 +635,8 @@ export class RecentStrip {
       .catch((e: unknown) => {
         if (cancellable.is_cancelled()) return;
         // Missing, unreadable, or oversized. The entry stays with a placeholder
-        // rather than vanishing mid-scroll; missing ones are pruned at the next
-        // launch or when clicked. Oversized gets the generic icon, not the
+        // rather than disappearing mid-scroll; missing ones are pruned at the
+        // next launch or when clicked. Oversized gets the generic icon, not the
         // broken one — nothing is wrong with it.
         console.log(`annoscr: no thumbnail for ${entry.path} (${toError(e).message})`);
         if (state.entry?.path === entry.path) {
@@ -665,7 +667,7 @@ export class RecentStrip {
     let stream: Gio.InputStream;
     if (entry.kind === 'document') {
       // Any size limit that applies belongs to the older format, so the stat
-      // happens down that branch rather than here.
+      // happens in that branch rather than here.
       stream = await documentImageStream(file, cancellable);
     } else {
       // Checked before anything is read, so an oversized file costs one stat
@@ -681,9 +683,9 @@ export class RecentStrip {
       return Gdk.Texture.new_for_pixbuf(await pixbufAtScale(stream, scaleFactor, cancellable));
     } finally {
       // GdkPixbuf's stream decoders leave the stream open, and an unclosed file
-      // stream keeps its descriptor until GC — enough binds would run the
-      // process out of descriptors. Closed without the cancellable: a cancelled
-      // decode would fail its own close and mask the cancellation.
+      // stream keeps its descriptor until GC — enough binds would exhaust
+      // the process's descriptors. Closed without the cancellable: a cancelled
+      // decode would fail its own close and hide the cancellation.
       try {
         stream.close(null);
       } catch {

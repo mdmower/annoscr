@@ -22,7 +22,7 @@ const STYLE_BAR_POSITIONS: StyleBarPosition[] = ['top', 'bottom', 'left', 'right
 const STYLE_BAR_POSITION_LABELS = [N_('Top'), N_('Bottom'), N_('Left'), N_('Right')];
 
 // Row order ↔ preset mapping for the undo-memory ComboRow. Labels are the bare
-// sizes (mirroring settings.undoMemoryBytes) — friendly names made the
+// sizes (mirroring settings.undoMemoryBytes) — descriptive names made the
 // ComboRow's collapsed value truncate.
 const UNDO_MEMORY_ORDER: UndoMemory[] = ['low', 'normal', 'high', 'unlimited'];
 const UNDO_MEMORY_LABELS = [N_('128 MiB'), N_('256 MiB'), N_('1 GiB'), N_('Unlimited')];
@@ -115,8 +115,9 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
   });
   rememberRow.connect('notify::active', () => {
     const active = rememberRow.get_active();
-    // Turning the setting off also forgets the already-saved styles, so toggling
-    // it back on starts fresh rather than restoring stale values.
+    // Turning the setting off also discards the already-saved styles, so
+    // toggling it back on starts from defaults rather than restoring stale
+    // values.
     updateSettings(
       active ? {rememberToolStyles: true} : {rememberToolStyles: false, toolStyles: undefined}
     );

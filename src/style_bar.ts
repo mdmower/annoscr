@@ -39,7 +39,7 @@ import {
 } from './actions.js';
 
 // Orange for the "mixed" marker dot. A concrete hex — Pango markup can't
-// reference theme @colors — chosen to read on both light and dark caption
+// reference theme @colors — chosen to be visible on both light and dark caption
 // backgrounds (Adwaita orange 4).
 const MIX_DOT_COLOR = '#e66100';
 
@@ -49,8 +49,9 @@ const MIX_DOT_COLOR = '#e66100';
 const DOCK_WIDTH = 240;
 
 // Cap on the font dropdown's button label, in characters (GtkLabel can cap
-// its natural width only in characters, not pixels): the strip's button hugs
-// a short family name and stops growing here for a long one. Tuned by eye.
+// its natural width only in characters, not pixels): the strip's button is as
+// narrow as a short family name and stops growing here for a long one. Tuned
+// by eye.
 const FONT_BUTTON_MAX_CHARS = 22;
 
 // A dropdown factory whose label ellipsizes. An unellipsized label's minimum
@@ -59,8 +60,8 @@ const FONT_BUTTON_MAX_CHARS = 22;
 // GtkLabel property (GTK CSS has no text-overflow), so capping the button
 // side takes a custom factory owning that label. max_width_chars caps the
 // NATURAL width too: the strip's scroller allocates children their natural
-// width, so this is what stops a long name from stretching the strip's
-// button while short names still hug.
+// width, so this is what stops a long name from widening the strip's button
+// while short names still get a button of their own width.
 function ellipsizingFactory(): Gtk.SignalListItemFactory {
   const factory = new Gtk.SignalListItemFactory();
   factory.connect('setup', (_f, obj) => {
@@ -96,9 +97,9 @@ function setCaption(label: Gtk.Label, base: string, mixed: boolean): void {
   setAccessibleLabel(label, mixed ? `${base} ${_('(mixed)')}` : base);
 }
 
-// Paint a color swatch: a checkerboard (so transparency reads as such) with the
-// color over it and a hairline border, matching the look of a stock GTK color
-// button.
+// Paint a color swatch: a checkerboard (so transparency is visible as such)
+// with the color over it and a hairline border, matching the look of a stock
+// GTK color button.
 function drawSwatch(cr: Cairo.Context, w: number, h: number, color: ColorRGBA): void {
   const cell = 5;
   cr.setSourceRGB(0.85, 0.85, 0.85);
@@ -156,7 +157,7 @@ export class StyleBar {
   private dashLabel!: Gtk.Label;
   private dashDropdown!: Gtk.DropDown;
   // Filled-arrowhead selector (arrow only): Open (stroked) vs Filled (solid
-  // triangle). A 2-row dropdown to match the Dash/Variant idiom.
+  // triangle). A 2-row dropdown to match the Dash/Variant controls.
   private filledHeadGroup!: Gtk.Box;
   private filledHeadLabel!: Gtk.Label;
   private filledHeadDropdown!: Gtk.DropDown;
@@ -165,7 +166,7 @@ export class StyleBar {
   private cornerLabel!: Gtk.Label;
   private cornerScale!: Gtk.Scale;
   // Callout-tail switch (selected rect/oval only): toggles a pointer tail
-  // fused to the box outline; the tip is dragged by its own canvas handle.
+  // joined to the box outline; the tip is dragged by its own canvas handle.
   private tailGroup!: Gtk.Box;
   private tailLabel!: Gtk.Label;
   private tailSwitch!: Gtk.Switch;
@@ -181,8 +182,8 @@ export class StyleBar {
   private variantGroup!: Gtk.Box;
   private variantLabel!: Gtk.Label;
   private variantDropdown!: Gtk.DropDown;
-  // Select-mode actions (Duplicate + z-order) behind one overflow menu, so they
-  // don't crowd the bar. Visible only when the select tool has a selection.
+  // Select-mode actions (Duplicate + z-order) in one overflow menu, so they
+  // don't take up bar space. Visible only when the select tool has a selection.
   private actionsGroup!: Gtk.Box;
   // Select-mode action (a row in the selection-actions menu): opens the box
   // editor on a lone selected rect/oval. Both refs are held so refresh can show
@@ -190,7 +191,8 @@ export class StyleBar {
   // depending on whether the shape already has any.
   private addTextBtn!: Gtk.Button;
   private addTextLabel!: Gtk.Label;
-  // Select-mode action: drops the bend from selected curved line/arrow segments.
+  // Select-mode action: removes the bend from selected curved line/arrow
+  // segments.
   // Shown only when the selection actually contains one, so a straight-segment
   // selection isn't offered a no-op.
   private straightenBtn!: Gtk.Button;
@@ -201,8 +203,8 @@ export class StyleBar {
   // Separates the two type-specific rows above from the universal ones below;
   // visible whenever either of them is.
   private typedActionsSep!: Gtk.Separator;
-  // Text-style controls — each its own inline group, self-hiding when its
-  // property doesn't apply (Text color / Font+Size for any text; Align for shape
+  // Text-style controls — each its own inline group, hidden when its property
+  // doesn't apply (Text color / Font+Size for any text; Align for shape
   // text only). The bar scrolls horizontally when the full set overflows.
   private textColorGroup!: Gtk.Box;
   private textColorLabel!: Gtk.Label;
@@ -227,8 +229,8 @@ export class StyleBar {
   // Ordered (group, separator) pairs for the first-visible-separator logic
   // in refresh().
   private styleGroupOrder: Array<{group: Gtk.Box; sep: Gtk.Separator}> = [];
-  // Guard against the programmatic set_rgba() / set_value() we do in refresh()
-  // firing change signals and looping back into the user-edit handlers.
+  // Guard against the programmatic set_rgba() / set_value() calls in refresh()
+  // emitting change signals and re-entering the user-edit handlers.
   private updatingPicker = false;
 
   constructor(
@@ -243,9 +245,9 @@ export class StyleBar {
       propagate_natural_width: false,
       propagate_natural_height: true,
       // Explicit (sets hexpand-set): the panel layout's full-width controls
-      // carry hexpand, which would otherwise propagate up through the
+      // have hexpand set, which would otherwise propagate up through the
       // scroller and make a side dock split the window's spare width with
-      // the canvas instead of holding DOCK_WIDTH.
+      // the canvas instead of staying at DOCK_WIDTH.
       hexpand: false,
     });
   }
@@ -321,7 +323,7 @@ export class StyleBar {
 
     // Vertical panel: every group is a column that starts with its separator
     // (the first-visible-separator logic in refresh() relies on the separator
-    // living inside the group), so hiding a group hides its divider too.
+    // being inside the group), so hiding a group hides its divider too.
     const makeColumn = (sep: Gtk.Separator, ...rows: Gtk.Widget[]): Gtk.Box => {
       const g = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 6});
       g.append(sep);
@@ -357,10 +359,11 @@ export class StyleBar {
       return makeColumn(sep, label, ...controls);
     };
 
-    // Selection-actions menu — Duplicate + z-order behind one overflow button so
-    // they don't crowd the bar. The keyboard shortcuts (Ctrl+D, Ctrl+[ / ] …)
-    // still work directly. Leads the bar, left of the per-property controls.
-    // The panel has room for a labeled button; the strip stays icon-only.
+    // Selection-actions menu — Duplicate + z-order in one overflow button so
+    // they don't take up bar space. The keyboard shortcuts (Ctrl+D, Ctrl+[ / ]
+    // …) still work directly. First in the bar, left of the per-property
+    // controls. The panel has room for a labeled button; the strip stays
+    // icon-only.
     const actionsSep = makeSep();
     const actionsMenu = vertical
       ? new Gtk.MenuButton({label: _('Selection actions')})
@@ -512,10 +515,11 @@ export class StyleBar {
     const fontSep = makeSep();
     this.fontModel = [...getAvailableFonts()];
     this.fontDropdown = Gtk.DropDown.new_from_strings(this.fontModel.map((f) => f.label));
-    // Popup rows keep the stock factory (moved to the list slot before the
-    // button slot is replaced): full names, and the popover may outgrow the
-    // button. The button's label ellipsizes in both layouts so a long
-    // selected family can't force the dock wider or hog the strip.
+    // Popup rows keep the stock factory (moved to the list-factory property
+    // before the button factory is replaced): full names, and the popover may
+    // be wider than the button. The button's label ellipsizes in both layouts
+    // so a long selected family can't force the dock wider or take most of the
+    // strip.
     this.fontDropdown.set_list_factory(this.fontDropdown.get_factory());
     this.fontDropdown.set_factory(ellipsizingFactory());
     this.fontDropdown.connect('notify::selected', () => this.onFontDescPicked());
@@ -603,8 +607,9 @@ export class StyleBar {
 
     // Name each control by its caption. The control's accessible name tracks
     // the caption's accessible name, so the "(mixed)" that setCaption keeps in
-    // the caption's accessible label (the dot is visual-only) reaches AT for
-    // free. (Swatches and align toggles are wired at their creation above.)
+    // the caption's accessible label (the dot is visual-only) reaches AT with
+    // no further code. (Swatches and align toggles are labelled at their
+    // creation above.)
     setLabelledBy(this.widthScale, this.widthLabel);
     setLabelledBy(this.cornerScale, this.cornerLabel);
     setLabelledBy(this.tailSwitch, this.tailLabel);
@@ -618,9 +623,10 @@ export class StyleBar {
     return styleBar;
   }
 
-  // The selection-actions overflow popover: Add/Edit text (lone rect/oval only),
-  // Duplicate, and the four z-order moves — each closing the popover after
-  // acting. A footnote flags the stamp-renumber side effect when it applies.
+  // The selection-actions overflow popover: Add/Edit text (lone rect/oval
+  // only), Duplicate, and the four z-order moves — each closing the popover
+  // after acting. A footnote notes the stamp-renumber side effect when it
+  // applies.
   private buildActionsPopover(): Gtk.Popover {
     const box = new Gtk.Box({
       orientation: Gtk.Orientation.VERTICAL,
@@ -643,14 +649,14 @@ export class StyleBar {
       box.append(btn);
       return btn;
     };
-    // Add/Edit text leads (the primary action for a shape); shown + relabeled in
-    // refreshAddTextButton, hidden for non-shape selections.
+    // Add/Edit text comes first (the primary action for a shape); shown +
+    // relabeled in refreshAddTextButton, hidden for non-shape selections.
     this.addTextLabel = new Gtk.Label({label: _('Add text'), xalign: 0, hexpand: true});
     this.addTextBtn = new Gtk.Button({child: this.addTextLabel, css_classes: ['flat']});
     this.addTextBtn.connect('clicked', () => {
       // Close the menu first, then open the editor on an idle: an autohide
       // popover restores the parent's focus widget when it pops down, which
-      // would clobber the editor's grab_focus if we opened synchronously.
+      // would override the editor's grab_focus if we opened synchronously.
       // Deferring past the popdown lets the text view keep focus so the user
       // can start typing right away.
       popover.popdown();
@@ -660,7 +666,7 @@ export class StyleBar {
       });
     });
     box.append(this.addTextBtn);
-    // Straighten follows it as the other type-specific row; shown in
+    // Straighten comes next as the other type-specific row; shown in
     // refreshTypedActions when the selection holds a curved segment.
     this.straightenBtn = row(_('Straighten'), () => this.canvas.straightenSelected());
     this.typedActionsSep = new Gtk.Separator({margin_top: 4, margin_bottom: 4});
@@ -685,7 +691,7 @@ export class StyleBar {
 
   // An alignment toggle. Passing `group` links it into the radio cluster so
   // exactly one stays active. Only the button that just became active applies
-  // (the same click deactivates a sibling, which fires too).
+  // (the same click deactivates a sibling, which also emits toggled).
   private makeAlignToggle(
     icon: string,
     tooltip: string,
@@ -733,10 +739,10 @@ export class StyleBar {
       valign: Gtk.Align.CENTER,
     });
     area.set_draw_func((_w, cr, w, h) => drawSwatch(cr, w, h, current));
-    // A MenuButton (not a plain Button + set_parent'd popover): it owns the
-    // popover and unparents it on dispose, avoiding the "Finalizing GtkButton …
-    // still has children left" warning at quit. No dropdown arrow because the
-    // swatch is a custom child and always-show-arrow defaults off.
+    // A MenuButton (not a plain Button with a set_parent'd popover): it owns
+    // the popover and unparents it on dispose, avoiding the "Finalizing
+    // GtkButton … still has children left" warning at quit. No dropdown arrow
+    // because the swatch is a custom child and always-show-arrow defaults off.
     const button = new Gtk.MenuButton({child: area, tooltip_text: _('Pick a color')});
 
     const box = new Gtk.Box({
@@ -783,8 +789,8 @@ export class StyleBar {
       value_pos: Gtk.PositionType.RIGHT,
       hexpand: true,
       width_request: 160,
-      // Adds a left margin on the value node so the number isn't flush against
-      // the thumb at 100 (see WINDOW_CSS in window_constants.ts).
+      // Adds a left margin on the value node so the number isn't directly
+      // against the thumb at 100 (see WINDOW_CSS in window_constants.ts).
       css_classes: ['annoscr-opacity-scale'],
     });
     setLabelledBy(opacityScale, opacityLabel);
@@ -823,8 +829,8 @@ export class StyleBar {
     // selection to the displayed color. false = a focus-leave, which must not
     // commit an untouched entry: the shown hex is an 8-bit rounding of a float
     // color, so re-parsing an unedited entry yields a slightly different float
-    // and looks like a change; a stray leave (the popover's own open/dismiss
-    // focus juggling fires `leave` with no user input) would then silently
+    // and looks like a change; a spurious leave (the popover's own open/dismiss
+    // focus changes emit `leave` with no user input) would then silently
     // flatten a mixed multi-selection. Gate that case on the text differing.
     const applyHex = (force: boolean): void => {
       if (!force && hexEntry.get_text() === lastSyncedText) return;
@@ -834,11 +840,11 @@ export class StyleBar {
         syncControls();
         return;
       }
-      // 6-digit keeps the current opacity; 8-digit carries its own alpha.
+      // 6-digit keeps the current opacity; 8-digit includes its own alpha.
       const alpha = parsed.hadAlpha ? parsed.color[3] : current[3];
       commit([parsed.color[0], parsed.color[1], parsed.color[2], alpha]);
-      // syncControls() normalizes the text via set_text(), which parks the
-      // cursor at position 0; move it to the end so editing resumes naturally.
+      // syncControls() normalizes the text via set_text(), which puts the
+      // cursor at position 0; move it to the end so editing can continue there.
       syncControls();
       hexEntry.set_position(-1);
     };
@@ -892,8 +898,8 @@ export class StyleBar {
     const width = this.styleTargetWidth();
     if (color === null || width === null) return;
     // Cap visible thickness to the preview height so the full slider range
-    // still fits visually; the slider's numeric readout carries the exact
-    // value when the bar saturates.
+    // still fits visually; the slider's numeric readout shows the exact value
+    // when the bar is at its maximum.
     const drawWidth = Math.min(width, h - 2);
     cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
     cr.setLineWidth(drawWidth);
@@ -916,10 +922,11 @@ export class StyleBar {
   // from Preferences but still in use). The transient entry is never persisted,
   // so it drops as soon as the target font is back in the list or no longer the
   // current one. Must be called under the updatingPicker guard (set_model /
-  // set_selected would otherwise fire a spurious pick).
+  // set_selected would otherwise emit a spurious pick).
   private applyFontModel(target: string | null): void {
     // Re-entered from a font pick (see inFontPick) — the dropdown already shows
-    // the user's choice; a model swap here would crash. Reconciled next refresh.
+    // the user's choice; a model swap here would crash. Reconciled next
+    // refresh.
     if (this.inFontPick) return;
     const catalogue = getAvailableFonts();
     const model: FontEntry[] = [...catalogue];
@@ -1019,7 +1026,7 @@ export class StyleBar {
     this.refreshTextControls();
 
     // Hide the leading separator on the first visible group so there's no
-    // orphan divider at the bar's leading edge (left of the strip, top of the
+    // unpaired divider at the bar's leading edge (left of the strip, top of the
     // panel).
     let firstVisible = true;
     for (const {group, sep} of this.styleGroupOrder) {
@@ -1045,8 +1052,8 @@ export class StyleBar {
   }
 
   // The text-style groups: each shows when its property applies (Text color and
-  // Font+Size for any text; Align for shape text only). The bar scrolls when the
-  // full set overflows.
+  // Font+Size for any text; Align for shape text only). The bar scrolls when
+  // the full set overflows.
   private refreshTextControls(): void {
     const textColor = this.styleTargetTextColor();
     this.textColorGroup.set_visible(textColor !== null);
@@ -1103,16 +1110,16 @@ export class StyleBar {
   }
 
   // The Group selector and per-group Variant control (both number-stamp only).
-  // Pulled out of refresh() so each stays simple. Group shows for the number
+  // Split out of refresh() so each stays simple. Group shows for the number
   // tool (picks the placement group) and for a stamps-only selection (reassigns
   // it); Variant shows the active group's value (placement) or the selection's
-  // (select), flagging "(mixed)" when selected stamps disagree.
+  // (select), marking "(mixed)" when selected stamps disagree.
   private refreshStampControls(): void {
     const tool = this.canvas.getTool();
 
     // Populated groups are the reassignment targets shown in select mode. The
-    // number tool additionally folds in its placement group, which may still be
-    // empty (a fresh "+ New group") — that's the one empty group allowed to show.
+    // number tool additionally adds its placement group, which may still be
+    // empty (a new "+ New group") — that's the one empty group allowed to show.
     const present = this.canvas.getStampGroupIds();
     const placement = this.canvas.getPlacementGroupId();
     const groupIds =
@@ -1157,7 +1164,7 @@ export class StyleBar {
 
   // Rebuild the group dropdown rows to "Group 1..count" plus a trailing
   // "+ New group". Labels are positional (gap-free); groupIds (set in refresh)
-  // carries the index → stable id mapping the handlers use.
+  // holds the index → stable id mapping the handlers use.
   private rebuildGroupModel(count: number): void {
     const labels: string[] = [];
     for (let i = 0; i < count; i++) labels.push(formatN(_('Group %d'), i + 1));
@@ -1206,10 +1213,10 @@ export class StyleBar {
     // that from swapping the dropdown's model mid-emission (would crash).
     this.inFontPick = true;
     try {
-      // Active edit → flow into the editor (which propagates to commit and
+      // Active edit → apply to the editor (which propagates to commit and
       // updates the live preview + caret focus). Outside an edit, fall back
-      // to the standard select-vs-tool routing. Sticky tool default also
-      // updates for text-tool placements so the next click inherits.
+      // to the standard select-vs-tool routing. The remembered tool default
+      // also updates for text-tool placements so the next click inherits.
       if (editorActive) {
         this.patchEditorStyle({fontDesc});
       } else if (tool === 'select') {
@@ -1238,8 +1245,9 @@ export class StyleBar {
     }
   }
 
-  // Alignment routing: the editor wins during a box edit (live justification +
-  // commit), else broadcast to the selected shape's text. No tool default.
+  // Alignment routing: the editor takes it during a box edit (live
+  // justification + commit), else broadcast to the selected shape's text. No
+  // tool default.
   private onAlignPicked(align: TextAlign): void {
     if (this.editor.isActive()) {
       this.patchEditorStyle({align});
@@ -1249,10 +1257,10 @@ export class StyleBar {
   }
 
   // Summarize a style property over the whole selection. A control is
-  // "applicable" only when EVERY selected action carries the property (its
-  // getter is non-null) — that's the shared-control rule. The displayed value
-  // is the first selected action's; `mixed` flags that they don't all agree.
-  // Empty selection or any non-carrying member → not applicable.
+  // "applicable" only when EVERY selected action has the property (its getter
+  // is non-null) — that's the shared-control rule. The displayed value is the
+  // first selected action's; `mixed` is true when they don't all agree. Empty
+  // selection or any member without the property → not applicable.
   private selectionSummary<T>(get: (a: Action) => T | null): {value: T | null; mixed: boolean} {
     const sel = this.canvas.getSelectedActions();
     if (sel.length === 0) return {value: null, mixed: false};
@@ -1273,7 +1281,7 @@ export class StyleBar {
   }
 
   // Whether the current select-mode multi-selection disagrees on a property,
-  // so refresh() can flag the control's caption as "(mixed)". Never mixed
+  // so refresh() can mark the control's caption as "(mixed)". Never mixed
   // outside select mode or during an edit (single source of truth there).
   private selectionMixed<T>(get: (a: Action) => T | null): boolean {
     if (this.canvas.getTool() !== 'select' || this.editor.isActive()) return false;
@@ -1305,9 +1313,10 @@ export class StyleBar {
     return this.canvas.getToolFontDesc(tool);
   }
 
-  // Alignment applies only to shape text: during a box edit (the editor owns it)
-  // or a selected shape-with-text. Null hides the Align row (standalone text and
-  // every tool). No tool default — there's no tool that places alignable text.
+  // Alignment applies only to shape text: during a box edit (the editor owns
+  // it) or a selected shape-with-text. Null hides the Align row (standalone
+  // text and every tool). No tool default — there's no tool that places
+  // alignable text.
   private styleTargetAlign(): TextAlign | null {
     if (this.editor.isActive()) {
       return this.editor.isBoxEdit() ? (this.editor.getCurrentStyle()?.align ?? null) : null;
@@ -1320,7 +1329,7 @@ export class StyleBar {
 
   // The stroke/outline color the picker should display, or null when there's
   // none. During a text edit this is null (text has no stroke) — the glyph
-  // color rides the text-color channel below.
+  // color is the text-color channel below.
   private styleTargetColor(): ColorRGBA | null {
     if (this.editor.isActive()) return null;
     const tool = this.canvas.getTool();
@@ -1361,8 +1370,8 @@ export class StyleBar {
 
   private styleTargetFill(): ColorRGBA | null {
     // Hidden during any text edit: the editor doesn't preview a fill change, so
-    // showing the control is misleading. A standalone text's background plate is
-    // edited in select mode; a shape's fill likewise.
+    // showing the control is misleading. A standalone text's background plate
+    // is edited in select mode; a shape's fill likewise.
     if (this.editor.isActive()) return null;
     const tool = this.canvas.getTool();
     if (tool === 'select') {
@@ -1407,8 +1416,9 @@ export class StyleBar {
   private onFillPicked(fill: ColorRGBA): void {
     const tool = this.canvas.getTool();
     const editorActive = this.editor.isActive();
-    // Same routing as the color picker: the editor wins during an active text
-    // edit (Fill = the background plate); otherwise apply to the selection.
+    // Same routing as the color picker: the editor takes it during an active
+    // text edit (Fill = the background plate); otherwise apply to the
+    // selection.
     if (editorActive) {
       this.patchEditorStyle({bg: fill});
     } else if (tool === 'select') {
@@ -1416,7 +1426,7 @@ export class StyleBar {
       // in canvas_view.ts).
       this.canvas.replaceSelectedFill(fill);
     }
-    // Sticky tool default for any non-select tool that carries a fill
+    // Remembered tool default for any non-select tool that has a fill
     // (rect/oval/number/text plus the resize padding fill).
     if (tool !== 'select' && defaultFillForTool(tool) !== null) {
       this.canvas.setToolFill(tool, fill);
@@ -1429,8 +1439,8 @@ export class StyleBar {
     const dash = DASH_ORDER[this.dashDropdown.get_selected()] ?? DEFAULT_DASH;
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      // Same select-edit shape as the other pickers; coalesce-by-key keeps a
-      // rapid re-pick to one history entry (see pushState in canvas_view.ts).
+      // Same select-edit structure as the other pickers; coalesce-by-key keeps
+      // a rapid re-pick to one history entry (see pushState in canvas_view.ts).
       this.canvas.replaceSelectedDash(dash);
     } else if (defaultDashForTool(tool) !== null) {
       this.canvas.setToolDash(tool, dash);
@@ -1475,8 +1485,8 @@ export class StyleBar {
   }
 
   // The text-foreground color picker (getTextColor). The editor owns it during
-  // an active text edit; otherwise it broadcasts to the selection / sticks as
-  // the tool default — same shape as onColorPicked.
+  // an active text edit; otherwise it broadcasts to the selection / is
+  // remembered as the tool default — same structure as onColorPicked.
   private onTextColorPicked(color: ColorRGBA): void {
     const tool = this.canvas.getTool();
     const editorActive = this.editor.isActive();
@@ -1496,7 +1506,8 @@ export class StyleBar {
     const width = Math.round(this.widthScale.get_value());
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      // In select mode, recolor → resize in-place; same select-edit shape.
+      // In select mode, resize the selection in place; same select-edit
+      // structure as recolor.
       // pushState coalesces by `width:${i}` so a drag is one history entry,
       // not one per slider tick (see pushState in canvas_view.ts).
       this.canvas.replaceSelectedWidth(width);
