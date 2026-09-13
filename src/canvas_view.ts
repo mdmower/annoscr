@@ -42,6 +42,7 @@ import {
   makeImageAction,
   makeNumberStampAction,
   numberStampGroup,
+  paintImage,
   numberStampRadius,
   numberStampStyle,
   numberStampVariant,
@@ -609,7 +610,7 @@ export const CanvasView = GObject.registerClass(
     // be disconnected on unrealize (0 = not connected).
     private darkHandlerId: number = 0;
 
-    // Resampled copies of shrunk image items for painting.
+    // Resampled copies of the shrunk base image and image items for painting.
     private resampleCache = new ResampleCache(() => this.queue_draw());
 
     // The history state the last image insert pushed, and the center of the
@@ -3702,18 +3703,12 @@ export const CanvasView = GObject.registerClass(
       cr.rectangle(0, 0, imgW, imgH);
       cr.fill();
 
-      cr.setSourceSurface(s, 0, 0);
-      // NEAREST at or above 1:1 keeps zoomed-in pixels crisp (pixel-art
-      // friendly); BILINEAR below 1:1 smooths the downscale to avoid moiré.
-      (cr.getSource() as Cairo.SurfacePattern).setFilter(
-        t.scale >= 1 ? Cairo.Filter.NEAREST : Cairo.Filter.BILINEAR
-      );
-      cr.paint();
+      const resample = this.resampleCache.lookup;
+      this.resampleCache.beginPaint();
+      paintImage(cr, s, imgW, imgH, {scale: t.scale, aligned: true, opacity: 1, resample});
 
       const acts = this.state.actions;
       const sole = this.soleSelectedIndex();
-      const resample = this.resampleCache.lookup;
-      this.resampleCache.beginPaint();
       for (let i = 0; i < acts.length; i++) {
         if (i === this.editingActionIndex) {
           // The edited action is hidden so the live editor replaces it. A box

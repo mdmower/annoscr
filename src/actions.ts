@@ -3172,6 +3172,68 @@ export interface ImageAsset {
   readonly png: Uint8Array;
 }
 
+export interface PaintImageOptions {
+  // The view scale the CTM applies (1 on export).
+  scale: number;
+  // Whether the box's axes are parallel to the output grid (no rotation, or a
+  // multiple of 90°).
+  aligned: boolean;
+  opacity: number;
+  resample?: ImageResampler;
+}
+
+// Paint `src` stretched to fill the w × h box at the user-space origin. The
+// filter is NEAREST when the image is drawn at or above native size on the
+// output grid, since it keeps screenshot pixels sharp, and BILINEAR when rotated
+// off that grid or shrunk. A shrunk image is drawn from the resampler's copy
+// instead when it supplies one, one image pixel per output pixel. Shared by
+// image items and the canvas's base image.
+export function paintImage(
+  cr: Cairo.Context,
+  src: Cairo.ImageSurface,
+  w: number,
+  h: number,
+  {scale, aligned, opacity, resample}: PaintImageOptions
+): void {
+  const sw = src.getWidth();
+  const sh = src.getHeight();
+  // Output pixels per image-space unit, including a HiDPI device scale.
+  const [dsx, dsy] = cr.getTarget().getDeviceScale();
+  const px = scale * Math.max(dsx, dsy);
+  const shrinking = Math.min(w / sw, h / sh) * px < 1;
+  const copy =
+    shrinking && resample
+      ? resample(src, Math.max(1, Math.round(w * px)), Math.max(1, Math.round(h * px)))
+      : null;
+
+  cr.save();
+  let image = src;
+  let filter = !shrinking && aligned ? Cairo.Filter.NEAREST : Cairo.Filter.BILINEAR;
+  if (copy) {
+    image = copy;
+    cr.scale(1 / px, 1 / px);
+    // A sub-pixel origin would blur every pixel of the copy.
+    if (aligned) {
+      const [ox, oy] = cr.userToDevice(0, 0);
+      const [dx, dy] = cr.deviceToUserDistance(Math.round(ox) - ox, Math.round(oy) - oy);
+      cr.translate(dx, dy);
+    }
+    filter = Cairo.Filter.BILINEAR;
+  } else {
+    cr.scale(w / sw, h / sh);
+  }
+  cr.rectangle(0, 0, image.getWidth(), image.getHeight());
+  cr.clip();
+  cr.setSourceSurface(image, 0, 0);
+  const pattern = cr.getSource() as Cairo.SurfacePattern;
+  pattern.setFilter(filter);
+  // PAD so the filter doesn't blend the edge pixels with transparency.
+  pattern.setExtend(Cairo.Extend.PAD);
+  if (opacity < 1) cr.paintWithAlpha(opacity);
+  else cr.paint();
+  cr.restore();
+}
+
 // Whether `rotation` (normalized radians) is a multiple of 90°, where the image
 // grid maps onto the output grid.
 function isQuarterTurn(rotation: number): boolean {
@@ -3200,55 +3262,20 @@ class ImageAction extends BaseAction {
     return new ImageAction(x1, y1, x2, y2, this.rotation, this.opacity, this.asset);
   }
 
-  // Filter choice: NEAREST when the image is drawn at or above its native size
-  // on the output grid, since it keeps screenshot pixels sharp; BILINEAR when
-  // rotated off that grid or shrunk. A shrunk item uses the resampler's copy
-  // instead when one is supplied, drawn one image pixel per output pixel.
   draw(cr: Cairo.Context, scale: number, resample?: ImageResampler): void {
     const w = this.x2 - this.x1;
     const h = this.y2 - this.y1;
     if (w <= 0 || h <= 0) return;
-    const src = this.asset.surface;
-    const sw = src.getWidth();
-    const sh = src.getHeight();
-    // Output pixels per image-space unit, including a HiDPI device scale.
-    const [dsx, dsy] = cr.getTarget().getDeviceScale();
-    const px = scale * Math.max(dsx, dsy);
-    const quarter = isQuarterTurn(this.rotation);
-    const shrinking = Math.min(w / sw, h / sh) * px < 1;
-    const copy =
-      shrinking && resample
-        ? resample(src, Math.max(1, Math.round(w * px)), Math.max(1, Math.round(h * px)))
-        : null;
-
     cr.save();
     cr.translate((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
     if (this.rotation !== 0) cr.rotate(this.rotation);
     cr.translate(-w / 2, -h / 2);
-    let image = src;
-    let filter = !shrinking && quarter ? Cairo.Filter.NEAREST : Cairo.Filter.BILINEAR;
-    if (copy) {
-      image = copy;
-      cr.scale(1 / px, 1 / px);
-      // A sub-pixel origin would blur every pixel of the copy.
-      if (quarter) {
-        const [ox, oy] = cr.userToDevice(0, 0);
-        const [dx, dy] = cr.deviceToUserDistance(Math.round(ox) - ox, Math.round(oy) - oy);
-        cr.translate(dx, dy);
-      }
-      filter = Cairo.Filter.BILINEAR;
-    } else {
-      cr.scale(w / sw, h / sh);
-    }
-    cr.rectangle(0, 0, image.getWidth(), image.getHeight());
-    cr.clip();
-    cr.setSourceSurface(image, 0, 0);
-    const pattern = cr.getSource() as Cairo.SurfacePattern;
-    pattern.setFilter(filter);
-    // PAD so the filter doesn't blend the edge pixels with transparency.
-    pattern.setExtend(Cairo.Extend.PAD);
-    if (this.opacity < 1) cr.paintWithAlpha(this.opacity);
-    else cr.paint();
+    paintImage(cr, this.asset.surface, w, h, {
+      scale,
+      aligned: isQuarterTurn(this.rotation),
+      opacity: this.opacity,
+      resample,
+    });
     cr.restore();
   }
 

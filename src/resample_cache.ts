@@ -3,19 +3,20 @@ import Cairo from 'cairo';
 
 import {scaleSurface} from './image_transforms.js';
 
-// How long a shrunk image item's on-screen size must stay unchanged before its
+// How long a shrunk image's on-screen size must stay unchanged before its
 // resampled copy is built. A resize drag or zoom changes the size every frame,
 // and a build takes tens of milliseconds for a large image.
 const SETTLE_MS = 200;
 
-// The live canvas's resampled copies of shrunk image items. scaleSurface is too
-// slow to run on every paint, so a paint draws from a copy built for that exact
-// size, or, when there is none yet, lets the item filter its source directly
-// and requests the copy. Requests are built once the sizes requested stop
-// changing for SETTLE_MS, then the canvas repaints.
+// The live canvas's resampled copies of shrunk images (the base image and image
+// items). scaleSurface is too slow to run on every paint, so a paint draws from
+// a copy built for that exact size, or, when there is none yet, filters the
+// source directly and requests the copy. Requests are built once the sizes
+// requested stop changing for SETTLE_MS, then the canvas repaints.
 //
-// Usage per paint: beginPaint(), pass `lookup` to every Action.draw, endPaint().
-// Copies a paint didn't use are released at its end.
+// Usage per paint: beginPaint(), pass `lookup` to paintImage for the base image
+// and to every Action.draw, endPaint(). Copies a paint didn't use are released
+// at its end.
 export class ResampleCache {
   private copies = new Map<Cairo.ImageSurface, Map<string, Cairo.ImageSurface>>();
   private used = new Map<Cairo.ImageSurface, Set<string>>();
