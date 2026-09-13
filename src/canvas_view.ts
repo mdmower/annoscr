@@ -165,6 +165,34 @@ interface CanvasState {
   actions: ReadonlyArray<Action>;
 }
 
+// Whether two states hold the same document: the same surface, and per action
+// either the same object or an equal serialized form (the file format records
+// every persistent field).
+function statesEqual(a: CanvasState, b: CanvasState): boolean {
+  if (a.surface !== b.surface || a.actions.length !== b.actions.length) return false;
+  return a.actions.every((x, i) => {
+    const y = b.actions[i];
+    return x === y || serializedEqual(x.serialize(), y.serialize());
+  });
+}
+
+// Structural equality over JSON-shaped values (primitives, arrays, plain
+// objects), the only kinds SerializedAction contains.
+function serializedEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => serializedEqual(v, b[i]));
+  }
+  if (Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  const ra = a as Record<string, unknown>;
+  const rb = b as Record<string, unknown>;
+  return ka.every((k) => Object.hasOwn(rb, k) && serializedEqual(ra[k], rb[k]));
+}
+
 const HISTORY_CAP = 100;
 
 // Widget-space hit tolerance for resize edge/corner grabs.
@@ -620,6 +648,17 @@ export const CanvasView = GObject.registerClass(
       const canCoalesce =
         coalesceKey !== null && coalesceKey === this.lastCoalesceKey && this.history.length > 1;
 
+      if (canCoalesce && statesEqual(next, this.history[this.historyCursor - 1])) {
+        // A coalesced sequence that returns to the entry before it
+        // (blue → navy → blue) would be an undo step that changes nothing, so
+        // remove it. Clearing the key makes the next step push a new entry
+        // instead of overwriting the entry before the sequence.
+        this.history.pop();
+        this.historyCursor--;
+        this.lastCoalesceKey = null;
+        this.notifyStateChange();
+        return;
+      }
       if (canCoalesce) {
         this.history[this.historyCursor] = next;
       } else {
@@ -1451,11 +1490,10 @@ export const CanvasView = GObject.registerClass(
       get: (a: Action) => T | null,
       apply: (a: Action, v: T) => Action,
       value: T,
-      // Coalesce key, or null for discrete toggles. Coalescing exists to
-      // compress a picker drag into one entry; for a binary toggle it would
-      // instead collapse an on/off pair into a single no-op history entry (a
-      // state identical to its predecessor), leaving an undo step with no
-      // effect.
+      // Coalesce key, or null for a discrete choice. Consecutive keyed edits
+      // on one selection share an undo entry (adjusting a color or font,
+      // stepping a spin button); each discrete choice (line style, arrowhead,
+      // alignment, a switch) is its own entry.
       key: string | null,
       setToolDefault: (toolId: ToolId, v: T) => void
     ): boolean {
@@ -1553,7 +1591,7 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getDash(),
         (a, v) => a.withDash(v),
         dash,
-        'dash',
+        null,
         (tid, v) => this.setToolDash(tid, v)
       );
     }
@@ -1563,7 +1601,7 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getFilledHead(),
         (a, v) => a.withFilledHead(v),
         filled,
-        'filledHead',
+        null,
         (tid, v) => this.setToolFilledHead(tid, v)
       );
     }
@@ -1606,7 +1644,7 @@ export const CanvasView = GObject.registerClass(
         (a) => a.getAlign(),
         (a, v) => a.withAlign(v),
         align,
-        'align',
+        null,
         () => {}
       );
     }

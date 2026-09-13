@@ -175,7 +175,10 @@ export interface Action {
   containsPoint(ix: number, iy: number): boolean;
   // The action's on-disk form for the .annoscr document format (the inverse is
   // deserializeAction). Each type emits its own `type` discriminant; see the
-  // SerializedAction union for the shapes.
+  // SerializedAction union for the shapes. Undo history compares these forms
+  // with serializedEqual (canvas_view.ts), which handles only primitives,
+  // arrays, and plain objects; a field of any other kind (Map, Date, typed
+  // array, class instance) needs support added there.
   serialize(): SerializedAction;
 }
 
