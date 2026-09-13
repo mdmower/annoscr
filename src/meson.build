@@ -26,6 +26,7 @@ ts_sources = files(
   'font_catalogue.ts',
   'recent_files.ts',
   'recent_strip.ts',
+  'resample_cache.ts',
 )
 
 ts_outputs = [
@@ -56,6 +57,7 @@ ts_outputs = [
   'font_catalogue.js',
   'recent_files.js',
   'recent_strip.js',
+  'resample_cache.js',
 ]
 
 version_js = custom_target('version-js',

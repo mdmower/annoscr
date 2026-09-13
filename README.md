@@ -16,7 +16,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Selecting and editing**
   - Click to select an annotation, Shift+Click to add or remove several, or drag a box across empty canvas to select everything fully inside it; Ctrl+A selects all and Esc clears the selection. The Select and arrange menu adds every annotation of one type (all arrows, all text, and so on) to the selection. Then move, delete, duplicate, restack, or restyle them together.
-  - Resize a line, arrow, rectangle, oval, or stamp by its handles; rotate a text, stamp, rectangle, or oval with its gizmo
+  - Resize a line, arrow, rectangle, oval, stamp, or image item by its handles; rotate a text, stamp, rectangle, oval, or image item with its gizmo
     - Rectangles and ovals can be constrained to squares and circles, respectively.
     - Lines and arrows can be constrained to 15° angle increments.
     - Rotations can be constrained to 15° increments.
@@ -28,18 +28,21 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Text labels**: give a rectangle or oval a centered caption; the text wraps to the box, aligns left / center / right, and rotates with the shape.
 
+- **Image items**: place more images on the canvas, for example two screenshots side by side for a before/after comparison, and annotate them together. Paste with Ctrl+Shift+V, drop image files on the window, or choose Insert image file from the primary menu. An item keeps its proportions when resized (hold Shift to stretch it), can be rotated and made translucent, and keeps its full resolution however small it is drawn. Parts of an item outside the canvas are left out of the exported image.
+
 - **Callouts**: turn on the Callout switch for a selected rectangle or oval to add a pointer tail to its border, then drag the tail's tip to point it at whatever the box is describing. Combined with a text label, the shape becomes a speech bubble; the tail follows the shape's fill, line style, and rotation.
 
 - **Number stamps**: numbered or lettered per group. Pick or reassign a stamp's group from the style bar, start a new group, and select a stamp to quickly identify all others in the group (if multiple groups exist).
 
 - **Transforms**: rotate the whole image, crop or expand the canvas, or scale the image to new dimensions. Scaling resamples the image and multiplies the annotations by the same factor, so they keep their place and re-render sharp at the new size. Both size commands are in the menu on the dimensions readout in the status bar.
 
-- **Image I/O**: open a file, paste, drag-and-drop, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard.
+- **Image I/O**: open a file, paste, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard. Dropping an image file on an empty window opens it; with an image already open, a dropped file is added as an image item.
 
 - **Recent files**: a strip of thumbnails below the status bar remembers the images and annotation files you open, so returning to an earlier screenshot is one click. Drop a selection of files onto the strip, or press Insert, to add files to it without opening any of them. Show or hide it from the status bar, right-click a thumbnail to reveal it in Files or forget it, and turn the feature off (which also clears the list) in Preferences.
 
 - **Annotation files**: save an editable `.annoscr` file (the canvas image plus your annotations) from the primary menu, then reopen it later to add, change, or remove annotations.
   - Annoscr 1.5 introduced a new annotation file format. Files written by Annoscr 1.5 or later cannot be opened by earlier releases; files saved by earlier releases still open normally.
+  - Files written by Annoscr 2.0 cannot be opened by 1.x releases.
   - Open and re-save any annotation file written by Annoscr 1.4 or earlier: support for the old format will be dropped in a future Annoscr 2.0 release, which will no longer be able to open them.
 
 - **View**: Fit-to-window, 1:1, or a continuous zoom slider from 25% to 400%; when zoomed in, right-click and drag to pan the canvas.
@@ -225,12 +228,6 @@ To capture and annotate a screenshot with a single keypress, bind `annoscr --scr
 3. Click **Add**.
 
 Pressing the shortcut launches Annoscr, which immediately captures through the desktop portal (it may ask which screen or window to capture). Cancelling the capture exits without opening a window. To use the **Print** key itself, first clear GNOME's built-in screenshot binding under **Settings > Keyboard > Keyboard Shortcuts > Screenshots**, since that key is bound to it by default.
-
-## Roadmap
-
-Annoscr is in active development. Planned work:
-
-- **Paste image as a canvas item**: paste an image as a resizable, movable annotation on the canvas, rather than replacing the whole document, so multiple screenshots can be arranged side by side (e.g. for before/after comparisons) and annotated together.
 
 ## Contributing
 

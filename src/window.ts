@@ -10,9 +10,10 @@ import Cairo from 'cairo';
 import {AnnoscrApplication} from './application.js';
 import {CanvasView} from './canvas_view.js';
 import {createBlankSurface} from './image_transforms.js';
-import {loadFromFile, loadFromPixbuf} from './image_loader.js';
+import {assetFromFile, assetFromPixbuf, loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
 import {Action, ColorRGBA, TEXT_STYLE, makeTextAction, withShapeText} from './actions.js';
+import type {ImageAsset} from './actions.js';
 import {TextEditor, TextEditorBeginOptions, TextEditorStyle} from './text_editor.js';
 import type {TextEditRequestOptions} from './canvas_view.js';
 import {
@@ -79,6 +80,18 @@ const CLIPBOARD_READY_TIMEOUT_MS = 3000;
 // message doesn't.
 function causeOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+// A file dialog offering the image types the loader decodes.
+function imageFileDialog(title: string): Gtk.FileDialog {
+  const dialog = new Gtk.FileDialog({title, modal: true});
+  const filter = new Gtk.FileFilter({name: _('Images')});
+  for (const mime of IMAGE_MIME_TYPES) filter.add_mime_type(mime);
+  const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
+  filters.append(filter);
+  dialog.set_filters(filters);
+  dialog.set_default_filter(filter);
+  return dialog;
 }
 
 export const AnnoscrWindow = GObject.registerClass(
@@ -183,6 +196,7 @@ export const AnnoscrWindow = GObject.registerClass(
       // "save without choosing a location" makes the header Save button (and
       // Ctrl+S) write silently to the default folder.
       const imageSection = new Gio.Menu();
+      imageSection.append(_('Insert image file…'), 'win.insertimage');
       imageSection.append(_('Save image as…'), 'win.saveas');
       menu.append_section(null, imageSection);
       // Annotation-file open/save: a reopenable document (image + editable
@@ -640,6 +654,7 @@ export const AnnoscrWindow = GObject.registerClass(
       add('opendoc', () => this.openDocumentDialog());
       add('savedoc', () => this.saveDocumentDialog());
       add('saveas', () => this.saveImageDialog());
+      add('insertimage', () => this.insertImageDialog());
       add('cropcanvas', () => this.toolbar.toggleResizeMode());
       add('scaleimage', () => this.scaleImageDialog());
       app.set_accels_for_action('win.preferences', ['<Control>comma']);
@@ -719,15 +734,7 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private openImageDialogUnchecked(): void {
-      const dialog = new Gtk.FileDialog({title: _('Open image'), modal: true});
-
-      const filter = new Gtk.FileFilter({name: _('Images')});
-      for (const mime of IMAGE_MIME_TYPES) filter.add_mime_type(mime);
-      const filters = new Gio.ListStore({item_type: Gtk.FileFilter.$gtype});
-      filters.append(filter);
-      dialog.set_filters(filters);
-      dialog.set_default_filter(filter);
-
+      const dialog = imageFileDialog(_('Open image'));
       dialog.open(this, null, (_src, result) => {
         try {
           const file = dialog.open_finish(result);
@@ -884,25 +891,80 @@ export const AnnoscrWindow = GObject.registerClass(
       this.canvas.rotate(dir);
     }
 
+    // A file list, not a single file: a Gio.File target receives only the first
+    // file of a multi-file drag.
     private installDropTarget(): void {
-      const dropTarget = Gtk.DropTarget.new(Gio.File.$gtype, Gdk.DragAction.COPY);
-      dropTarget.connect('drop', (_target: unknown, file: Gio.File) => {
-        if (!file) return false;
-        if (this.isDocumentFile(file)) {
-          confirmDiscard(
-            this,
-            _('Opening the dropped annotation file'),
-            this.canvas.isDirty(),
-            () => this.openDocumentFile(file)
-          );
-        } else {
-          confirmDiscard(this, _('Opening the dropped image'), this.canvas.isDirty(), () =>
-            this.openFile(file)
-          );
-        }
+      const dropTarget = Gtk.DropTarget.new(Gdk.FileList.$gtype, Gdk.DragAction.COPY);
+      dropTarget.connect('drop', (_target: unknown, value: unknown) => {
+        if (!(value instanceof Gdk.FileList)) return false;
+        const files = value.get_files();
+        if (files.length === 0) return false;
+        this.addFiles(files);
         return true;
       });
       this.add_controller(dropTarget);
+    }
+
+    // Add files as image items: dropped, pasted as a copied file list, or
+    // picked in Insert image file. With no canvas, the first image that decodes
+    // becomes the canvas and the rest become items on it. An annotation file
+    // can't be an item, so the first one opens as the document (behind the
+    // discard prompt) only when no image was given.
+    private addFiles(files: ReadonlyArray<Gio.File>): void {
+      const images = files.filter((f) => !this.isDocumentFile(f));
+      if (images.length === 0) {
+        const doc = files[0];
+        if (!doc) return;
+        confirmDiscard(this, _('Opening this annotation file'), this.canvas.isDirty(), () =>
+          this.openDocumentFile(doc)
+        );
+        return;
+      }
+      let rest = images;
+      while (!this.canvas.hasImage() && rest.length > 0) {
+        this.openFile(rest[0]);
+        rest = rest.slice(1);
+      }
+      const assets: ImageAsset[] = [];
+      for (const file of rest) {
+        try {
+          assets.push(assetFromFile(file));
+        } catch (e) {
+          console.log(`insert image failed: ${causeOf(e)}`);
+          const name = file.get_basename() ?? file.get_uri();
+          this.showToast(_('Could not open "%s"').replace('%s', name));
+        }
+      }
+      this.insertAssets(assets);
+    }
+
+    // Place image items on the open canvas and select them. Unlike a drawing
+    // tool's placement this always switches to the select tool, since there is
+    // no image tool to stay in.
+    private insertAssets(assets: ImageAsset[]): void {
+      if (assets.length === 0 || !this.canvas.hasImage()) return;
+      // Also commits a text edit and leaves crop mode without applying it.
+      this.toolbar.selectTool('select');
+      this.canvas.insertImages(assets);
+    }
+
+    private insertImageDialog(): void {
+      const dialog = imageFileDialog(_('Insert image file'));
+      dialog.open_multiple(this, null, (_src, result) => {
+        try {
+          const list = dialog.open_multiple_finish(result);
+          const files: Gio.File[] = [];
+          for (let i = 0; i < list.get_n_items(); i++) {
+            const item = list.get_item(i);
+            if (item instanceof Gio.File) files.push(item);
+          }
+          this.addFiles(files);
+        } catch (e) {
+          if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+            console.warn('open_multiple_finish failed', e);
+          }
+        }
+      });
     }
 
     // A press anywhere outside the canvas view (header, tool palette, style
@@ -937,6 +999,13 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>o', () => this.openImageDialog());
       this.bindShortcut(controller, '<Control><Shift>s', () => this.captureScreenshot());
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
+      // Paste as an image item, keeping the canvas. The editor is excluded so
+      // the chord can't place an item behind an open text edit.
+      this.bindShortcut(controller, '<Control><Shift>v', () => {
+        if (this.editor.isActive()) return false;
+        this.pasteAsItem();
+        return true;
+      });
       // Add files to the recent strip without opening any — the keyboard
       // equivalent of dropping them on it, and Insert to the strip's Delete.
       // App-wide
@@ -1525,13 +1594,45 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private pasteFromClipboardUnchecked(): void {
+      this.readClipboard(
+        (pixbuf) => this.setImage(loadFromPixbuf(pixbuf)),
+        (files) => {
+          // A copied file can be an annotation file as well as an image, so
+          // it's routed like a drop. No discard guard here: pasteFromClipboard
+          // already ran it.
+          const file = files[0];
+          if (this.isDocumentFile(file)) this.openDocumentFile(file);
+          else this.openFile(file);
+        }
+      );
+    }
+
+    // Ctrl+Shift+V: the clipboard image becomes an image item, or the canvas
+    // when none is open.
+    private pasteAsItem(): void {
+      this.readClipboard(
+        (pixbuf) => {
+          if (this.canvas.hasImage()) this.insertAssets([assetFromPixbuf(pixbuf)]);
+          else this.setImage(loadFromPixbuf(pixbuf));
+        },
+        (files) => this.addFiles(files)
+      );
+    }
+
+    // Read the clipboard: decoded image data when it offers some, else the
+    // files of a copied file list (at least one). Toasts when it holds neither
+    // or reading fails, including a failure in either handler.
+    private readClipboard(
+      onPixbuf: (pixbuf: GdkPixbuf.Pixbuf) => void,
+      onFiles: (files: Gio.File[]) => void
+    ): void {
       const clipboard = this.get_clipboard();
       clipboard.read_async(IMAGE_MIME_TYPES, GLib.PRIORITY_DEFAULT, null, (_src, result) => {
         let stream: Gio.InputStream | null = null;
         try {
           [stream] = clipboard.read_finish(result);
         } catch {
-          this.pasteUriList(clipboard);
+          this.readUriList(clipboard, onFiles);
         }
         if (!stream) return;
 
@@ -1542,7 +1643,7 @@ export const AnnoscrWindow = GObject.registerClass(
         GdkPixbuf.Pixbuf.new_from_stream_async(stream, null, (_pbSrc, pbResult) => {
           try {
             const pixbuf = GdkPixbuf.Pixbuf.new_from_stream_finish(pbResult);
-            if (pixbuf) this.setImage(loadFromPixbuf(pixbuf));
+            if (pixbuf) onPixbuf(pixbuf);
           } catch (e) {
             console.log(`paste (image bytes) failed: ${causeOf(e)}`);
             this.showToast(_('Could not paste image'));
@@ -1553,7 +1654,7 @@ export const AnnoscrWindow = GObject.registerClass(
       });
     }
 
-    private pasteUriList(clipboard: Gdk.Clipboard): void {
+    private readUriList(clipboard: Gdk.Clipboard, onFiles: (files: Gio.File[]) => void): void {
       const mimes: string[] = clipboard.get_formats()?.get_mime_types() ?? [];
       if (!mimes.includes('text/uri-list')) {
         console.log(`paste: nothing usable on clipboard (formats: ${mimes.join(', ') || 'none'})`);
@@ -1567,21 +1668,14 @@ export const AnnoscrWindow = GObject.registerClass(
           if (!stream) throw new Error('clipboard read failed');
           const bytes = stream.read_bytes(64 * 1024, null);
           const text = new TextDecoder().decode(bytes.toArray());
-          const uri = text
+          const uris = text
             .split(/\r?\n/)
-            .find((line) => line && !line.startsWith('#'))
-            ?.trim();
-          if (uri) {
-            // A copied file arrives as a URI, and it can be an annotation file
-            // as well as an image — route it like a drop. No discard guard
-            // here: pasteFromClipboard already ran it. Both openers report
-            // their own failures; only the empty-list case needs a toast.
-            const file = Gio.File.new_for_uri(uri);
-            if (this.isDocumentFile(file)) this.openDocumentFile(file);
-            else this.openFile(file);
-          } else {
-            this.showToast(_('Clipboard has no image to paste'));
-          }
+            .map((line) => line.trim())
+            .filter((line) => line && !line.startsWith('#'));
+          // The file handlers report their own failures; only the empty-list
+          // case needs a toast.
+          if (uris.length > 0) onFiles(uris.map((uri) => Gio.File.new_for_uri(uri)));
+          else this.showToast(_('Clipboard has no image to paste'));
         } catch (e) {
           console.log(`paste (uri-list) failed: ${causeOf(e)}`);
           this.showToast(_('Could not paste image'));

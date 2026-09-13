@@ -12,6 +12,7 @@ import {labelFromTooltip, setAccessibleLabel, setLabelledBy} from './a11y.js';
 import {_, formatN} from './i18n.js';
 import {
   Action,
+  ActionType,
   CORNER_RADIUS_MAX,
   CORNER_RADIUS_MIN,
   ColorRGBA,
@@ -21,7 +22,6 @@ import {
   FONT_SIZE_MIN,
   StampVariant,
   TextAlign,
-  ToolId,
   WIDTH_MAX,
   WIDTH_MIN,
   defaultCornerRadiusForTool,
@@ -57,8 +57,8 @@ interface ActionsMenuSpec {
 }
 
 // A select-by-type row label; null for tool ids that are not annotation types.
-function typeRowLabel(tool: ToolId, n: number): string | null {
-  switch (tool) {
+function typeRowLabel(type: ActionType, n: number): string | null {
+  switch (type) {
     case 'pen':
       return formatN(_('Pen strokes (%d)'), n);
     case 'highlighter':
@@ -75,6 +75,8 @@ function typeRowLabel(tool: ToolId, n: number): string | null {
       return formatN(_('Rectangles (%d)'), n);
     case 'oval':
       return formatN(_('Ovals (%d)'), n);
+    case 'image':
+      return formatN(_('Images (%d)'), n);
     default:
       return null;
   }
@@ -228,6 +230,10 @@ export class StyleBar {
   private cornerGroup!: Gtk.Box;
   private cornerLabel!: Gtk.Label;
   private cornerSpin!: Gtk.SpinButton;
+  // Opacity of the selected image items, as a percentage.
+  private opacityGroup!: Gtk.Box;
+  private opacityLabel!: Gtk.Label;
+  private opacitySpin!: Gtk.SpinButton;
   // Callout-tail switch (selected rect/oval only): toggles a pointer tail
   // joined to the box outline; the tip is dragged by its own canvas handle.
   private tailGroup!: Gtk.Box;
@@ -516,6 +522,19 @@ export class StyleBar {
     this.cornerGroup = makeRowGroup(cornerSep, this.cornerLabel, this.cornerSpin);
     styleBar.append(this.cornerGroup);
 
+    // Opacity group (selected image items only).
+    const opacitySep = makeSep();
+    this.opacitySpin = new Gtk.SpinButton({
+      adjustment: new Gtk.Adjustment({lower: 0, upper: 100, step_increment: 1, page_increment: 10}),
+      width_request: 76,
+      valign: Gtk.Align.CENTER,
+      xalign: 1,
+    });
+    this.opacitySpin.connect('value-changed', () => this.onOpacityPicked());
+    this.opacityLabel = new Gtk.Label({label: _('Opacity'), css_classes: ['caption']});
+    this.opacityGroup = makeRowGroup(opacitySep, this.opacityLabel, this.opacitySpin);
+    styleBar.append(this.opacityGroup);
+
     // Callout group (selected rect/oval only) — a switch toggling the pointer
     // tail; there's deliberately no tool default (see replaceSelectedTail), so
     // the group never shows in placement modes.
@@ -653,6 +672,7 @@ export class StyleBar {
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
       {group: this.cornerGroup, sep: cornerSep},
+      {group: this.opacityGroup, sep: opacitySep},
       {group: this.tailGroup, sep: tailSep},
       {group: this.filledHeadGroup, sep: filledHeadSep},
       {group: this.groupGroup, sep: groupSep},
@@ -669,6 +689,7 @@ export class StyleBar {
     // creation above.)
     setLabelledBy(this.widthSpin, this.widthLabel);
     setLabelledBy(this.cornerSpin, this.cornerLabel);
+    setLabelledBy(this.opacitySpin, this.opacityLabel);
     setLabelledBy(this.tailSwitch, this.tailLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);
     setLabelledBy(this.filledHeadDropdown, this.filledHeadLabel);
@@ -683,12 +704,12 @@ export class StyleBar {
   // What the select-mode menu shows, from the selection and the action counts.
   private actionsMenuSpec(): ActionsMenuSpec {
     const sel = this.canvas.getSelectedActions();
-    const counts = this.canvas.countByTool();
+    const counts = this.canvas.countByType();
     const types: MenuRow[] = [];
-    for (const {id} of TOOLS) {
-      const n = counts.get(id);
-      const label = n ? typeRowLabel(id, n) : null;
-      if (label) types.push({label, run: () => this.canvas.selectType(id)});
+    for (const type of [...TOOLS.map((t): ActionType => t.id), 'image' as const]) {
+      const n = counts.get(type);
+      const label = n ? typeRowLabel(type, n) : null;
+      if (label) types.push({label, run: () => this.canvas.selectType(type)});
     }
     const all: MenuRow = {label: _('All (Ctrl+A)'), run: () => this.canvas.selectAll()};
     const select = types.length > 0 ? [[all], types] : [[all]];
@@ -1155,6 +1176,15 @@ export class StyleBar {
       this.selectionMixed((a) => a.getCornerRadius())
     );
 
+    const opacity = this.styleTargetOpacity();
+    this.opacityGroup.set_visible(opacity !== null);
+    if (opacity !== null) this.opacitySpin.set_value(Math.round(opacity * 100));
+    setCaption(
+      this.opacityLabel,
+      _('Opacity'),
+      this.selectionMixed((a) => a.getOpacity())
+    );
+
     const filledHead = this.styleTargetFilledHead();
     this.filledHeadGroup.set_visible(filledHead !== null);
     if (filledHead !== null) this.filledHeadDropdown.set_selected(filledHead ? 1 : 0);
@@ -1519,6 +1549,13 @@ export class StyleBar {
     return this.canvas.getToolDash(tool);
   }
 
+  // Opacity to display, or null to hide the control. Select-mode only: image
+  // items are the only actions with an opacity, and no tool places them.
+  private styleTargetOpacity(): number | null {
+    if (this.editor.isActive() || this.canvas.getTool() !== 'select') return null;
+    return this.selectionSummary((a) => a.getOpacity()).value;
+  }
+
   // Callout-tail state to display, or null when the control should hide (text
   // edit, non-select tool, or no selected box shape). Select-mode only: the
   // tail is per-shape geometry with no tool default. As with filledHead,
@@ -1587,6 +1624,12 @@ export class StyleBar {
     } else if (defaultFilledHeadForTool(tool) !== null) {
       this.canvas.setToolFilledHead(tool, filled);
     }
+  }
+
+  private onOpacityPicked(): void {
+    if (this.updatingPicker || !this.opacitySpin) return;
+    if (this.canvas.getTool() !== 'select') return;
+    this.canvas.replaceSelectedOpacity(this.opacitySpin.get_value() / 100);
   }
 
   // Select-mode only (the control is hidden otherwise); no tool default to

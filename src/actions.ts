@@ -67,8 +67,18 @@ export interface OrientedBounds {
   angle: number;
 }
 
+// Supplies a copy of `src` resampled to w × h pixels, for an image item drawn
+// smaller than its source, or null to have the item filter `src` directly.
+export type ImageResampler = (
+  src: Cairo.ImageSurface,
+  w: number,
+  h: number
+) => Cairo.ImageSurface | null;
+
 export interface Action {
-  draw(cr: Cairo.Context, scale: number): void;
+  // `resample` is used only by image items. Without it an item filters its
+  // source with BILINEAR, which drops detail when shrinking past 2:1.
+  draw(cr: Cairo.Context, scale: number, resample?: ImageResampler): void;
   getBounds(): Bounds | null;
   translate(dx: number, dy: number): Action;
   // Transform this action so it rotates with the source image. `oldW`/`oldH`
@@ -150,6 +160,13 @@ export interface Action {
   // alignment).
   getAlign(): TextAlign | null;
   withAlign(align: TextAlign): Action;
+  // The opacity (0..1) the whole action is drawn with, or null for actions
+  // whose translucency is part of their colors. Only image items have one.
+  getOpacity(): number | null;
+  withOpacity(opacity: number): Action;
+  // The pixel surface the action holds, or null. Only image items hold one;
+  // undo history counts it against the undo-memory budget.
+  getSurface(): Cairo.ImageSurface | null;
   // Per-action resize handles, in image space, for the select tool to draw and
   // hit-test — or null for actions that aren't directly resizable (pen,
   // highlighter, text). Box shapes return 8 handles, line/arrow 2 endpoints,
@@ -778,6 +795,18 @@ export interface SerializedNumber {
   fontSize: number;
 }
 
+export interface SerializedImage {
+  type: 'image';
+  // The unrotated box the image is stretched to fill.
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  rotation: number;
+  opacity: number;
+  asset: string; // ImageAsset.id; the pixels are stored in their own chunk
+}
+
 export type SerializedAction =
   | SerializedStroke
   | SerializedLine
@@ -785,7 +814,8 @@ export type SerializedAction =
   | SerializedRect
   | SerializedOval
   | SerializedText
-  | SerializedNumber;
+  | SerializedNumber
+  | SerializedImage;
 
 const SHAPE_MIN_EXTENT = 2;
 
@@ -876,6 +906,15 @@ abstract class BaseAction implements Action {
   }
   withAlign(_align: TextAlign): Action {
     return this;
+  }
+  getOpacity(): number | null {
+    return null;
+  }
+  withOpacity(_opacity: number): Action {
+    return this;
+  }
+  getSurface(): Cairo.ImageSurface | null {
+    return null;
   }
   getResizeHandles(): ResizeHandle[] | null {
     return null;
@@ -3121,6 +3160,268 @@ export function shapeWithoutText(action: Action): Action | null {
   return action.getMarkup() ? action.withText('', action.getTextStyle()) : action;
 }
 
+// ---------- Image item ----------
+
+// A decoded image an image item draws. Shared by reference between the items
+// and history states that show it, so a clone or an undo step costs no pixel
+// memory. `id` is the SHA-256 (hex) of `png`, the bytes a document stores, so a
+// document writes identical images once.
+export interface ImageAsset {
+  readonly id: string;
+  readonly surface: Cairo.ImageSurface;
+  readonly png: Uint8Array;
+}
+
+// Whether `rotation` (normalized radians) is a multiple of 90°, where the image
+// grid maps onto the output grid.
+function isQuarterTurn(rotation: number): boolean {
+  const q = rotation / (Math.PI / 2);
+  return Math.abs(q - Math.round(q)) < 1e-9;
+}
+
+// An image placed on the canvas: stretched to fill its (x1,y1)-(x2,y2) box,
+// which is stored normalized and unrotated, then rotated about its center. The
+// pixels stay at native resolution in the asset whatever the box size, so
+// resizing or scaling the item is lossless.
+class ImageAction extends BaseAction {
+  constructor(
+    private readonly x1: number,
+    private readonly y1: number,
+    private readonly x2: number,
+    private readonly y2: number,
+    private readonly rotation: number,
+    private readonly opacity: number,
+    private readonly asset: ImageAsset
+  ) {
+    super();
+  }
+
+  private make(x1: number, y1: number, x2: number, y2: number): ImageAction {
+    return new ImageAction(x1, y1, x2, y2, this.rotation, this.opacity, this.asset);
+  }
+
+  // Filter choice: NEAREST when the image is drawn at or above its native size
+  // on the output grid, since it keeps screenshot pixels sharp; BILINEAR when
+  // rotated off that grid or shrunk. A shrunk item uses the resampler's copy
+  // instead when one is supplied, drawn one image pixel per output pixel.
+  draw(cr: Cairo.Context, scale: number, resample?: ImageResampler): void {
+    const w = this.x2 - this.x1;
+    const h = this.y2 - this.y1;
+    if (w <= 0 || h <= 0) return;
+    const src = this.asset.surface;
+    const sw = src.getWidth();
+    const sh = src.getHeight();
+    // Output pixels per image-space unit, including a HiDPI device scale.
+    const [dsx, dsy] = cr.getTarget().getDeviceScale();
+    const px = scale * Math.max(dsx, dsy);
+    const quarter = isQuarterTurn(this.rotation);
+    const shrinking = Math.min(w / sw, h / sh) * px < 1;
+    const copy =
+      shrinking && resample
+        ? resample(src, Math.max(1, Math.round(w * px)), Math.max(1, Math.round(h * px)))
+        : null;
+
+    cr.save();
+    cr.translate((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
+    if (this.rotation !== 0) cr.rotate(this.rotation);
+    cr.translate(-w / 2, -h / 2);
+    let image = src;
+    let filter = !shrinking && quarter ? Cairo.Filter.NEAREST : Cairo.Filter.BILINEAR;
+    if (copy) {
+      image = copy;
+      cr.scale(1 / px, 1 / px);
+      // A sub-pixel origin would blur every pixel of the copy.
+      if (quarter) {
+        const [ox, oy] = cr.userToDevice(0, 0);
+        const [dx, dy] = cr.deviceToUserDistance(Math.round(ox) - ox, Math.round(oy) - oy);
+        cr.translate(dx, dy);
+      }
+      filter = Cairo.Filter.BILINEAR;
+    } else {
+      cr.scale(w / sw, h / sh);
+    }
+    cr.rectangle(0, 0, image.getWidth(), image.getHeight());
+    cr.clip();
+    cr.setSourceSurface(image, 0, 0);
+    const pattern = cr.getSource() as Cairo.SurfacePattern;
+    pattern.setFilter(filter);
+    // PAD so the filter doesn't blend the edge pixels with transparency.
+    pattern.setExtend(Cairo.Extend.PAD);
+    if (this.opacity < 1) cr.paintWithAlpha(this.opacity);
+    else cr.paint();
+    cr.restore();
+  }
+
+  getBounds(): Bounds {
+    return textBounds(this.x1, this.y1, this.x2 - this.x1, this.y2 - this.y1, this.rotation);
+  }
+
+  translate(dx: number, dy: number): Action {
+    return this.make(this.x1 + dx, this.y1 + dy, this.x2 + dx, this.y2 + dy);
+  }
+
+  rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action {
+    const hW = (this.x2 - this.x1) / 2;
+    const hH = (this.y2 - this.y1) / 2;
+    const [cx, cy] = rotatePoint(
+      (this.x1 + this.x2) / 2,
+      (this.y1 + this.y2) / 2,
+      direction,
+      oldW,
+      oldH
+    );
+    const dr = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
+    return new ImageAction(
+      cx - hW,
+      cy - hH,
+      cx + hW,
+      cy + hH,
+      normalizeAngle(this.rotation + dr),
+      this.opacity,
+      this.asset
+    );
+  }
+
+  // Only the box scales; the pixels stay at native resolution.
+  scaleOnImage(factor: number): Action {
+    return this.make(this.x1 * factor, this.y1 * factor, this.x2 * factor, this.y2 * factor);
+  }
+
+  getOpacity(): number {
+    return this.opacity;
+  }
+
+  withOpacity(opacity: number): Action {
+    return new ImageAction(this.x1, this.y1, this.x2, this.y2, this.rotation, opacity, this.asset);
+  }
+
+  getSurface(): Cairo.ImageSurface {
+    return this.asset.surface;
+  }
+
+  getAsset(): ImageAsset {
+    return this.asset;
+  }
+
+  getRotation(): number {
+    return this.rotation;
+  }
+
+  withRotation(rotation: number): Action {
+    return new ImageAction(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      normalizeAngle(rotation),
+      this.opacity,
+      this.asset
+    );
+  }
+
+  getOrientedBounds(): OrientedBounds {
+    return {
+      cx: (this.x1 + this.x2) / 2,
+      cy: (this.y1 + this.y2) / 2,
+      halfW: (this.x2 - this.x1) / 2,
+      halfH: (this.y2 - this.y1) / 2,
+      angle: this.rotation,
+    };
+  }
+
+  containsPoint(ix: number, iy: number): boolean {
+    const {cx, cy, halfW, halfH} = this.getOrientedBounds();
+    const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
+    return Math.abs(lx - cx) <= halfW && Math.abs(ly - cy) <= halfH;
+  }
+
+  // Corners only: an edge handle would have to either distort the image or
+  // move both perpendicular edges.
+  getResizeHandles(): ResizeHandle[] {
+    const cx = (this.x1 + this.x2) / 2;
+    const cy = (this.y1 + this.y2) / 2;
+    return (
+      [
+        ['tl', this.x1, this.y1],
+        ['tr', this.x2, this.y1],
+        ['bl', this.x1, this.y2],
+        ['br', this.x2, this.y2],
+      ] as Array<[HandleId, number, number]>
+    ).map(([id, x, y]) => {
+      const [rx, ry] = rotateAboutPoint(x, y, cx, cy, this.rotation);
+      return {id, x: rx, y: ry};
+    });
+  }
+
+  // Resize from a corner with the opposite corner anchored, keeping the box's
+  // aspect ratio. `constrain` (Shift) frees the aspect ratio instead, the
+  // reverse of rect/oval, where Shift constrains to a square.
+  resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
+    if (handle !== 'tl' && handle !== 'tr' && handle !== 'bl' && handle !== 'br') return this;
+    const w = this.x2 - this.x1;
+    const h = this.y2 - this.y1;
+    if (w <= 0 || h <= 0) return this;
+    let tx = ix;
+    let ty = iy;
+    if (!constrain) {
+      const cx = (this.x1 + this.x2) / 2;
+      const cy = (this.y1 + this.y2) / 2;
+      const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
+      const left = handle === 'tl' || handle === 'bl';
+      const top = handle === 'tl' || handle === 'tr';
+      const ax = left ? this.x2 : this.x1;
+      const ay = top ? this.y2 : this.y1;
+      const sx = left ? -1 : 1;
+      const sy = top ? -1 : 1;
+      // The larger of the two axis ratios, so the corner covers the cursor like
+      // a squared rect/oval does; the floor keeps the short side at the minimum
+      // extent and stops the box inverting.
+      const k = Math.max(
+        ((lx - ax) * sx) / w,
+        ((ly - ay) * sy) / h,
+        SHAPE_MIN_EXTENT / Math.min(w, h)
+      );
+      [tx, ty] = rotateAboutPoint(ax + sx * k * w, ay + sy * k * h, cx, cy, this.rotation);
+    }
+    const [x1, y1, x2, y2] = resizeOrientedBox(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.rotation,
+      handle,
+      tx,
+      ty,
+      false
+    );
+    return this.make(x1, y1, x2, y2);
+  }
+
+  serialize(): SerializedAction {
+    return {
+      type: 'image',
+      x1: this.x1,
+      y1: this.y1,
+      x2: this.x2,
+      y2: this.y2,
+      rotation: this.rotation,
+      opacity: this.opacity,
+      asset: this.asset.id,
+    };
+  }
+}
+
+// An unrotated, opaque image item filling the box at (x, y) of size w × h.
+export function makeImageAction(
+  asset: ImageAsset,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): Action {
+  return new ImageAction(x, y, x + w, y + h, 0, 1, asset);
+}
+
 // Transparent default fill for rect/oval — outline-only on creation. The user
 // can paint a real fill via the picker afterwards (or before, with the tool
 // active).
@@ -3229,6 +3530,14 @@ export function actionToolId(action: Action): ToolId | null {
   return null;
 }
 
+// An action's kind for selecting by type: its tool, or 'image' for an image
+// item, which no tool places.
+export type ActionType = ToolId | 'image';
+
+export function actionType(action: Action): ActionType | null {
+  return action instanceof ImageAction ? 'image' : actionToolId(action);
+}
+
 // ---------- (De)serialization ----------
 
 // Serialize an action list to its on-disk forms (for the .annoscr document).
@@ -3252,10 +3561,26 @@ function deserializeShapeText(text: SerializedShapeText | undefined): ShapeText 
 
 // Reconstruct one action from its serialized form (the inverse of
 // Action.serialize()). Stamps get a placeholder ordinal that deserializeActions
-// corrects via renumberStamps. Throws on an unknown discriminant (corrupt
-// file).
-export function deserializeAction(data: SerializedAction): Action {
+// corrects via renumberStamps. Image items look up their pixels in `assets` by
+// id. Throws on an unknown discriminant or asset (corrupt file).
+function deserializeAction(
+  data: SerializedAction,
+  assets: ReadonlyMap<string, ImageAsset>
+): Action {
   switch (data.type) {
+    case 'image': {
+      const asset = assets.get(data.asset);
+      if (!asset) throw new Error(`Image item refers to a missing image: ${data.asset}`);
+      return new ImageAction(
+        Math.min(data.x1, data.x2),
+        Math.min(data.y1, data.y2),
+        Math.max(data.x1, data.x2),
+        Math.max(data.y1, data.y2),
+        normalizeAngle(data.rotation),
+        data.opacity,
+        asset
+      );
+    }
     case 'pen':
     case 'highlighter':
       return new StrokeAction(
@@ -3348,8 +3673,20 @@ export function deserializeAction(data: SerializedAction): Action {
 
 // Rebuild an action list from serialized data, renumbering stamps so each
 // group's numbering is gap-free regardless of the stored placeholder ordinals.
-export function deserializeActions(data: ReadonlyArray<SerializedAction>): Action[] {
-  return renumberStamps(data.map(deserializeAction));
+export function deserializeActions(
+  data: ReadonlyArray<SerializedAction>,
+  assets: ReadonlyMap<string, ImageAsset> = new Map()
+): Action[] {
+  return renumberStamps(data.map((d) => deserializeAction(d, assets)));
+}
+
+// The distinct image assets the actions draw, in first-use order.
+export function actionAssets(actions: ReadonlyArray<Action>): ImageAsset[] {
+  const byId = new Map<string, ImageAsset>();
+  for (const a of actions) {
+    if (a instanceof ImageAction) byId.set(a.getAsset().id, a.getAsset());
+  }
+  return [...byId.values()];
 }
 
 // ---------- helpers ----------

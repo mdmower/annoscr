@@ -3,6 +3,7 @@ import Gdk from 'gi://Gdk?version=4.0';
 import Cairo from 'cairo';
 
 import type {Action, ColorRGBA} from './actions.js';
+import {scaleSurface} from './image_transforms.js';
 
 export type ImageFormat = 'png' | 'jpeg';
 
@@ -37,7 +38,9 @@ export function formatFromPath(path: string): ImageFormat {
 }
 
 // Composite source image + every action onto a fresh ARGB32 surface at the
-// source image's native resolution. This is what gets saved or copied.
+// source image's native resolution. This is what gets saved or copied. Image
+// items are cut off at the canvas edge, and a shrunk one is resampled with
+// scaleSurface.
 export function renderToSurface(
   srcSurface: Cairo.ImageSurface,
   actions: ReadonlyArray<Action>
@@ -49,7 +52,7 @@ export function renderToSurface(
   cr.setSourceSurface(srcSurface, 0, 0);
   cr.paint();
   for (const action of actions) {
-    action.draw(cr, 1);
+    action.draw(cr, 1, scaleSurface);
   }
   out.flush();
   return out;

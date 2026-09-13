@@ -117,8 +117,8 @@ export function readContainer(bytes: Uint8Array): Chunk[] {
   return chunks;
 }
 
-// The first chunk with this tag, or null. A tag that a future document repeats
-// would be read by filtering the same list instead.
+// The first chunk with this tag, or null. A repeated tag is read by filtering
+// the list instead.
 export function findChunk(chunks: ReadonlyArray<Chunk>, tag: string): Uint8Array | null {
   return chunks.find((chunk) => chunk.tag === tag)?.data ?? null;
 }

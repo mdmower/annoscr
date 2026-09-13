@@ -7,6 +7,7 @@ import Cairo from 'cairo';
 
 import {
   Action,
+  ActionType,
   Bounds,
   ColorRGBA,
   DashStyle,
@@ -22,6 +23,7 @@ import {
   ToolId,
   TRANSPARENT_FILL,
   actionToolId,
+  actionType,
   createLiveStroke,
   defaultColorForTool,
   defaultTextColorForTool,
@@ -37,6 +39,7 @@ import {
   isTextAction,
   getShapeTextEditState,
   getTextEditState,
+  makeImageAction,
   makeNumberStampAction,
   numberStampGroup,
   numberStampRadius,
@@ -51,7 +54,8 @@ import {
 } from './actions.js';
 import {resizeSurface, rotateSurface, scaleSurface} from './image_transforms.js';
 import {renderToSurface, sampleSurfacePixel} from './exporter.js';
-import type {EditorSize, RotateDirection, TextAlign, TextStyle} from './actions.js';
+import type {EditorSize, ImageAsset, RotateDirection, TextAlign, TextStyle} from './actions.js';
+import {ResampleCache} from './resample_cache.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
 import {announce, setAccessibleDescription, setAccessibleLabel} from './a11y.js';
 import {TOOLS} from './window_constants.js';
@@ -605,6 +609,16 @@ export const CanvasView = GObject.registerClass(
     // be disconnected on unrealize (0 = not connected).
     private darkHandlerId: number = 0;
 
+    // Resampled copies of shrunk image items for painting.
+    private resampleCache = new ResampleCache(() => this.queue_draw());
+
+    // The history state the last image insert pushed, and the center of the
+    // last item it placed. A further insert while that state is still current
+    // is offset from that item; any other push, an undo or redo, or a tool
+    // change ends the sequence, so the next insert starts at the viewport
+    // center again.
+    private insertSequence: {state: CanvasState; cx: number; cy: number} | null = null;
+
     constructor() {
       // focusable so the canvas joins the Tab chain and can be driven by the
       // keyboard (select/move/place); GROUP role + a name so AT announces it
@@ -636,6 +650,7 @@ export const CanvasView = GObject.registerClass(
       this.connect('unrealize', () => {
         // A live auto-scroll tick must not outlive the widget's frame clock.
         this.stopAutoScroll();
+        this.resampleCache.clear();
         if (!this.darkHandlerId) return;
         Adw.StyleManager.get_default().disconnect(this.darkHandlerId);
         this.darkHandlerId = 0;
@@ -696,25 +711,30 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Drop the oldest history entries until the distinct surfaces the survivors
-    // reference fit surfaceBytesCap. The trim is a strict prefix: an entry
-    // can't outlive its surface (the entry IS {surface, actions}), so evicting
-    // a surface removes every entry that references it — and everything older —
-    // with it. The newest distinct surface is always retained regardless of
-    // size (the current image must exist), so on a source whose single surface
-    // exceeds the budget, only cross-transform undo is lost — annotation
-    // entries sharing the current surface cost nothing and survive. The cut is
-    // clamped to the cursor for the live budget-lowering case
-    // (setUndoMemoryBudget after undos): the state being viewed is never
-    // trimmed, even if redo entries alone exceed the budget.
+    // reference (each entry's source surface and its image items' surfaces) fit
+    // surfaceBytesCap. The trim is a strict prefix: an entry can't outlive its
+    // surfaces, so evicting a surface removes every entry that references it —
+    // and everything older — with it. The newest entry's surfaces are always
+    // retained regardless of size (the current document must exist), so when
+    // they alone exceed the budget, only undo past a change of surfaces (a
+    // transform, an inserted or deleted image item) is lost — annotation entries
+    // sharing them cost nothing and survive. The cut is clamped to the cursor
+    // for the live budget-lowering case (setUndoMemoryBudget after undos): the
+    // state being viewed is never trimmed, even if redo entries alone exceed the
+    // budget.
     private enforceSurfaceCap(): void {
       if (this.surfaceBytesCap === null) return;
       const seen = new Set<Cairo.ImageSurface>();
       let bytes = 0;
       for (let i = this.history.length - 1; i >= 0; i--) {
-        const s = this.history[i].surface;
-        if (!s || seen.has(s)) continue;
-        const size = s.getStride() * s.getHeight();
-        if (seen.size >= 1 && bytes + size > this.surfaceBytesCap) {
+        const {surface, actions} = this.history[i];
+        const added = new Set<Cairo.ImageSurface>();
+        for (const s of [surface, ...actions.map((a) => a.getSurface())]) {
+          if (s && !seen.has(s)) added.add(s);
+        }
+        let size = 0;
+        for (const s of added) size += s.getStride() * s.getHeight();
+        if (i < this.history.length - 1 && bytes + size > this.surfaceBytesCap) {
           const cut = Math.min(i + 1, this.historyCursor);
           if (cut > 0) {
             this.history.splice(0, cut);
@@ -722,13 +742,14 @@ export const CanvasView = GObject.registerClass(
           }
           return;
         }
-        seen.add(s);
+        for (const s of added) seen.add(s);
         bytes += size;
       }
     }
 
     private resetTransientState(): void {
       this.liveStroke = null;
+      this.insertSequence = null;
       this.colorSampleHandler = null;
       this.clearSampleComposite();
       this.selectedIndices.clear();
@@ -937,6 +958,7 @@ export const CanvasView = GObject.registerClass(
       this.cancelColorSample();
       this.currentToolId = toolId;
       this.liveStroke = null;
+      this.insertSequence = null;
       this.stopAutoScroll();
       this.selectedIndices.clear();
       this.moving = false;
@@ -1372,24 +1394,24 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Action count per tool type (actionToolId, so pen and highlighter are
-    // separate); types with no actions are absent.
-    countByTool(): Map<ToolId, number> {
-      const counts = new Map<ToolId, number>();
+    // Action count per type (actionType, so pen and highlighter are separate);
+    // types with no actions are absent.
+    countByType(): Map<ActionType, number> {
+      const counts = new Map<ActionType, number>();
       for (const a of this.state.actions) {
-        const tid = actionToolId(a);
-        if (tid) counts.set(tid, (counts.get(tid) ?? 0) + 1);
+        const type = actionType(a);
+        if (type) counts.set(type, (counts.get(type) ?? 0) + 1);
       }
       return counts;
     }
 
-    // Add every action of one tool type to the selection. Returns true if the
+    // Add every action of one type to the selection. Returns true if the
     // selection changed.
-    selectType(toolId: ToolId): boolean {
+    selectType(type: ActionType): boolean {
       if (this.currentToolId !== 'select') return false;
       const prevKey = this.selectionKey();
       this.state.actions.forEach((a, i) => {
-        if (actionToolId(a) === toolId) this.selectedIndices.add(i);
+        if (actionType(a) === type) this.selectedIndices.add(i);
       });
       if (this.selectionKey() === prevKey) return false;
       this.lastCoalesceKey = null;
@@ -1701,6 +1723,18 @@ export const CanvasView = GObject.registerClass(
       );
     }
 
+    // Opacity belongs only to image items, which no tool places, so there's no
+    // tool default to write.
+    replaceSelectedOpacity(opacity: number): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getOpacity(),
+        (a, v) => a.withOpacity(v),
+        opacity,
+        'opacity',
+        () => {}
+      );
+    }
+
     // Remove the bend from every selected line/arrow. Like the callout tail, a
     // curve is per-segment geometry with no tool default (a newly drawn segment
     // is always straight), so the setToolDefault callback is a no-op and
@@ -1767,6 +1801,56 @@ export const CanvasView = GObject.registerClass(
       // select-after-placement preference. Every placement path — shapes,
       // stamps, new text — goes through here.
       if (this.onPlaced) this.onPlaced(this.state.actions.length - 1);
+    }
+
+    // Add image items and select them, as one history entry. The first is
+    // centered in the viewport, or offset from the previous insert's last item
+    // (see insertSequence); each further item is offset from the one before by
+    // CLONE_OFFSET_PX on both axes. An image larger than the canvas is scaled
+    // down to fit it, keeping its aspect ratio. The select-after-placement
+    // preference doesn't apply: there's no placement tool to stay in, so the
+    // caller switches to the select tool first.
+    insertImages(assets: ReadonlyArray<ImageAsset>): void {
+      const surface = this.state.surface;
+      if (!surface || assets.length === 0) return;
+      // An image opened in the same call hasn't been allocated yet; its view
+      // will show the whole canvas, so the canvas center is the viewport's.
+      const allocated = this.get_width() > 0 && this.get_height() > 0;
+      const scale = allocated ? this.currentTransform().scale : 1;
+      const off = Math.max(1, Math.round(CLONE_OFFSET_PX / scale));
+      const seq = this.insertSequence?.state === this.state ? this.insertSequence : null;
+      let [cx, cy] = seq
+        ? [seq.cx + off, seq.cy + off]
+        : allocated
+          ? this.widgetToImage(...this.viewportCenterWidget())
+          : [surface.getWidth() / 2, surface.getHeight() / 2];
+      const cur = this.state.actions;
+      const added = assets.map((asset, k) => {
+        if (k > 0) {
+          cx += off;
+          cy += off;
+        }
+        const sw = asset.surface.getWidth();
+        const sh = asset.surface.getHeight();
+        const fit = Math.min(1, surface.getWidth() / sw, surface.getHeight() / sh);
+        const w = sw * fit;
+        const h = sh * fit;
+        // Whole-pixel corner, so an unscaled item is drawn pixel-aligned.
+        return makeImageAction(asset, Math.round(cx - w / 2), Math.round(cy - h / 2), w, h);
+      });
+      // Select before pushState so its notification refreshes the style bar
+      // against the new selection.
+      this.selectedIndices.clear();
+      for (let k = 0; k < added.length; k++) this.selectedIndices.add(cur.length + k);
+      this.pushState({surface, actions: [...cur, ...added]});
+      this.insertSequence = {state: this.state, cx, cy};
+      this.queue_draw();
+      announce(
+        this,
+        added.length === 1
+          ? _('%s added').replace('%s', _('Image'))
+          : formatN(_('%d images added'), added.length)
+      );
     }
 
     replaceAction(index: number, action: Action): void {
@@ -2589,6 +2673,7 @@ export const CanvasView = GObject.registerClass(
 
     // Name an action by its tool (e.g. "Arrow", "Text"), for announce().
     private describeAction(a: Action): string {
+      if (actionType(a) === 'image') return _('Image');
       const tid = actionToolId(a);
       const tool = tid ? TOOLS.find((t) => t.id === tid) : undefined;
       return tool ? _(tool.label) : _('Annotation');
@@ -3627,6 +3712,8 @@ export const CanvasView = GObject.registerClass(
 
       const acts = this.state.actions;
       const sole = this.soleSelectedIndex();
+      const resample = this.resampleCache.lookup;
+      this.resampleCache.beginPaint();
       for (let i = 0; i < acts.length; i++) {
         if (i === this.editingActionIndex) {
           // The edited action is hidden so the live editor replaces it. A box
@@ -3639,16 +3726,17 @@ export const CanvasView = GObject.registerClass(
         if ((this.actionGrab || this.rotateGrab) && this.actionPreview && i === sole) {
           // Mid-reshape (resize or rotate): render the preview in the stored
           // action's place.
-          this.actionPreview.draw(cr, t.scale);
+          this.actionPreview.draw(cr, t.scale, resample);
         } else if (this.moving && this.selectedIndices.has(i)) {
           cr.save();
           cr.translate(this.moveDx, this.moveDy);
-          acts[i].draw(cr, t.scale);
+          acts[i].draw(cr, t.scale, resample);
           cr.restore();
         } else {
-          acts[i].draw(cr, t.scale);
+          acts[i].draw(cr, t.scale, resample);
         }
       }
+      this.resampleCache.endPaint();
       if (this.liveStroke) this.liveStroke.draw(cr, t.scale);
 
       this.drawSelectionBoxes(cr, acts, t.scale);

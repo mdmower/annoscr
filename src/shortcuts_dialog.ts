@@ -36,6 +36,7 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', 'S'], desc: N_('Save image')},
       {keys: ['Ctrl', 'C'], desc: N_('Copy to clipboard')},
       {keys: ['Ctrl', 'V'], desc: N_('Paste image')},
+      {keys: ['Ctrl', 'Shift', 'V'], desc: N_('Paste image as an item on the canvas')},
       {keys: ['Ctrl', ','], desc: N_('Preferences')},
       {keys: ['Ctrl', '?'], desc: N_('Keyboard shortcuts')},
       {keys: ['Ctrl', 'Q'], desc: N_('Quit')},

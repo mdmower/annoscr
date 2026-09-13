@@ -9,6 +9,7 @@ import {
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_VARIANT,
   EditorSize,
+  ImageAsset,
   SHAPE_TEXT_STYLE,
   SerializedAction,
   SerializedShapeText,
@@ -20,6 +21,7 @@ import {
   STORED_SIZE_MAX,
   STORED_SIZE_MIN,
   WIDTH_MIN,
+  actionAssets,
   defaultColorForTool,
   defaultFillForTool,
   defaultWidthForTool,
@@ -43,7 +45,7 @@ import {
   asStampVariant,
   isRecord,
 } from './validators.js';
-import {loadFromBytes} from './image_loader.js';
+import {assetFromPng, loadFromBytes} from './image_loader.js';
 import {APP_VERSION} from './version.js';
 
 // The Annoscr annotation document: the source image plus the editable action
@@ -53,8 +55,8 @@ import {APP_VERSION} from './version.js';
 // portion is stored.
 //
 // The file is a chunk container (document_container.ts): metadata, the
-// composited preview, the source image, and the action stack, each its own
-// length-prefixed payload — so a reader that needs one payload reads only that
+// composited preview, the source image, the action stack, and each image
+// item's pixels, each its own length-prefixed payload — so a reader that needs one payload reads only that
 // one, and images are stored as PNG bytes rather than base64 a third larger.
 // Older documents are JSON envelopes; they still open (parseLegacyDocument) but
 // are never written again.
@@ -74,16 +76,26 @@ export function isDocumentName(name: string): boolean {
 const DOC_FORMAT = 'annoscr-document';
 
 // What the chunks MEAN. Bump when an existing field changes meaning; a reader
-// rejects versions it doesn't recognize. Adding a chunk or an optional field is
+// rejects versions newer than it knows. Adding a chunk or an optional field is
 // additive (readers skip what they don't know) and bumps nothing. How the
 // chunks are FRAMED is versioned separately, inside the container.
-const DOC_SCHEMA_VERSION = 1;
+// 2: image items, which version 1 readers can't skip (an unknown action type
+// rejects the file). Version 1 documents are read unchanged.
+const DOC_SCHEMA_VERSION = 2;
 
-// Chunk tags. META and ACTS hold JSON text; THMB and IMGE hold PNG bytes.
+// Chunk tags. META and ACTS hold JSON text; THMB and IMGE hold PNG bytes. IMGA
+// (repeated, one per distinct image) holds an image item's asset: its id as
+// ASSET_ID_LENGTH ASCII hex characters, then the PNG bytes, so the id can be
+// read without decoding the image.
 const TAG_META = 'META';
 export const TAG_THUMBNAIL = 'THMB';
 export const TAG_IMAGE = 'IMGE';
 const TAG_ACTIONS = 'ACTS';
+const TAG_ASSET = 'IMGA';
+
+// A SHA-256 in lowercase hex.
+const ASSET_ID_LENGTH = 64;
+const ASSET_ID_PATTERN = /^[0-9a-f]{64}$/;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -134,7 +146,17 @@ export function serializeDocument(
     ),
     pngChunk(TAG_IMAGE, surfaceToPngBytes(surface)),
     jsonChunk(TAG_ACTIONS, serializeActions(actions)),
+    // After the actions, so a reader of any earlier chunk skips the item
+    // images.
+    ...actionAssets(actions).map(assetChunk),
   ]);
+}
+
+function assetChunk(asset: ImageAsset): Chunk {
+  const data = new Uint8Array(ASSET_ID_LENGTH + asset.png.length);
+  data.set(encoder.encode(asset.id), 0);
+  data.set(asset.png, ASSET_ID_LENGTH);
+  return {tag: TAG_ASSET, data};
 }
 
 // ---------- Per-field validation of loaded actions ----------
@@ -320,6 +342,38 @@ function sanitizeSegment(raw: Record<string, unknown>, type: 'line' | 'arrow'): 
   return type === 'arrow' ? {type, ...base, filledHead: raw.filledHead === true} : {type, ...base};
 }
 
+// Rect and oval share the box fields; only the rect has a corner radius.
+function sanitizeBox(raw: Record<string, unknown>, type: 'rect' | 'oval'): SerializedAction {
+  const text = sanitizeShapeText(raw.text);
+  const tail = sanitizeTail(raw.tail);
+  const box = {
+    ...sanitizeEndpoints(raw, type),
+    fill: asColor(raw.fill) ?? TRANSPARENT_FILL,
+    rotation: asAngle(raw.rotation),
+    ...(text ? {text} : {}),
+    ...(tail ? {tail} : {}),
+  };
+  if (type === 'oval') return {type, ...box};
+  return {type, ...box, cornerRadius: asClampedNumber(raw.cornerRadius, 0, STORED_SIZE_MAX) ?? 0};
+}
+
+// An image item's box and asset reference are its content; opacity is style.
+function sanitizeImage(raw: Record<string, unknown>): SerializedAction {
+  if (typeof raw.asset !== 'string' || !ASSET_ID_PATTERN.test(raw.asset)) {
+    throw new DocumentError('Image annotation has a malformed image reference');
+  }
+  return {
+    type: 'image',
+    x1: requireFinite(raw.x1, 'coordinate'),
+    y1: requireFinite(raw.y1, 'coordinate'),
+    x2: requireFinite(raw.x2, 'coordinate'),
+    y2: requireFinite(raw.y2, 'coordinate'),
+    rotation: asAngle(raw.rotation),
+    opacity: asClampedNumber(raw.opacity, 0, 1) ?? 1,
+    asset: raw.asset,
+  };
+}
+
 function sanitizeAction(raw: unknown): SerializedAction {
   if (!isRecord(raw)) throw new DocumentError('Annotation entry is not an object');
   const type = raw.type;
@@ -338,35 +392,15 @@ function sanitizeAction(raw: unknown): SerializedAction {
     case 'line':
     case 'arrow':
       return sanitizeSegment(raw, type);
-    case 'rect': {
-      const text = sanitizeShapeText(raw.text);
-      const tail = sanitizeTail(raw.tail);
-      return {
-        type,
-        ...sanitizeEndpoints(raw, type),
-        fill: asColor(raw.fill) ?? TRANSPARENT_FILL,
-        rotation: asAngle(raw.rotation),
-        cornerRadius: asClampedNumber(raw.cornerRadius, 0, STORED_SIZE_MAX) ?? 0,
-        ...(text ? {text} : {}),
-        ...(tail ? {tail} : {}),
-      };
-    }
-    case 'oval': {
-      const text = sanitizeShapeText(raw.text);
-      const tail = sanitizeTail(raw.tail);
-      return {
-        type,
-        ...sanitizeEndpoints(raw, type),
-        fill: asColor(raw.fill) ?? TRANSPARENT_FILL,
-        rotation: asAngle(raw.rotation),
-        ...(text ? {text} : {}),
-        ...(tail ? {tail} : {}),
-      };
-    }
+    case 'rect':
+    case 'oval':
+      return sanitizeBox(raw, type);
     case 'text':
       return sanitizeText(raw);
     case 'number':
       return sanitizeNumber(raw);
+    case 'image':
+      return sanitizeImage(raw);
     default:
       throw new DocumentError(`Unknown annotation type: ${JSON.stringify(type)}`);
   }
@@ -391,9 +425,32 @@ function decodeImage(bytes: Uint8Array): Cairo.ImageSurface {
   }
 }
 
-function buildActions(raw: unknown): Action[] {
+// `assetChunks` are the IMGA payloads; only the ones an item refers to are
+// decoded.
+function buildActions(raw: unknown, assetChunks: ReadonlyArray<Uint8Array> = []): Action[] {
+  const serialized = sanitizeSerializedActions(raw);
+  const stored = new Map<string, Uint8Array>();
+  for (const data of assetChunks) {
+    if (data.length <= ASSET_ID_LENGTH) throw new DocumentError('Image chunk is truncated');
+    const id = decoder.decode(data.subarray(0, ASSET_ID_LENGTH));
+    if (!ASSET_ID_PATTERN.test(id)) throw new DocumentError('Image chunk has a malformed id');
+    if (!stored.has(id)) stored.set(id, data.subarray(ASSET_ID_LENGTH));
+  }
+  const assets = new Map<string, ImageAsset>();
+  for (const a of serialized) {
+    if (a.type !== 'image' || assets.has(a.asset)) continue;
+    const png = stored.get(a.asset);
+    if (!png) throw new DocumentError(`Image annotation refers to a missing image: ${a.asset}`);
+    try {
+      // A copy: the chunk is a view onto the whole file's bytes, which the asset
+      // would otherwise keep alive.
+      assets.set(a.asset, assetFromPng(a.asset, png.slice()));
+    } catch (e) {
+      throw new DocumentError(`Could not decode an annotation image: ${String(e)}`);
+    }
+  }
   try {
-    return deserializeActions(sanitizeSerializedActions(raw));
+    return deserializeActions(serialized, assets);
   } catch (e) {
     if (e instanceof DocumentError) throw e;
     // e.g. Pango rejecting a text's markup at layout time.
@@ -416,7 +473,12 @@ function checkMeta(data: Uint8Array | null): void {
   if (!isRecord(meta) || meta.format !== DOC_FORMAT) {
     throw new DocumentError('Not an Annoscr annotation file');
   }
-  if (meta.version !== DOC_SCHEMA_VERSION) {
+  if (
+    typeof meta.version !== 'number' ||
+    !Number.isInteger(meta.version) ||
+    meta.version < 1 ||
+    meta.version > DOC_SCHEMA_VERSION
+  ) {
     throw new DocumentError(`Unsupported annotation file version: ${JSON.stringify(meta.version)}`);
   }
 }
@@ -443,7 +505,8 @@ function parseContainerDocument(bytes: Uint8Array): ParsedDocument {
       throw new DocumentError('Annotation list is malformed');
     }
   }
-  return {surface: decodeImage(image), actions: buildActions(raw)};
+  const assetChunks = chunks.filter((c) => c.tag === TAG_ASSET).map((c) => c.data);
+  return {surface: decodeImage(image), actions: buildActions(raw, assetChunks)};
 }
 
 // ---------- Documents written before the container ----------
