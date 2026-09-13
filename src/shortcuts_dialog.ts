@@ -104,6 +104,7 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', '-'], desc: N_('Zoom out')},
       {keys: ['Ctrl', 'Scroll'], desc: N_('Zoom at the pointer')},
       {keys: ['Arrow keys'], desc: N_('Pan the canvas (when nothing is selected)')},
+      {keys: ['Ctrl', 'H'], desc: N_('Show or hide recent files')},
     ],
   },
   {

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-07 17:28-0700\n"
+"POT-Creation-Date: 2026-09-13 10:41-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -79,66 +79,66 @@ msgstr ""
 msgid "Annotate a screenshot. FILE is an image or .annoscr file to open."
 msgstr ""
 
-#: src/canvas_view.ts:582
+#: src/canvas_view.ts:610
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1383
+#: src/canvas_view.ts:1422
 msgid "Click the image to pick a color"
 msgstr ""
 
-#: src/canvas_view.ts:1398
+#: src/canvas_view.ts:1437
 msgid "Color pick canceled"
 msgstr ""
 
-#: src/canvas_view.ts:1427
+#: src/canvas_view.ts:1466
 msgid "Color picked"
 msgstr ""
 
-#: src/canvas_view.ts:1689
+#: src/canvas_view.ts:1727
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1753
+#: src/canvas_view.ts:1791
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:2225
+#: src/canvas_view.ts:2263
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:2266 src/zoom_controller.ts:209
+#: src/canvas_view.ts:2304 src/zoom_controller.ts:209
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:2495
+#: src/canvas_view.ts:2533
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:2496
+#: src/canvas_view.ts:2534
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:2499
+#: src/canvas_view.ts:2537
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:2507 src/canvas_view.ts:2511
+#: src/canvas_view.ts:2545 src/canvas_view.ts:2549
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:2508
+#: src/canvas_view.ts:2546
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:2518
+#: src/canvas_view.ts:2556
 msgid "Annotation"
 msgstr ""
 
@@ -158,7 +158,7 @@ msgid ""
 msgstr ""
 
 #: src/dialogs.ts:49 src/dialogs.ts:68 src/dialogs.ts:197
-#: src/shortcuts_dialog.ts:122 src/tool_bar.ts:102
+#: src/shortcuts_dialog.ts:123 src/tool_bar.ts:102
 msgid "Cancel"
 msgstr ""
 
@@ -436,7 +436,7 @@ msgid ""
 "Files you open will appear here. Drop files or press Insert to add them."
 msgstr ""
 
-#: src/recent_strip.ts:276 src/shortcuts_dialog.ts:110 src/window.ts:481
+#: src/recent_strip.ts:276 src/shortcuts_dialog.ts:111 src/window.ts:481
 msgid "Recent files"
 msgstr ""
 
@@ -486,7 +486,7 @@ msgstr ""
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:36 src/window.ts:1274
+#: src/shortcuts_dialog.ts:36 src/window.ts:1281
 msgid "Save image"
 msgstr ""
 
@@ -502,7 +502,7 @@ msgstr ""
 msgid "Preferences"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:40 src/shortcuts_dialog.ts:157 src/window.ts:196
+#: src/shortcuts_dialog.ts:40 src/shortcuts_dialog.ts:158 src/window.ts:196
 msgid "Keyboard shortcuts"
 msgstr ""
 
@@ -683,31 +683,35 @@ msgstr ""
 msgid "Pan the canvas (when nothing is selected)"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:111
+#: src/shortcuts_dialog.ts:107
+msgid "Show or hide recent files"
+msgstr ""
+
+#: src/shortcuts_dialog.ts:112
 msgid "While a thumbnail in the strip has focus."
 msgstr ""
 
-#: src/shortcuts_dialog.ts:113
+#: src/shortcuts_dialog.ts:114
 msgid "Forget the focused file"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:114
+#: src/shortcuts_dialog.ts:115
 msgid "Show the focused file in Files"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:115
+#: src/shortcuts_dialog.ts:116
 msgid "Open the thumbnail menu"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:119
+#: src/shortcuts_dialog.ts:120
 msgid "Crop or expand mode"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:121
+#: src/shortcuts_dialog.ts:122
 msgid "Apply the new canvas region"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:149
+#: src/shortcuts_dialog.ts:150
 msgid "or"
 msgstr ""
 
@@ -959,7 +963,7 @@ msgid "Scale image…"
 msgstr ""
 
 #: src/window.ts:487
-msgid "Show or hide recently opened files"
+msgid "Show or hide recently opened files (Ctrl+H)"
 msgstr ""
 
 #: src/window.ts:550
@@ -1014,72 +1018,72 @@ msgstr ""
 msgid "Opening the dropped image"
 msgstr ""
 
-#: src/window.ts:1184 src/window.ts:1328
+#: src/window.ts:1191 src/window.ts:1335
 msgid "Could not save image"
 msgstr ""
 
-#: src/window.ts:1198
+#: src/window.ts:1205
 msgid "Image saved"
 msgstr ""
 
 #. Stayed open with no dialog shown — confirm with an in-window toast.
-#: src/window.ts:1207
+#: src/window.ts:1214
 #, javascript-format
 msgid "Saved %s"
 msgstr ""
 
-#: src/window.ts:1242
+#: src/window.ts:1249
 msgid "Show in Files"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:1283
+#: src/window.ts:1290
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:1341
+#: src/window.ts:1348
 msgid "Save annotation file"
 msgstr ""
 
-#: src/window.ts:1355 src/window.ts:1410
+#: src/window.ts:1362 src/window.ts:1417
 msgid "Annotation file"
 msgstr ""
 
-#: src/window.ts:1397
+#: src/window.ts:1404
 msgid "Could not save annotation file"
 msgstr ""
 
-#: src/window.ts:1403
+#: src/window.ts:1410
 msgid "Opening an annotation file"
 msgstr ""
 
-#: src/window.ts:1409
+#: src/window.ts:1416
 msgid "Open annotation file"
 msgstr ""
 
-#: src/window.ts:1444
+#: src/window.ts:1451
 msgid "Could not open annotation file"
 msgstr ""
 
-#: src/window.ts:1460 src/window.ts:1466
+#: src/window.ts:1467 src/window.ts:1473
 msgid "Image copied to clipboard"
 msgstr ""
 
-#: src/window.ts:1470
+#: src/window.ts:1477
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:1515
+#: src/window.ts:1522
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:1541 src/window.ts:1580
+#: src/window.ts:1548 src/window.ts:1587
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:1553 src/window.ts:1576
+#: src/window.ts:1560 src/window.ts:1583
 msgid "Clipboard has no image to paste"
 msgstr ""
 

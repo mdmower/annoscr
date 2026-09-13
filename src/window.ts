@@ -484,7 +484,7 @@ export const AnnoscrWindow = GObject.registerClass(
       this.recentToggle = new Gtk.ToggleButton({
         child: this.recentToggleIcon,
         css_classes: ['flat'],
-        tooltip_text: _('Show or hide recently opened files'),
+        tooltip_text: _('Show or hide recently opened files (Ctrl+H)'),
         active: isStripVisible(),
       });
       this.recentToggle.connect('toggled', () => {
@@ -950,6 +950,13 @@ export const AnnoscrWindow = GObject.registerClass(
         // set_active drives the toggle's own handler, which persists the state
         // and expands the strip; it no-ops when the strip is already shown.
         return this.recentStrip.presentAddDialog(() => this.recentToggle.set_active(true));
+      });
+      // Show or hide the recent strip through the status-bar toggle, which
+      // persists the state. Inert while the preference hides the toggle.
+      this.bindShortcut(controller, '<Control>h', () => {
+        if (!getSettings().rememberRecentFiles) return false;
+        this.recentToggle.set_active(!this.recentToggle.get_active());
+        return true;
       });
       // Undo/redo are disabled while resize mode is active: a pending region
       // is transient state that hasn't been committed, and rolling history
