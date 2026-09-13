@@ -1372,6 +1372,33 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
+    // Action count per tool type (actionToolId, so pen and highlighter are
+    // separate); types with no actions are absent.
+    countByTool(): Map<ToolId, number> {
+      const counts = new Map<ToolId, number>();
+      for (const a of this.state.actions) {
+        const tid = actionToolId(a);
+        if (tid) counts.set(tid, (counts.get(tid) ?? 0) + 1);
+      }
+      return counts;
+    }
+
+    // Add every action of one tool type to the selection. Returns true if the
+    // selection changed.
+    selectType(toolId: ToolId): boolean {
+      if (this.currentToolId !== 'select') return false;
+      const prevKey = this.selectionKey();
+      this.state.actions.forEach((a, i) => {
+        if (actionToolId(a) === toolId) this.selectedIndices.add(i);
+      });
+      if (this.selectionKey() === prevKey) return false;
+      this.lastCoalesceKey = null;
+      this.queue_draw();
+      this.notifyStateChange();
+      announce(this, this.describeSelection());
+      return true;
+    }
+
     // Replace the selection with every action whose box, and callout tail if
     // it has one, is fully inside the marquee rectangle (image-space corners).
     // Rotatable actions test their oriented (tilted) box, so a rotated shape

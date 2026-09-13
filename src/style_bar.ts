@@ -7,7 +7,7 @@ import {CanvasView} from './canvas_view.js';
 import {TextEditor, TextEditorStyle} from './text_editor.js';
 import {FontEntry, getAvailableFonts} from './font_catalogue.js';
 import {colorToHex, colorToRgba, parseHexColor, rgbaToColor} from './gdk_color.js';
-import {DASH_ORDER} from './window_constants.js';
+import {DASH_ORDER, TOOLS} from './window_constants.js';
 import {labelFromTooltip, setAccessibleLabel, setLabelledBy} from './a11y.js';
 import {_, formatN} from './i18n.js';
 import {
@@ -21,6 +21,7 @@ import {
   FONT_SIZE_MIN,
   StampVariant,
   TextAlign,
+  ToolId,
   WIDTH_MAX,
   WIDTH_MIN,
   defaultCornerRadiusForTool,
@@ -37,6 +38,47 @@ import {
   numberStampVariant,
   styleValuesEqual,
 } from './actions.js';
+
+interface MenuRow {
+  label: string;
+  run: () => void;
+}
+
+// The select-mode menu's contents. Rows are grouped into sections, which the
+// menu divides with separators.
+interface ActionsMenuSpec {
+  // With a selection, the Select rows move into a submenu and the actions on
+  // the selection follow it.
+  selected: boolean;
+  // All, then one row per annotation type present.
+  select: MenuRow[][];
+  actions: MenuRow[][];
+  renumberNote: boolean;
+}
+
+// A select-by-type row label; null for tool ids that are not annotation types.
+function typeRowLabel(tool: ToolId, n: number): string | null {
+  switch (tool) {
+    case 'pen':
+      return formatN(_('Pen strokes (%d)'), n);
+    case 'highlighter':
+      return formatN(_('Highlights (%d)'), n);
+    case 'text':
+      return formatN(_('Text (%d)'), n);
+    case 'number':
+      return formatN(_('Number stamps (%d)'), n);
+    case 'line':
+      return formatN(_('Lines (%d)'), n);
+    case 'arrow':
+      return formatN(_('Arrows (%d)'), n);
+    case 'rect':
+      return formatN(_('Rectangles (%d)'), n);
+    case 'oval':
+      return formatN(_('Ovals (%d)'), n);
+    default:
+      return null;
+  }
+}
 
 // Orange for the "mixed" marker dot. A concrete hex — Pango markup can't
 // reference theme @colors — chosen to be visible on both light and dark caption
@@ -203,27 +245,18 @@ export class StyleBar {
   private variantGroup!: Gtk.Box;
   private variantLabel!: Gtk.Label;
   private variantDropdown!: Gtk.DropDown;
-  // Select-mode actions (Duplicate + z-order) in one overflow menu, so they
-  // don't take up bar space. Visible only when the select tool has a selection.
+  // The select-mode menu (select by type, and the actions on a selection) in
+  // one overflow button, so it takes one bar slot. Visible whenever the select
+  // tool is active.
   private actionsGroup!: Gtk.Box;
-  // Select-mode action (a row in the selection-actions menu): opens the box
-  // editor on a lone selected rect/oval. Both refs are held so refresh can show
-  // the row for that selection only and relabel it "Add text" / "Edit text"
-  // depending on whether the shape already has any.
-  private addTextBtn!: Gtk.Button;
-  private addTextLabel!: Gtk.Label;
-  // Select-mode action: removes the bend from selected curved line/arrow
-  // segments.
-  // Shown only when the selection actually contains one, so a straight-segment
-  // selection isn't offered a no-op.
-  private straightenBtn!: Gtk.Button;
-  // The renumber footnote under Duplicate + z-order. Stamps are the only
-  // actions those moves renumber, so it shows only when the selection holds
-  // a number stamp.
-  private renumberNote!: Gtk.Label;
-  // Separates the two type-specific rows above from the universal ones below;
-  // visible whenever either of them is.
-  private typedActionsSep!: Gtk.Separator;
+  private actionsPopover!: Gtk.Popover;
+  // The menu's pages; reset to the first page when the menu closes.
+  private actionsStack: Gtk.Stack | null = null;
+  // JSON of the spec the menu was last built from; null forces a rebuild.
+  private actionsMenuKey: string | null = null;
+  // The spec changed while the menu was open; rebuilt when it closes, so rows
+  // don't move under the pointer.
+  private actionsMenuStale = false;
   // Text-style controls — each its own inline group, hidden when its property
   // doesn't apply (Text color / Font+Size for any text; Align for shape
   // text only). The bar scrolls horizontally when the full set overflows.
@@ -380,21 +413,28 @@ export class StyleBar {
       return makeColumn(sep, label, ...controls);
     };
 
-    // Selection-actions menu — Duplicate + z-order in one overflow button so
-    // they don't take up bar space. The keyboard shortcuts (Ctrl+D, Ctrl+[ / ]
-    // …) still work directly. First in the bar, left of the per-property
-    // controls. The panel has room for a labeled button; the strip stays
-    // icon-only.
+    // Select-mode menu, first in the bar, left of the per-property controls.
+    // The panel has room for a labeled button; the strip stays icon-only.
     const actionsSep = makeSep();
     const actionsMenu = vertical
-      ? new Gtk.MenuButton({label: _('Selection actions')})
+      ? new Gtk.MenuButton({label: _('Select and arrange')})
       : new Gtk.MenuButton({
           icon_name: 'view-more-symbolic',
-          tooltip_text: _('Selection actions'),
+          tooltip_text: _('Select and arrange'),
           valign: Gtk.Align.CENTER,
         });
     if (!vertical) labelFromTooltip(actionsMenu);
-    actionsMenu.set_popover(this.buildActionsPopover());
+    this.actionsPopover = new Gtk.Popover();
+    this.actionsStack = null;
+    this.actionsMenuKey = null;
+    this.actionsMenuStale = false;
+    this.actionsPopover.connect('closed', () => {
+      this.actionsStack?.set_visible_child_full('main', Gtk.StackTransitionType.NONE);
+      if (!this.actionsMenuStale) return;
+      this.actionsMenuStale = false;
+      this.refreshActionsMenu();
+    });
+    actionsMenu.set_popover(this.actionsPopover);
     this.actionsGroup = vertical
       ? makeColumn(actionsSep, actionsMenu)
       : makeGroup(actionsSep, actionsMenu);
@@ -640,61 +680,86 @@ export class StyleBar {
     return styleBar;
   }
 
-  // The selection-actions overflow popover: Add/Edit text (lone rect/oval
-  // only), Duplicate, and the four z-order moves — each closing the popover
-  // after acting. A footnote notes the stamp-renumber side effect when it
-  // applies.
-  private buildActionsPopover(): Gtk.Popover {
-    const box = new Gtk.Box({
-      orientation: Gtk.Orientation.VERTICAL,
-      spacing: 2,
-      margin_top: 6,
-      margin_bottom: 6,
-      margin_start: 6,
-      margin_end: 6,
-    });
-    const popover = new Gtk.Popover({autohide: true, child: box});
-    const row = (label: string, onClick: () => void): Gtk.Button => {
-      const btn = new Gtk.Button({
-        child: new Gtk.Label({label, xalign: 0, hexpand: true}),
-        css_classes: ['flat'],
+  // What the select-mode menu shows, from the selection and the action counts.
+  private actionsMenuSpec(): ActionsMenuSpec {
+    const sel = this.canvas.getSelectedActions();
+    const counts = this.canvas.countByTool();
+    const types: MenuRow[] = [];
+    for (const {id} of TOOLS) {
+      const n = counts.get(id);
+      const label = n ? typeRowLabel(id, n) : null;
+      if (label) types.push({label, run: () => this.canvas.selectType(id)});
+    }
+    const all: MenuRow = {label: _('All (Ctrl+A)'), run: () => this.canvas.selectAll()};
+    const select = types.length > 0 ? [[all], types] : [[all]];
+    if (sel.length === 0) return {selected: false, select, actions: [], renumberNote: false};
+
+    const typed: MenuRow[] = [];
+    // Add/Edit text for a lone rect/oval, labeled by whether it has text.
+    if (sel.length === 1 && isShapeAction(sel[0])) {
+      const hasText = (getShapeTextEditState(sel[0])?.markup ?? '') !== '';
+      typed.push({
+        label: hasText ? _('Edit text') : _('Add text'),
+        run: () => this.canvas.editSelectedText(),
       });
-      btn.connect('clicked', () => {
-        onClick();
-        popover.popdown();
-      });
-      box.append(btn);
-      return btn;
+    }
+    // Offered only when a selected segment is bent, never as a no-op.
+    if (sel.some((a) => a.getCurve() === true)) {
+      typed.push({label: _('Straighten'), run: () => this.canvas.straightenSelected()});
+    }
+    const actions: MenuRow[][] = [
+      [{label: _('Duplicate (Ctrl+D)'), run: () => this.canvas.cloneSelected()}],
+      [
+        {
+          label: _('Bring to front (Ctrl+Shift+])'),
+          run: () => this.canvas.reorderSelected('front'),
+        },
+        {label: _('Bring forward (Ctrl+])'), run: () => this.canvas.reorderSelected('raise')},
+        {label: _('Send backward (Ctrl+[)'), run: () => this.canvas.reorderSelected('lower')},
+        {label: _('Send to back (Ctrl+Shift+[)'), run: () => this.canvas.reorderSelected('back')},
+      ],
+    ];
+    if (typed.length > 0) actions.unshift(typed);
+    return {
+      selected: true,
+      select,
+      actions,
+      // Duplicate and the z-order moves renumber stamps, and nothing else.
+      renumberNote: sel.some((a) => numberStampGroup(a) !== null),
     };
-    // Add/Edit text comes first (the primary action for a shape); shown +
-    // relabeled in refreshAddTextButton, hidden for non-shape selections.
-    this.addTextLabel = new Gtk.Label({label: _('Add text'), xalign: 0, hexpand: true});
-    this.addTextBtn = new Gtk.Button({child: this.addTextLabel, css_classes: ['flat']});
-    this.addTextBtn.connect('clicked', () => {
-      // Close the menu first, then open the editor on an idle: an autohide
-      // popover restores the parent's focus widget when it pops down, which
-      // would override the editor's grab_focus if we opened synchronously.
-      // Deferring past the popdown lets the text view keep focus so the user
-      // can start typing right away.
-      popover.popdown();
-      GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-        this.canvas.editSelectedText();
-        return GLib.SOURCE_REMOVE;
-      });
+  }
+
+  // Rebuild the select-mode menu if its spec changed (deferred to close while
+  // it is open).
+  private refreshActionsMenu(): void {
+    const spec = this.actionsMenuSpec();
+    // JSON.stringify omits the run functions, so this compares the rows'
+    // labels and structure.
+    const key = JSON.stringify(spec);
+    if (key === this.actionsMenuKey) return;
+    if (this.actionsPopover.get_visible()) {
+      this.actionsMenuStale = true;
+      return;
+    }
+    this.actionsMenuKey = key;
+    this.fillActionsMenu(spec);
+  }
+
+  // Close the menu, then run a row's command on an idle. An autohide popover
+  // restores its parent's focus widget as it closes, which would take focus
+  // from the text editor that Add/Edit text opens; and the command's state
+  // change rebuilds this menu, which must not happen inside the row's own
+  // signal handler.
+  private runFromMenu(run: () => void): void {
+    this.actionsPopover.popdown();
+    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+      run();
+      return GLib.SOURCE_REMOVE;
     });
-    box.append(this.addTextBtn);
-    // Straighten comes next as the other type-specific row; shown in
-    // refreshTypedActions when the selection holds a curved segment.
-    this.straightenBtn = row(_('Straighten'), () => this.canvas.straightenSelected());
-    this.typedActionsSep = new Gtk.Separator({margin_top: 4, margin_bottom: 4});
-    box.append(this.typedActionsSep);
-    row(_('Duplicate (Ctrl+D)'), () => this.canvas.cloneSelected());
-    box.append(new Gtk.Separator({margin_top: 4, margin_bottom: 4}));
-    row(_('Bring to front (Ctrl+Shift+])'), () => this.canvas.reorderSelected('front'));
-    row(_('Bring forward (Ctrl+])'), () => this.canvas.reorderSelected('raise'));
-    row(_('Send backward (Ctrl+[)'), () => this.canvas.reorderSelected('lower'));
-    row(_('Send to back (Ctrl+Shift+[)'), () => this.canvas.reorderSelected('back'));
-    this.renumberNote = new Gtk.Label({
+  }
+
+  private makeRenumberNote(): Gtk.Label {
+    return new Gtk.Label({
       label: _('Stamps renumber within their group.'),
       css_classes: ['caption', 'dim-label'],
       xalign: 0,
@@ -702,8 +767,85 @@ export class StyleBar {
       max_width_chars: 26,
       margin_top: 4,
     });
-    box.append(this.renumberNote);
-    return popover;
+  }
+
+  // Flat buttons in a Gtk.Stack; with a selection, the Select rows are on a
+  // second page that slides in.
+  private fillActionsMenu(spec: ActionsMenuSpec): void {
+    const page = (): Gtk.Box =>
+      new Gtk.Box({
+        orientation: Gtk.Orientation.VERTICAL,
+        spacing: 2,
+        margin_top: 6,
+        margin_bottom: 6,
+        margin_start: 6,
+        margin_end: 6,
+      });
+    const flatButton = (...children: Gtk.Widget[]): Gtk.Button => {
+      const content = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
+      for (const c of children) content.append(c);
+      return new Gtk.Button({child: content, css_classes: ['flat']});
+    };
+    const separator = (): Gtk.Separator => new Gtk.Separator({margin_top: 4, margin_bottom: 4});
+    const appendSections = (box: Gtk.Box, sections: MenuRow[][]): void => {
+      sections.forEach((rows, i) => {
+        if (i > 0) box.append(separator());
+        for (const {label, run} of rows) {
+          const btn = flatButton(new Gtk.Label({label, xalign: 0, hexpand: true}));
+          btn.connect('clicked', () => this.runFromMenu(run));
+          box.append(btn);
+        }
+      });
+    };
+
+    const stack = new Gtk.Stack({
+      transition_type: Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
+      interpolate_size: true,
+      vhomogeneous: false,
+    });
+    const main = page();
+    stack.add_named(main, 'main');
+    if (!spec.selected) {
+      main.append(
+        new Gtk.Label({
+          label: _('Select'),
+          xalign: 0,
+          css_classes: ['heading', 'dim-label'],
+          margin_start: 12,
+          margin_top: 4,
+          margin_bottom: 4,
+        })
+      );
+      appendSections(main, spec.select);
+    } else {
+      const sub = page();
+      stack.add_named(sub, 'select');
+      const open = flatButton(
+        new Gtk.Label({label: _('Select'), xalign: 0, hexpand: true}),
+        new Gtk.Image({icon_name: 'go-next-symbolic'})
+      );
+      const back = flatButton(
+        new Gtk.Image({icon_name: 'go-previous-symbolic'}),
+        new Gtk.Label({label: _('Select'), hexpand: true, css_classes: ['heading']})
+      );
+      open.connect('clicked', () => {
+        stack.set_visible_child(sub);
+        back.grab_focus();
+      });
+      back.connect('clicked', () => {
+        stack.set_visible_child(main);
+        open.grab_focus();
+      });
+      main.append(open);
+      main.append(separator());
+      appendSections(main, spec.actions);
+      sub.append(back);
+      sub.append(separator());
+      appendSections(sub, spec.select);
+      if (spec.renumberNote) main.append(this.makeRenumberNote());
+    }
+    this.actionsStack = stack;
+    this.actionsPopover.set_child(stack);
   }
 
   // An alignment toggle. Passing `group` links it into the radio cluster so
@@ -964,15 +1106,9 @@ export class StyleBar {
     if (!this.colorGroup) return;
     this.updatingPicker = true;
 
-    // Duplicate and z-order are select-mode actions on the current selection —
-    // show them only when the select tool has something picked (and not during
-    // a text edit).
-    const selectAction =
-      this.canvas.getTool() === 'select' &&
-      !this.editor.isActive() &&
-      this.canvas.getSelectedActions().length > 0;
-    this.actionsGroup.set_visible(selectAction);
-    this.refreshTypedActions(selectAction);
+    const selectMode = this.canvas.getTool() === 'select' && !this.editor.isActive();
+    this.actionsGroup.set_visible(selectMode);
+    if (selectMode) this.refreshActionsMenu();
 
     const color = this.styleTargetColor();
     this.colorGroup.set_visible(color !== null);
@@ -1102,26 +1238,6 @@ export class StyleBar {
     this.alignGroup.set_visible(align !== null);
     this.setActiveAlign(align === null || alignMixed ? null : align);
     setCaption(this.alignLabel, _('Align'), alignMixed);
-  }
-
-  // The selection-dependent parts of the selection-actions menu: Add/Edit text
-  // for a lone rect/oval (its label reflecting whether the shape already has
-  // text), Straighten when the selection holds a bent segment (their shared
-  // separator shows whenever either row does), and the renumber footnote when
-  // the selection holds a number stamp.
-  private refreshTypedActions(selectAction: boolean): void {
-    const sel = this.canvas.getSelectedActions();
-    const loneShape = selectAction && sel.length === 1 && isShapeAction(sel[0]);
-    this.addTextBtn.set_visible(loneShape);
-    if (loneShape) {
-      const hasText = (getShapeTextEditState(sel[0])?.markup ?? '') !== '';
-      this.addTextLabel.set_label(hasText ? _('Edit text') : _('Add text'));
-    }
-    const curved = selectAction && sel.some((a) => a.getCurve() === true);
-    this.straightenBtn.set_visible(curved);
-    this.typedActionsSep.set_visible(loneShape || curved);
-    const hasStamp = selectAction && sel.some((a) => numberStampGroup(a) !== null);
-    this.renumberNote.set_visible(hasStamp);
   }
 
   // The Group selector and per-group Variant control (both number-stamp only).

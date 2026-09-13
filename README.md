@@ -15,12 +15,12 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
   - Remembered styles: each tool's defaults update when you create or restyle an annotation, so the next one matches.
 
 - **Selecting and editing**
-  - Click to select an annotation, Shift+Click to add or remove several, or drag a box across empty canvas to select everything fully inside it; Ctrl+A selects all and Esc clears the selection. Then move, delete, duplicate, restack, or restyle them together.
+  - Click to select an annotation, Shift+Click to add or remove several, or drag a box across empty canvas to select everything fully inside it; Ctrl+A selects all and Esc clears the selection. The Select and arrange menu adds every annotation of one type (all arrows, all text, and so on) to the selection. Then move, delete, duplicate, restack, or restyle them together.
   - Resize a line, arrow, rectangle, oval, or stamp by its handles; rotate a text, stamp, rectangle, or oval with its gizmo
     - Rectangles and ovals can be constrained to squares and circles, respectively.
     - Lines and arrows can be constrained to 15° angle increments.
     - Rotations can be constrained to 15° increments.
-  - Bend a line or arrow by dragging the round handle at its middle; the arrowhead follows the curve, and Straighten (in the selection menu) undoes it.
+  - Bend a line or arrow by dragging the round handle at its middle; the arrowhead follows the curve, and Straighten (in the Select and arrange menu) undoes it.
   - Re-edit a text annotation by double-clicking it.
   - Dig through stacked annotations.
   - Undo / redo throughout.
@@ -231,7 +231,6 @@ Pressing the shortcut launches Annoscr, which immediately captures through the d
 Annoscr is in active development. Planned work:
 
 - **Paste image as a canvas item**: paste an image as a resizable, movable annotation on the canvas, rather than replacing the whole document, so multiple screenshots can be arranged side by side (e.g. for before/after comparisons) and annotated together.
-- **Select annotations by type**: choose all pen strokes, all arrows, all text, and so on from the selection menu, adding each type to the current selection, so a whole class of annotations can be restyled, moved, or deleted at once.
 
 ## Contributing
 

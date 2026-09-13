@@ -534,7 +534,7 @@ export class RecentStrip {
     const model = new Gio.Menu();
     // Wording shared with the save notification's button, which took it from
     // the desktop portal - one action, one name. Both entries name their key
-    // the way the selection-actions menu does; GTK renders no accel for a menu
+    // the way the Select and arrange menu does; GTK renders no accel for a menu
     // model whose action has none set application-wide.
     const reveal = Gio.MenuItem.new(_('Show in Files (Ctrl+Alt+O)'), null);
     reveal.set_action_and_target_value('app.show-in-files', GLib.Variant.new_string(entry.path));
