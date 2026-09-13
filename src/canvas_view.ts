@@ -12,6 +12,7 @@ import {
   DashStyle,
   HandleId,
   OrientedBounds,
+  ResizeHandle,
   DEFAULT_DASH,
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_VARIANT,
@@ -212,6 +213,14 @@ const HANDLE_HIT_PX = 8;
 // the zone that snaps the handle straight is the same size as the zone that
 // selects it.
 const CURVE_DETENT_PX = 8;
+
+// A line/arrow shorter than this on screen (widget px) hides its curve handle.
+// Each handle's hit region is 2 × HANDLE_HIT_PX wide, so on a short segment the
+// middle one covers most of the length between the endpoint handles and a
+// press meant to move the segment bends it instead. At this length a gap of
+// 2 × HANDLE_HIT_PX remains on each side of it. Zooming in shows the handle
+// again; Straighten in the selection menu works without it.
+const CURVE_HANDLE_MIN_CHORD_PX = 64;
 
 // Rotate gizmo: the handle is this many widget px past the selection box edge
 // (along the action's "up" direction), at the end of a short connector line.
@@ -3123,17 +3132,19 @@ export const CanvasView = GObject.registerClass(
       return i >= 0 && i < this.state.actions.length ? i : -1;
     }
 
-    // The id of the resize handle of `action` within `tol` (image-space px) of
-    // (ix, iy), or null. Square hit region matching the drawn handles; the
-    // handle list has corners first so a corner wins over an overlapping edge.
+    // The id of the displayed resize handle of `action` within HANDLE_HIT_PX
+    // (widget px) of (ix, iy), or null. Square hit region matching the drawn
+    // handles; the handle list has corners first so a corner wins over an
+    // overlapping edge.
     private hitTestActionHandle(
       action: Action,
       ix: number,
       iy: number,
-      tol: number
+      scale: number
     ): HandleId | null {
-      const handles = action.getResizeHandles();
+      const handles = displayedHandles(action, scale);
       if (!handles) return null;
+      const tol = HANDLE_HIT_PX / scale;
       for (const h of handles) {
         if (Math.abs(ix - h.x) <= tol && Math.abs(iy - h.y) <= tol) return h.id;
       }
@@ -3183,7 +3194,7 @@ export const CanvasView = GObject.registerClass(
       const g = this.rotateGizmo(action, scale);
       if (g && Math.abs(ix - g.hx) <= tol && Math.abs(iy - g.hy) <= tol) return 'grab';
       if (action.getResizeHandles()) {
-        const handle = this.hitTestActionHandle(action, ix, iy, tol);
+        const handle = this.hitTestActionHandle(action, ix, iy, scale);
         if (handle) return cursorForHandle(handle, action.getOrientedBounds()?.angle ?? 0);
       }
       return 'default';
@@ -3284,8 +3295,7 @@ export const CanvasView = GObject.registerClass(
       const action = this.state.actions[i];
       if (!action.getResizeHandles()) return false;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      const tol = HANDLE_HIT_PX / this.currentTransform().scale;
-      const handle = this.hitTestActionHandle(action, ix, iy, tol);
+      const handle = this.hitTestActionHandle(action, ix, iy, this.currentTransform().scale);
       if (!handle) return false;
       this.actionGrab = handle;
       this.actionPreview = null; // set on first drag-update; null = no movement yet
@@ -3457,7 +3467,7 @@ export const CanvasView = GObject.registerClass(
       if (i < 0 || i === this.editingActionIndex) return;
       const action =
         this.actionGrab && this.actionPreview ? this.actionPreview : this.state.actions[i];
-      const handles = action.getResizeHandles();
+      const handles = displayedHandles(action, scale);
       if (!handles) return;
       for (const h of handles) drawResizeHandle(cr, h.x, h.y, scale, h.id === 'curve');
     }
@@ -3789,6 +3799,19 @@ function drawSelectionBox(
   );
   cr.stroke();
   cr.restore();
+}
+
+// The resize handles of `action` shown at `scale`: all of them, except a
+// line/arrow's curve handle when the segment is shorter on screen than
+// CURVE_HANDLE_MIN_CHORD_PX.
+function displayedHandles(action: Action, scale: number): ResizeHandle[] | null {
+  const handles = action.getResizeHandles();
+  if (!handles) return null;
+  const p1 = handles.find((h) => h.id === 'p1');
+  const p2 = handles.find((h) => h.id === 'p2');
+  if (!p1 || !p2) return handles;
+  if (Math.hypot(p2.x - p1.x, p2.y - p1.y) * scale >= CURVE_HANDLE_MIN_CHORD_PX) return handles;
+  return handles.filter((h) => h.id !== 'curve');
 }
 
 // A per-action resize handle: a small white square with a blue border (same
