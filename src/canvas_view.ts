@@ -1372,12 +1372,12 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
-    // Replace the selection with every action whose box is fully inside the
-    // marquee rectangle (image-space corners). Rotatable actions test their
-    // oriented (tilted) box, so a rotated shape counts only when its real box
-    // fits — not its looser axis-aligned bounds; everything else uses its
-    // axis-aligned bounds. Selection isn't undo history, so this only notifies
-    // (no pushState).
+    // Replace the selection with every action whose box, and callout tail if
+    // it has one, is fully inside the marquee rectangle (image-space corners).
+    // Rotatable actions test their oriented (tilted) box, so a rotated shape
+    // counts only when its real box fits — not its looser axis-aligned bounds;
+    // everything else uses its axis-aligned bounds. Selection isn't undo
+    // history, so this only notifies (no pushState).
     private selectBand(x1: number, y1: number, x2: number, y2: number): void {
       const minX = Math.min(x1, x2);
       const maxX = Math.max(x1, x2);
@@ -1386,11 +1386,13 @@ export const CanvasView = GObject.registerClass(
       const prevKey = this.selectionKey();
       this.selectedIndices.clear();
       this.state.actions.forEach((a, i) => {
-        const corners = actionCorners(a);
-        if (
-          corners &&
-          corners.every(([px, py]) => px >= minX && px <= maxX && py >= minY && py <= maxY)
-        ) {
+        const points = actionCorners(a);
+        if (!points) return;
+        // The tail's base lies on the outline, so its tip is the only part of
+        // it that can be outside the box.
+        const tail = a.getResizeHandles()?.find((h) => h.id === 'tail');
+        if (tail) points.push([tail.x, tail.y]);
+        if (points.every(([px, py]) => px >= minX && px <= maxX && py >= minY && py <= maxY)) {
           this.selectedIndices.add(i);
         }
       });
