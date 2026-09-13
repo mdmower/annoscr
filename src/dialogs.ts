@@ -104,6 +104,7 @@ export function showNewCanvasDialog(
     }),
     digits: 0,
     width_request: 100,
+    xalign: 1,
   });
   widthSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].w);
   setLabelledBy(widthSpin, widthLabel);
@@ -124,6 +125,7 @@ export function showNewCanvasDialog(
     }),
     digits: 0,
     width_request: 100,
+    xalign: 1,
   });
   heightSpin.set_value(SIZE_PRESETS[DEFAULT_PRESET_INDEX].h);
   setLabelledBy(heightSpin, heightLabel);
@@ -174,5 +176,122 @@ export function showNewCanvasDialog(
     onCreate(createBlankSurface(w, h, fill));
   });
 
+  dialog.present(parent);
+}
+
+// Modal size entry for scaling the whole image. The aspect ratio is always
+// locked: a non-uniform scale has no defined answer for a stamp's circle, a
+// font size, or a stroke width, all of which are single scalars. The factor is
+// taken from whichever field the user edited and the other two are derived
+// from it, so the edited field is exact and only the derived ones are rounded.
+export function showScaleImageDialog(
+  parent: Gtk.Widget,
+  width: number,
+  height: number,
+  onScale: (factor: number) => void
+): void {
+  const dialog = new Adw.AlertDialog({
+    heading: _('Scale image'),
+    body: `${_('Annotations are scaled with the image.')}\n${_('The aspect ratio is locked.')}`,
+  });
+  dialog.add_response('cancel', _('Cancel'));
+  dialog.add_response('scale', _('Scale'));
+  dialog.set_response_appearance('scale', Adw.ResponseAppearance.SUGGESTED);
+  dialog.set_default_response('scale');
+  dialog.set_close_response('cancel');
+
+  // Both axes stay within the canvas dimension limits, so the percentage bounds
+  // are derived from whichever axis reaches a limit first. An image already
+  // larger than the maximum keeps its own size as the upper bound instead of
+  // being unscalable.
+  const maxDim = Math.max(CANVAS_SIZE_MAX, width, height);
+  // The shorter axis reaches the 1px floor first, the longer one the ceiling.
+  const minFactor = Math.max(CANVAS_SIZE_MIN / width, CANVAS_SIZE_MIN / height);
+  const maxFactor = Math.min(maxDim / width, maxDim / height);
+
+  // Centered rather than filling the dialog: the caption column is narrow, so
+  // a full-width grid leaves the whole block sitting left of center.
+  const grid = new Gtk.Grid({row_spacing: 8, column_spacing: 12, halign: Gtk.Align.CENTER});
+
+  const makeSpin = (
+    row: number,
+    caption: string,
+    lower: number,
+    upper: number,
+    digits: number,
+    step: number
+  ): Gtk.SpinButton => {
+    const label = new Gtk.Label({
+      label: caption,
+      halign: Gtk.Align.END,
+      valign: Gtk.Align.CENTER,
+    });
+    grid.attach(label, 0, row, 1, 1);
+    const spin = new Gtk.SpinButton({
+      adjustment: new Gtk.Adjustment({
+        lower,
+        upper,
+        step_increment: step,
+        page_increment: step * 10,
+      }),
+      digits,
+      width_request: 100,
+      xalign: 1,
+    });
+    setLabelledBy(spin, label);
+    grid.attach(spin, 1, row, 1, 1);
+    return spin;
+  };
+
+  // Every field's range comes from the same factor bounds, so no two of them
+  // can disagree about what the smallest or largest allowed size is.
+  const percentSpin = makeSpin(0, _('Scale (%)'), minFactor * 100, maxFactor * 100, 1, 1);
+  const widthSpin = makeSpin(
+    1,
+    _('Width'),
+    Math.round(width * minFactor),
+    Math.round(width * maxFactor),
+    0,
+    1
+  );
+  const heightSpin = makeSpin(
+    2,
+    _('Height'),
+    Math.round(height * minFactor),
+    Math.round(height * maxFactor),
+    0,
+    1
+  );
+
+  let factor = 1;
+  let updating = false;
+  const setFactor = (f: number, edited: Gtk.SpinButton): void => {
+    if (updating || !Number.isFinite(f) || f <= 0) return;
+    factor = f;
+    updating = true;
+    if (edited !== percentSpin) percentSpin.set_value(f * 100);
+    if (edited !== widthSpin) widthSpin.set_value(Math.round(width * f));
+    if (edited !== heightSpin) heightSpin.set_value(Math.round(height * f));
+    updating = false;
+  };
+  percentSpin.connect('value-changed', () => setFactor(percentSpin.get_value() / 100, percentSpin));
+  widthSpin.connect('value-changed', () => setFactor(widthSpin.get_value() / width, widthSpin));
+  heightSpin.connect('value-changed', () => setFactor(heightSpin.get_value() / height, heightSpin));
+  updating = true;
+  percentSpin.set_value(100);
+  widthSpin.set_value(width);
+  heightSpin.set_value(height);
+  updating = false;
+
+  dialog.set_extra_child(grid);
+
+  dialog.connect('response', (_d, response) => {
+    if (response === 'scale') onScale(factor);
+  });
+
+  // Open with the percentage ready to type over, rather than on the Cancel
+  // button. set_focus designates the widget before the dialog is mapped, so
+  // nothing reassigns focus afterwards.
+  dialog.set_focus(percentSpin);
   dialog.present(parent);
 }

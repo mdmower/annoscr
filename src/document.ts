@@ -4,18 +4,12 @@ import Cairo from 'cairo';
 import {
   Action,
   ColorRGBA,
-  CORNER_RADIUS_MAX,
-  CORNER_RADIUS_MIN,
   DashStyle,
   DEFAULT_DASH,
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_VARIANT,
   EditorSize,
-  FONT_SIZE_MAX,
-  FONT_SIZE_MIN,
   SHAPE_TEXT_STYLE,
-  STAMP_RADIUS_MAX,
-  STAMP_RADIUS_MIN,
   SerializedAction,
   SerializedShapeText,
   CurveOffset,
@@ -23,7 +17,8 @@ import {
   TEXT_STYLE,
   TRANSPARENT_FILL,
   TextAlign,
-  WIDTH_MAX,
+  STORED_SIZE_MAX,
+  STORED_SIZE_MIN,
   WIDTH_MIN,
   defaultColorForTool,
   defaultFillForTool,
@@ -212,7 +207,9 @@ function sanitizeEndpoints(
     y2: requireFinite(raw.y2, 'coordinate'),
     color: asColor(raw.color) ?? defaultColorForTool(tool),
     width:
-      asClampedNumber(raw.width, WIDTH_MIN, WIDTH_MAX) ?? defaultWidthForTool(tool) ?? WIDTH_MIN,
+      asClampedNumber(raw.width, STORED_SIZE_MIN, STORED_SIZE_MAX) ??
+      defaultWidthForTool(tool) ??
+      WIDTH_MIN,
     dash: asDash(raw.dash) ?? DEFAULT_DASH,
   };
 }
@@ -227,7 +224,7 @@ function sanitizeShapeText(v: unknown): SerializedShapeText | undefined {
     markup: v.markup,
     style: {
       color: asColor(style.color) ?? SHAPE_TEXT_STYLE.color,
-      size: asClampedNumber(style.size, FONT_SIZE_MIN, FONT_SIZE_MAX) ?? SHAPE_TEXT_STYLE.size,
+      size: asClampedNumber(style.size, STORED_SIZE_MIN, STORED_SIZE_MAX) ?? SHAPE_TEXT_STYLE.size,
       fontDesc: asNonEmptyString(style.fontDesc) ?? SHAPE_TEXT_STYLE.fontDesc,
       bg: asColor(style.bg) ?? SHAPE_TEXT_STYLE.bg,
       align: asAlign(style.align) ?? SHAPE_TEXT_STYLE.align,
@@ -274,7 +271,7 @@ function sanitizeText(raw: Record<string, unknown>): SerializedAction {
     markup: raw.markup,
     rotation: asAngle(raw.rotation),
     color: asColor(raw.color) ?? TEXT_STYLE.color,
-    size: asClampedNumber(raw.size, FONT_SIZE_MIN, FONT_SIZE_MAX) ?? TEXT_STYLE.size,
+    size: asClampedNumber(raw.size, STORED_SIZE_MIN, STORED_SIZE_MAX) ?? TEXT_STYLE.size,
     fontDesc: asNonEmptyString(raw.fontDesc) ?? TEXT_STYLE.fontDesc,
     bg: asColor(raw.bg) ?? TEXT_STYLE.bg,
     align: asAlign(raw.align) ?? TEXT_STYLE.align,
@@ -286,7 +283,7 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
   const foregroundColor = asColor(raw.foregroundColor) ?? defaultColorForTool('number');
   const fillColor = asColor(raw.fillColor) ?? defaultFillForTool('number') ?? foregroundColor;
   const radius =
-    asClampedNumber(raw.radius, STAMP_RADIUS_MIN, STAMP_RADIUS_MAX) ?? DEFAULT_STAMP_RADIUS;
+    asClampedNumber(raw.radius, STORED_SIZE_MIN, STORED_SIZE_MAX) ?? DEFAULT_STAMP_RADIUS;
   // Defaults for the radius-scaled fields (border width, digit size), built
   // proportional to the validated radius.
   const defaults = numberStampStyle(foregroundColor, fillColor, radius);
@@ -334,7 +331,7 @@ function sanitizeAction(raw: unknown): SerializedAction {
         points: requirePoints(raw.points),
         color: asColor(raw.color) ?? defaultColorForTool(type),
         width:
-          asClampedNumber(raw.width, WIDTH_MIN, WIDTH_MAX) ??
+          asClampedNumber(raw.width, STORED_SIZE_MIN, STORED_SIZE_MAX) ??
           defaultWidthForTool(type) ??
           WIDTH_MIN,
       };
@@ -349,7 +346,7 @@ function sanitizeAction(raw: unknown): SerializedAction {
         ...sanitizeEndpoints(raw, type),
         fill: asColor(raw.fill) ?? TRANSPARENT_FILL,
         rotation: asAngle(raw.rotation),
-        cornerRadius: asClampedNumber(raw.cornerRadius, CORNER_RADIUS_MIN, CORNER_RADIUS_MAX) ?? 0,
+        cornerRadius: asClampedNumber(raw.cornerRadius, 0, STORED_SIZE_MAX) ?? 0,
         ...(text ? {text} : {}),
         ...(tail ? {tail} : {}),
       };

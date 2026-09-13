@@ -76,3 +76,39 @@ export function createBlankSurface(
   }
   return surface;
 }
+
+// One scaled blit of `src` onto a fresh (w × h) surface.
+function scaleBlit(src: Cairo.ImageSurface, w: number, h: number): Cairo.ImageSurface {
+  const dst = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
+  const cr = new Cairo.Context(dst);
+  cr.scale(w / src.getWidth(), h / src.getHeight());
+  cr.setSourceSurface(src, 0, 0);
+  // GOOD, not the NEAREST the other transforms use: those are pixel-exact
+  // (90° rotation, integer-aligned crop), while resampling to a new pixel grid
+  // needs interpolation or it aliases badly.
+  (cr.getSource() as Cairo.SurfacePattern).setFilter(Cairo.Filter.GOOD);
+  cr.paint();
+  return dst;
+}
+
+// Resamples a Cairo.ImageSurface to (w × h) and returns a fresh surface. Lossy
+// and not invertible: scaling down discards pixels, so scaling back up cannot
+// recover them.
+export function scaleSurface(src: Cairo.ImageSurface, w: number, h: number): Cairo.ImageSurface {
+  // Halve repeatedly until the remaining reduction is at most 2:1. A large
+  // reduction in a single blit does not average every source pixel into the
+  // result, so a regular pattern (a screenshot's 1px rules, dense text) aliases
+  // into moire instead of resolving to its average tone: measured on a 1px
+  // grid at 20:1, one blit leaves substantially more residual variance than
+  // halving does. Halving keeps every step within the neighbourhood the filter
+  // actually samples, whatever a given cairo version's is.
+  let cur = src;
+  while (cur.getWidth() > w * 2 || cur.getHeight() > h * 2) {
+    cur = scaleBlit(
+      cur,
+      Math.max(w, Math.round(cur.getWidth() / 2)),
+      Math.max(h, Math.round(cur.getHeight() / 2))
+    );
+  }
+  return scaleBlit(cur, w, h);
+}

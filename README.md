@@ -9,7 +9,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 - **Annotation tools**: Select, Pen, Text, Line, Arrow, Rectangle, Oval, Highlighter, and a Number stamp, on an icon toolbar with tooltips.
 
 - **Styling**
-  - Color and fill: type a hex value, drag the opacity slider, open the full palette, or pick a color from the image with the eyedropper (a magnifier follows the pointer for pixel-accurate picks; Esc cancels).
+  - Color and fill: type a hex value, set the opacity, open the full palette, or pick a color from the image with the eyedropper (a magnifier follows the pointer for pixel-accurate picks; Esc cancels).
   - Stroke width, line style (solid / dashed / dotted), arrowheads (open or filled), and rounded rectangle corners.
   - Text color, font, size, and alignment; a text fill (rounded corner background plate, transparent by default) keeps lettering legible over detailed images.
   - Remembered styles: each tool's defaults update when you create or restyle an annotation, so the next one matches.
@@ -32,7 +32,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Number stamps**: numbered or lettered per group. Pick or reassign a stamp's group from the style bar, start a new group, and select a stamp to quickly identify all others in the group (if multiple groups exist).
 
-- **Transforms**: rotate the whole image, or resize to crop or expand the canvas.
+- **Transforms**: rotate the whole image, crop or expand the canvas, or scale the image to new dimensions. Scaling resamples the image and multiplies the annotations by the same factor, so they keep their place and re-render sharp at the new size. Both size commands are in the menu on the dimensions readout in the status bar.
 
 - **Image I/O**: open a file, paste, drag-and-drop, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard.
 
@@ -231,7 +231,6 @@ Pressing the shortcut launches Annoscr, which immediately captures through the d
 Annoscr is in active development. Planned work:
 
 - **Paste image as a canvas item**: paste an image as a resizable, movable annotation on the canvas, rather than replacing the whole document, so multiple screenshots can be arranged side by side (e.g. for before/after comparisons) and annotated together.
-- **Scale image**: scale the whole image to new dimensions, typically to shrink an oversized screenshot, with its annotations scaled by the same factor so they stay editable and sharp at the new size.
 - **Select annotations by type**: choose all pen strokes, all arrows, all text, and so on from the selection menu, adding each type to the current selection, so a whole class of annotations can be restyled, moved, or deleted at once.
 
 ## Contributing

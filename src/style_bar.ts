@@ -45,8 +45,17 @@ const MIX_DOT_COLOR = '#e66100';
 
 // Fixed width of the vertical (left/right dock) properties panel — the
 // side-dock counterpart of the horizontal bar's fixed height: groups showing
-// and hiding never shift the canvas edge.
-const DOCK_WIDTH = 240;
+// and hiding never shift the canvas edge. It is only a floor, so it has to
+// clear the widest group's natural width (caption plus a size spin button) or
+// the panel grows for the tools that show that group and not for the others.
+const DOCK_WIDTH = 250;
+
+// Side of the square stroke-width preview, and with it the fixed height of the
+// horizontal strip (the preview is its tallest control). Independent of
+// WIDTH_MAX: the preview shows what a stroke looks like, and beyond a few tens
+// of pixels a literal rendering would only make the bar taller — drawWidthPreview
+// caps the drawn thickness here and the spin button states the exact value.
+const WIDTH_PREVIEW_PX = 44;
 
 // Cap on the font dropdown's button label, in characters (GtkLabel can cap
 // its natural width only in characters, not pixels): the strip's button is as
@@ -79,6 +88,18 @@ function ellipsizingFactory(): Gtk.SignalListItemFactory {
     label.set_label(item.get_item<Gtk.StringObject>().get_string());
   });
   return factory;
+}
+
+// Print a spin button's value without trailing zeros: "4" rather than "4.00",
+// "2.5" rather than "2.50". The size controls keep decimals so a scaled
+// annotation's exact size survives a round trip, but nearly every value set by
+// hand is whole, and the padding is noise in a compact bar. String(Number(...))
+// always emits "." — the same separator GTK's own spin-button parser accepts.
+function trimSpinDisplay(spin: Gtk.SpinButton): void {
+  spin.connect('output', () => {
+    spin.set_text(String(Number(spin.get_value().toFixed(spin.get_digits()))));
+    return true;
+  });
 }
 
 // Set a control's caption. When the selected actions disagree on the property,
@@ -137,7 +158,7 @@ export class StyleBar {
   // True in the vertical properties-panel layout (left/right dock).
   private vertical = false;
   // Color/Fill are custom swatch buttons. Clicking one opens a popover with an
-  // inline hex entry + opacity slider (drag opacity to 0 for transparent / no
+  // inline hex entry + opacity field (set opacity to 0 for transparent / no
   // fill) and a "Palette…" button into the full system Gtk.ColorDialog
   // (palette + custom hex editor + screen picker). We drive the dialog
   // ourselves so a pick commits even when it equals the shown color —
@@ -149,7 +170,7 @@ export class StyleBar {
   private fillGroup!: Gtk.Box;
   private fillLabel!: Gtk.Label;
   private fillSwatchSet!: (c: ColorRGBA | null) => void;
-  private widthScale!: Gtk.Scale;
+  private widthSpin!: Gtk.SpinButton;
   private widthPreview!: Gtk.DrawingArea;
   private widthGroup!: Gtk.Box;
   private widthLabel!: Gtk.Label;
@@ -161,10 +182,10 @@ export class StyleBar {
   private filledHeadGroup!: Gtk.Box;
   private filledHeadLabel!: Gtk.Label;
   private filledHeadDropdown!: Gtk.DropDown;
-  // Rectangle corner-radius slider (rect only): 0 = sharp, image-space px.
+  // Rectangle corner radius (rect only): 0 = sharp, image-space px.
   private cornerGroup!: Gtk.Box;
   private cornerLabel!: Gtk.Label;
-  private cornerScale!: Gtk.Scale;
+  private cornerSpin!: Gtk.SpinButton;
   // Callout-tail switch (selected rect/oval only): toggles a pointer tail
   // joined to the box outline; the tip is dragged by its own canvas handle.
   private tailGroup!: Gtk.Box;
@@ -297,7 +318,7 @@ export class StyleBar {
           // of which groups are visible. Without this, hiding/showing groups
           // resizes the canvas and shifts the image. (The vertical panel's
           // counterpart is the fixed DOCK_WIDTH on the scroller.)
-          height_request: WIDTH_MAX + 4,
+          height_request: WIDTH_PREVIEW_PX,
         });
 
     const makeSep = (): Gtk.Separator =>
@@ -347,8 +368,8 @@ export class StyleBar {
       return makeColumn(sep, row);
     };
 
-    // Caption heading full-width controls (sliders, the font dropdown):
-    // caption above, controls below spanning the panel width.
+    // Caption heading full-width controls (the font dropdown): caption above,
+    // controls below spanning the panel width.
     const makeStackGroup = (
       sep: Gtk.Separator,
       label: Gtk.Label,
@@ -399,37 +420,31 @@ export class StyleBar {
 
     // Width group
     const widthSep = makeSep();
-    this.widthScale = new Gtk.Scale({
-      orientation: Gtk.Orientation.HORIZONTAL,
+    this.widthSpin = new Gtk.SpinButton({
       adjustment: new Gtk.Adjustment({
         lower: WIDTH_MIN,
         upper: WIDTH_MAX,
         step_increment: 1,
-        page_increment: 5,
+        page_increment: 10,
       }),
-      digits: 0,
-      draw_value: true,
-      value_pos: Gtk.PositionType.RIGHT,
-      width_request: 120,
-      hexpand: vertical,
+      // Whole-pixel steps, two decimals typeable: scaling the image multiplies
+      // every width, so a stroke can legitimately be a fraction of a pixel,
+      // but stepping through those fractions is never what anyone wants.
+      digits: 2,
+      width_request: 76,
+      valign: Gtk.Align.CENTER,
+      xalign: 1,
     });
-    this.widthScale.connect('value-changed', () => this.onWidthPicked());
+    trimSpinDisplay(this.widthSpin);
+    this.widthSpin.connect('value-changed', () => this.onWidthPicked());
     this.widthPreview = new Gtk.DrawingArea({
-      width_request: 44,
-      height_request: WIDTH_MAX + 4,
+      width_request: WIDTH_PREVIEW_PX,
+      height_request: WIDTH_PREVIEW_PX,
       valign: Gtk.Align.CENTER,
     });
     this.widthPreview.set_draw_func((_w, cr, w, h) => this.drawWidthPreview(cr, w, h));
     this.widthLabel = new Gtk.Label({label: _('Width'), css_classes: ['caption']});
-    if (vertical) {
-      // Slider and preview share one full-width row under the caption.
-      const widthRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
-      widthRow.append(this.widthScale);
-      widthRow.append(this.widthPreview);
-      this.widthGroup = makeStackGroup(widthSep, this.widthLabel, widthRow);
-    } else {
-      this.widthGroup = makeGroup(widthSep, this.widthLabel, this.widthScale, this.widthPreview);
-    }
+    this.widthGroup = makeRowGroup(widthSep, this.widthLabel, this.widthSpin, this.widthPreview);
     styleBar.append(this.widthGroup);
 
     // Dash group — selector index maps to DashStyle via DASH_ORDER below.
@@ -440,25 +455,25 @@ export class StyleBar {
     this.dashGroup = makeRowGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
-    // Corners group (rectangle only) — slider over the corner radius (px).
+    // Corners group (rectangle only) — the corner radius in px.
     const cornerSep = makeSep();
-    this.cornerScale = new Gtk.Scale({
-      orientation: Gtk.Orientation.HORIZONTAL,
+    this.cornerSpin = new Gtk.SpinButton({
       adjustment: new Gtk.Adjustment({
         lower: CORNER_RADIUS_MIN,
         upper: CORNER_RADIUS_MAX,
         step_increment: 1,
-        page_increment: 5,
+        page_increment: 25,
       }),
-      digits: 0,
-      draw_value: true,
-      value_pos: Gtk.PositionType.RIGHT,
-      width_request: 120,
-      hexpand: vertical,
+      // One decimal, for the same reason as the width control.
+      digits: 1,
+      width_request: 76,
+      valign: Gtk.Align.CENTER,
+      xalign: 1,
     });
-    this.cornerScale.connect('value-changed', () => this.onCornerRadiusPicked());
+    trimSpinDisplay(this.cornerSpin);
+    this.cornerSpin.connect('value-changed', () => this.onCornerRadiusPicked());
     this.cornerLabel = new Gtk.Label({label: _('Corners'), css_classes: ['caption']});
-    this.cornerGroup = makeStackGroup(cornerSep, this.cornerLabel, this.cornerScale);
+    this.cornerGroup = makeRowGroup(cornerSep, this.cornerLabel, this.cornerSpin);
     styleBar.append(this.cornerGroup);
 
     // Callout group (selected rect/oval only) — a switch toggling the pointer
@@ -528,12 +543,14 @@ export class StyleBar {
         lower: FONT_SIZE_MIN,
         upper: FONT_SIZE_MAX,
         step_increment: 1,
-        page_increment: 4,
+        page_increment: 10,
       }),
-      digits: 0,
-      width_request: 64,
+      // One decimal, for the same reason as the width scale.
+      digits: 1,
+      width_request: 76,
+      xalign: 1,
     });
-    this.fontSizeSpinner.add_css_class('annoscr-font-size');
+    trimSpinDisplay(this.fontSizeSpinner);
     this.fontSizeSpinner.connect('value-changed', () => this.onFontSizePicked());
     this.fontLabel = new Gtk.Label({label: _('Font'), css_classes: ['caption']});
     this.fontSizeLabel = new Gtk.Label({
@@ -610,8 +627,8 @@ export class StyleBar {
     // the caption's accessible label (the dot is visual-only) reaches AT with
     // no further code. (Swatches and align toggles are labelled at their
     // creation above.)
-    setLabelledBy(this.widthScale, this.widthLabel);
-    setLabelledBy(this.cornerScale, this.cornerLabel);
+    setLabelledBy(this.widthSpin, this.widthLabel);
+    setLabelledBy(this.cornerSpin, this.cornerLabel);
     setLabelledBy(this.tailSwitch, this.tailLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);
     setLabelledBy(this.filledHeadDropdown, this.filledHeadLabel);
@@ -717,7 +734,7 @@ export class StyleBar {
   }
 
   // A color swatch button whose popover holds an inline hex entry + opacity
-  // slider and a button into the full system Gtk.ColorDialog. Every path
+  // opacity field and a button into the full system Gtk.ColorDialog. Every path
   // reports the chosen color via `onChosen` even when it equals the shown one
   // (so a mixed selection flattens). Returns the button plus a setter that
   // repaints the swatch.
@@ -726,7 +743,7 @@ export class StyleBar {
     setColor: (c: ColorRGBA | null) => void;
   } {
     let current: ColorRGBA = [0, 0, 0, 1];
-    // Suppress the entry/slider change handlers while we set their values
+    // Suppress the entry/opacity change handlers while we set their values
     // programmatically (on popup, or when one control drives the other).
     let syncing = false;
     // The exact text syncControls() last wrote into the hex entry. applyHex
@@ -781,20 +798,17 @@ export class StyleBar {
     const opacityRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
     const opacityLabel = new Gtk.Label({label: _('Opacity'), css_classes: ['caption']});
     opacityRow.append(opacityLabel);
-    const opacityScale = new Gtk.Scale({
-      orientation: Gtk.Orientation.HORIZONTAL,
+    opacityLabel.set_hexpand(true);
+    opacityLabel.set_xalign(0);
+    const opacitySpin = new Gtk.SpinButton({
       adjustment: new Gtk.Adjustment({lower: 0, upper: 100, step_increment: 1, page_increment: 10}),
       digits: 0,
-      draw_value: true,
-      value_pos: Gtk.PositionType.RIGHT,
-      hexpand: true,
-      width_request: 160,
-      // Adds a left margin on the value node so the number isn't directly
-      // against the thumb at 100 (see WINDOW_CSS in window_constants.ts).
-      css_classes: ['annoscr-opacity-scale'],
+      width_request: 64,
+      valign: Gtk.Align.CENTER,
+      xalign: 1,
     });
-    setLabelledBy(opacityScale, opacityLabel);
-    opacityRow.append(opacityScale);
+    setLabelledBy(opacitySpin, opacityLabel);
+    opacityRow.append(opacitySpin);
     box.append(opacityRow);
 
     const paletteBtn = new Gtk.Button({label: _('Palette…')});
@@ -815,12 +829,13 @@ export class StyleBar {
       this.canvas.beginColorSample((c) => commit([c[0], c[1], c[2], current[3]]));
     });
 
-    // Reflect `current` into the entry + slider without re-triggering commits.
+    // Reflect `current` into the entry + opacity field without re-triggering
+    // commits.
     const syncControls = (): void => {
       syncing = true;
       lastSyncedText = colorToHex(current);
       hexEntry.set_text(lastSyncedText);
-      opacityScale.set_value(Math.round(current[3] * 100));
+      opacitySpin.set_value(Math.round(current[3] * 100));
       syncing = false;
     };
 
@@ -849,15 +864,15 @@ export class StyleBar {
       hexEntry.set_position(-1);
     };
     hexEntry.connect('activate', () => applyHex(true));
-    // Also apply when focus leaves the entry, so typing then clicking the
-    // slider/another control commits without needing Enter.
+    // Also apply when focus leaves the entry, so typing then clicking another
+    // control commits without needing Enter.
     const focusCtl = new Gtk.EventControllerFocus();
     focusCtl.connect('leave', () => applyHex(false));
     hexEntry.add_controller(focusCtl);
 
-    opacityScale.connect('value-changed', () => {
+    opacitySpin.connect('value-changed', () => {
       if (syncing) return;
-      commit([current[0], current[1], current[2], opacityScale.get_value() / 100]);
+      commit([current[0], current[1], current[2], opacitySpin.get_value() / 100]);
     });
 
     const dialog = new Gtk.ColorDialog({with_alpha: true});
@@ -877,7 +892,7 @@ export class StyleBar {
       });
     });
 
-    // MenuButton shows the popover itself; sync the entry/slider to the live
+    // MenuButton shows the popover itself; sync the entry/opacity field to the live
     // color just before it opens (create-popup-func runs pre-show, so there's
     // no flash of stale values).
     button.set_create_popup_func(() => syncControls());
@@ -897,9 +912,9 @@ export class StyleBar {
     const color = this.styleTargetColor();
     const width = this.styleTargetWidth();
     if (color === null || width === null) return;
-    // Cap visible thickness to the preview height so the full slider range
-    // still fits visually; the slider's numeric readout shows the exact value
-    // when the bar is at its maximum.
+    // Cap visible thickness to the preview height so the full width range
+    // still fits visually; the spin button shows the exact value when the
+    // preview is at its maximum.
     const drawWidth = Math.min(width, h - 2);
     cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
     cr.setLineWidth(drawWidth);
@@ -979,7 +994,7 @@ export class StyleBar {
 
     const width = this.styleTargetWidth();
     this.widthGroup.set_visible(width !== null);
-    if (width !== null) this.widthScale.set_value(width);
+    if (width !== null) this.widthSpin.set_value(width);
     setCaption(
       this.widthLabel,
       _('Width'),
@@ -997,7 +1012,7 @@ export class StyleBar {
 
     const corner = this.styleTargetCornerRadius();
     this.cornerGroup.set_visible(corner !== null);
-    if (corner !== null) this.cornerScale.set_value(corner);
+    if (corner !== null) this.cornerSpin.set_value(corner);
     setCaption(
       this.cornerLabel,
       _('Corners'),
@@ -1502,14 +1517,14 @@ export class StyleBar {
   }
 
   private onWidthPicked(): void {
-    if (this.updatingPicker || !this.widthScale) return;
-    const width = Math.round(this.widthScale.get_value());
+    if (this.updatingPicker || !this.widthSpin) return;
+    const width = this.widthSpin.get_value();
     const tool = this.canvas.getTool();
     if (tool === 'select') {
       // In select mode, resize the selection in place; same select-edit
       // structure as recolor.
-      // pushState coalesces by `width:${i}` so a drag is one history entry,
-      // not one per slider tick (see pushState in canvas_view.ts).
+      // pushState coalesces by `width:${i}` so a run of steps is one history
+      // entry, not one per step (see pushState in canvas_view.ts).
       this.canvas.replaceSelectedWidth(width);
     } else if (defaultWidthForTool(tool) !== null) {
       this.canvas.setToolWidth(tool, width);
@@ -1518,8 +1533,8 @@ export class StyleBar {
   }
 
   private onCornerRadiusPicked(): void {
-    if (this.updatingPicker || !this.cornerScale) return;
-    const radius = Math.round(this.cornerScale.get_value());
+    if (this.updatingPicker || !this.cornerSpin) return;
+    const radius = this.cornerSpin.get_value();
     const tool = this.canvas.getTool();
     if (tool === 'select') {
       this.canvas.replaceSelectedCornerRadius(radius);

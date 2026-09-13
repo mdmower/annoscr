@@ -10,12 +10,6 @@ import {N_} from './i18n.js';
 export const DASH_ORDER: DashStyle[] = ['solid', 'dashed', 'dotted'];
 
 const WINDOW_CSS = `
-  .annoscr-font-size > text {
-    padding-left: 12px;
-  }
-  .annoscr-opacity-scale > value {
-    margin-left: 16px;
-  }
   .annoscr-keycap {
     min-width: 1.4em;
     padding: 1px 6px;

@@ -42,7 +42,7 @@ import {
 } from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
-import {confirmDiscard, showAbout, showNewCanvasDialog} from './dialogs.js';
+import {confirmDiscard, showAbout, showNewCanvasDialog, showScaleImageDialog} from './dialogs.js';
 import {StyleBar} from './style_bar.js';
 import {setChosenFonts} from './font_catalogue.js';
 import {ZoomController} from './zoom_controller.js';
@@ -206,16 +206,7 @@ export const AnnoscrWindow = GObject.registerClass(
       header.pack_end(menuButton);
 
       // pack_end stacks right-to-left in source order, so to order the buttons
-      // as [Rotate Left][Rotate Right][Resize] left-to-right we add Resize
-      // first.
-      const resizeButton = new Gtk.Button({
-        icon_name: 'view-fullscreen-symbolic',
-        tooltip_text: _('Resize canvas… (Ctrl+E)'),
-      });
-      resizeButton.connect('clicked', () => this.toolbar.toggleResizeMode());
-      labelFromTooltip(resizeButton);
-      header.pack_end(resizeButton);
-
+      // as [Rotate Left][Rotate Right] left-to-right we add Rotate Right first.
       const rotateRightBtn = new Gtk.Button({
         icon_name: 'object-rotate-right-symbolic',
         tooltip_text: _('Rotate right 90° (Ctrl+R)'),
@@ -408,6 +399,24 @@ export const AnnoscrWindow = GObject.registerClass(
       // holds the other view controls.
       const statusBar = this.zoom.getStatusBar();
       this.zoom.setStatusCenterWidget(this.buildRecentToggle());
+      // The two image-size commands, reached from the dimensions readout. They
+      // are listed together because the difference between them is exactly what
+      // is unclear when the size is wrong: one changes the visible region, the
+      // other resamples.
+      const sizeMenu = new Gio.Menu();
+      // The "accel" attribute only prints the chord beside the item; the keys
+      // themselves stay on the window's ShortcutController, which is where
+      // their editor / no-image conditions live. Registering them as
+      // application accelerators instead would invoke these actions
+      // unconditionally.
+      const sizeItem = (label: string, action: string, accel: string): Gio.MenuItem => {
+        const item = Gio.MenuItem.new(label, action);
+        item.set_attribute_value('accel', GLib.Variant.new_string(accel));
+        return item;
+      };
+      sizeMenu.append_item(sizeItem(_('Crop or expand…'), 'win.cropcanvas', '<Control>e'));
+      sizeMenu.append_item(sizeItem(_('Scale image…'), 'win.scaleimage', '<Control><Shift>e'));
+      this.zoom.setSizeMenu(sizeMenu);
 
       this.styleTopSlot = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, visible: false});
       this.styleBottomSlot = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, visible: false});
@@ -631,6 +640,8 @@ export const AnnoscrWindow = GObject.registerClass(
       add('opendoc', () => this.openDocumentDialog());
       add('savedoc', () => this.saveDocumentDialog());
       add('saveas', () => this.saveImageDialog());
+      add('cropcanvas', () => this.toolbar.toggleResizeMode());
+      add('scaleimage', () => this.scaleImageDialog());
       app.set_accels_for_action('win.preferences', ['<Control>comma']);
       app.set_accels_for_action('win.shortcuts', ['<Control>question']);
       app.set_accels_for_action('win.quit', ['<Control>q']);
@@ -858,6 +869,15 @@ export const AnnoscrWindow = GObject.registerClass(
 
     // Rotate the whole canvas 90°, committing any in-progress text edit first.
     // Shared by the header buttons and the Ctrl+R / Ctrl+Shift+R accelerators.
+    // Resample the image to a new size (annotations scale with it). Distinct
+    // from crop/expand, which changes the visible region without resampling.
+    private scaleImageDialog(): void {
+      const img = this.canvas.getImageDimensions();
+      if (!img) return;
+      this.editor.commitIfActive();
+      showScaleImageDialog(this, img.w, img.h, (factor) => this.canvas.scaleImage(factor));
+    }
+
     private rotateImage(dir: 'cw' | 'ccw'): void {
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
@@ -984,9 +1004,10 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>minus', zoomOut);
       this.bindShortcut(controller, '<Control>KP_Subtract', zoomOut);
       // Whole-canvas rotate (Ctrl+R clockwise, Ctrl+Shift+R counter-clockwise)
-      // and resize (Ctrl+E) — the keyboard equivalents of the header buttons.
-      // Gated while the text editor is open so the chords stay with the focused
-      // TextView mid-edit.
+      // and the two image-size commands (Ctrl+E crop/expand, Ctrl+Shift+E
+      // scale) — the keyboard equivalents of the two header buttons and the
+      // size menu. Gated while the text editor is open so the chords stay with
+      // the focused TextView mid-edit.
       this.bindShortcut(controller, '<Control>r', () => {
         if (this.editor.isActive()) return false;
         this.rotateImage('cw');
@@ -1000,6 +1021,11 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>e', () => {
         if (this.editor.isActive() || !this.canvas.hasImage()) return false;
         this.toolbar.toggleResizeMode();
+        return true;
+      });
+      this.bindShortcut(controller, '<Control><Shift>e', () => {
+        if (this.editor.isActive() || !this.canvas.hasImage()) return false;
+        this.scaleImageDialog();
         return true;
       });
       this.bindShortcut(controller, 'Delete', () => this.canvas.deleteSelected());

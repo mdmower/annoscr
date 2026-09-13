@@ -2,18 +2,12 @@ import GLib from 'gi://GLib?version=2.0';
 
 import {
   ColorRGBA,
-  CORNER_RADIUS_MAX,
-  CORNER_RADIUS_MIN,
   DashStyle,
-  FONT_SIZE_MAX,
-  FONT_SIZE_MIN,
-  STAMP_RADIUS_MAX,
-  STAMP_RADIUS_MIN,
   StampVariant,
+  STORED_SIZE_MAX,
+  STORED_SIZE_MIN,
   TOOL_IDS,
   ToolId,
-  WIDTH_MAX,
-  WIDTH_MIN,
 } from './actions.js';
 import {ImageFormat} from './exporter.js';
 import {
@@ -207,6 +201,9 @@ function asFormat(v: unknown): ImageFormat {
 
 // Parse one tool's persisted style, dropping malformed / out-of-range fields.
 // Returns null when nothing valid survives so the caller can skip the entry.
+// Sizes are validated against STORED_SIZE_*, not the style-bar control ranges:
+// a select-mode edit writes the edited action's value here, and scaling the
+// image can put that value outside the range of the control that shows it.
 function asToolStyleEntry(raw: unknown): ToolStyleEntry | null {
   if (!isRecord(raw)) return null;
   const entry: ToolStyleEntry = {};
@@ -214,7 +211,7 @@ function asToolStyleEntry(raw: unknown): ToolStyleEntry | null {
   if (color) entry.color = color;
   const textColor = asColor(raw.textColor);
   if (textColor) entry.textColor = textColor;
-  const width = asClampedNumber(raw.width, WIDTH_MIN, WIDTH_MAX);
+  const width = asClampedNumber(raw.width, STORED_SIZE_MIN, STORED_SIZE_MAX);
   if (width !== undefined) entry.width = width;
   const fill = asColor(raw.fill);
   if (fill) entry.fill = fill;
@@ -222,13 +219,13 @@ function asToolStyleEntry(raw: unknown): ToolStyleEntry | null {
   if (dash) entry.dash = dash;
   const filledHead = asBool(raw.filledHead);
   if (filledHead !== undefined) entry.filledHead = filledHead;
-  const cornerRadius = asClampedNumber(raw.cornerRadius, CORNER_RADIUS_MIN, CORNER_RADIUS_MAX);
+  const cornerRadius = asClampedNumber(raw.cornerRadius, 0, STORED_SIZE_MAX);
   if (cornerRadius !== undefined) entry.cornerRadius = cornerRadius;
   const fontDesc = asNonEmptyString(raw.fontDesc);
   if (fontDesc) entry.fontDesc = fontDesc;
-  const fontSize = asClampedNumber(raw.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
+  const fontSize = asClampedNumber(raw.fontSize, STORED_SIZE_MIN, STORED_SIZE_MAX);
   if (fontSize !== undefined) entry.fontSize = fontSize;
-  const stampRadius = asClampedNumber(raw.stampRadius, STAMP_RADIUS_MIN, STAMP_RADIUS_MAX);
+  const stampRadius = asClampedNumber(raw.stampRadius, STORED_SIZE_MIN, STORED_SIZE_MAX);
   if (stampRadius !== undefined) entry.stampRadius = stampRadius;
   return Object.keys(entry).length > 0 ? entry : null;
 }

@@ -75,6 +75,15 @@ export interface Action {
   // are the source image dimensions BEFORE the rotation; the action's stored
   // coords are interpreted in the old image's coordinate space.
   rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
+  // Transform this action so it scales with the source image: every stored
+  // image-space quantity — coordinates and sizes alike (stroke width, font
+  // size, radius, corner radius, curve and tail offsets) — is multiplied by
+  // `factor`. The scale is uniform, so angles are unchanged. No lower bound is
+  // applied to the sizes: clamping one would make the scale non-uniform (a
+  // clamped stroke keeps its weight while everything around it shrinks) and
+  // would break the property that scaling twice by 0.5 equals scaling once by
+  // 0.25.
+  scaleOnImage(factor: number): Action;
   // The action's editable stroke / outline / foreground color (pen ink, line /
   // arrow / shape outline, number stamp border+digit), or null where there's no
   // such color. Text foreground is NOT here — it's getTextColor, so a shape can
@@ -253,7 +262,7 @@ export interface TextStyle {
   size: number; // image-space pixels (font height)
   fontDesc: string; // Pango font description string
   // Background plate drawn behind the glyphs for legibility over busy images.
-  // Alpha 0 = no plate. Defaults to transparent white so the opacity slider
+  // Alpha 0 = no plate. Defaults to transparent white so raising the opacity
   // reveals a translucent white background.
   bg: ColorRGBA;
   // Horizontal alignment of the lines within the text block.
@@ -627,24 +636,45 @@ export function defaultFontSizeForTool(toolId: ToolId): number | null {
   return null;
 }
 
-// Slider range for the width control. Large enough that the highlighter's
-// default (18 px) is well below the maximum.
-export const WIDTH_MIN = 1;
-export const WIDTH_MAX = 40;
+// Range of the width control (image-space px). The minimum is a fraction of a
+// pixel because scaling the image down multiplies every width: cairo draws a
+// sub-pixel stroke at partial coverage, so it fades rather than disappearing,
+// and only width 0 draws nothing at all. The maximum is deliberately generous
+// rather than tight: the control is a spin button, typed into rather than
+// dragged through, so the bound only catches a mistyped value, and a usable
+// highlighter on a 4000px-wide screenshot is many times the width of one on a
+// 400px screenshot. Persisted values are guarded separately by STORED_SIZE_MAX.
+export const WIDTH_MIN = 0.1;
+export const WIDTH_MAX = 400;
 
-// SpinButton range for the font size control (image-space pixels).
-export const FONT_SIZE_MIN = 6;
-export const FONT_SIZE_MAX = 200;
+// Range of the font size control (image-space pixels). The minimum is 1 px for
+// the same reason as WIDTH_MIN, the maximum generous for the same reason as
+// WIDTH_MAX.
+export const FONT_SIZE_MIN = 1;
+export const FONT_SIZE_MAX = 1000;
 
-// Slider range for the rectangle corner-radius control (image-space px). 0 is
-// sharp corners; the upper bound is large and the radius is clamped to half the
-// smaller side at draw time, so a large value produces the maximum rounding.
+// Range of the rectangle corner-radius control (image-space px). 0 is sharp
+// corners. Both the outline path and the callout-tail perimeter clamp the
+// radius to half the smaller side, so a value at or above that draws a fully
+// rounded shape rather than overshooting — which is why the upper bound only
+// has to reach "fully rounded" for a large rectangle.
 export const CORNER_RADIUS_MIN = 0;
-export const CORNER_RADIUS_MAX = 100;
+export const CORNER_RADIUS_MAX = 2000;
 
 // Canvas dimension limits for the blank-canvas dialog and CLI flags.
 export const CANVAS_SIZE_MIN = 1;
 export const CANVAS_SIZE_MAX = 8192;
+
+// Validation range for a persisted image-space size — stroke width, font size,
+// corner radius, stamp radius — as read back from a .annoscr document or
+// settings.json. Deliberately far wider than the control ranges above, which
+// are the useful span of a spin button rather than a statement about
+// what a valid file may contain: scaling the image multiplies every stored
+// size, so a value well outside the control range is legitimate and has to
+// reload unchanged. These bounds exist only to reject what can't be drawn
+// (non-finite, non-positive, or larger than any canvas).
+export const STORED_SIZE_MIN = 1e-4;
+export const STORED_SIZE_MAX = 1e5;
 
 // ---------- Serialized forms (.annoscr document format) ----------
 
@@ -756,12 +786,11 @@ export type SerializedAction =
 
 const SHAPE_MIN_EXTENT = 2;
 
-// Number-stamp radius bounds (image-space px). MIN is the resize floor (a
-// corner drag can't collapse the stamp to a dot) and the persistence clamp
-// floor; MAX only bounds a remembered value loaded from settings.json against
-// malformed input.
+// Number-stamp resize floor (image-space px): a corner drag can't collapse the
+// stamp to a dot. There's no matching ceiling — the stamp has no size control,
+// and a persisted radius is validated against STORED_SIZE_MAX like every other
+// stored size.
 export const STAMP_RADIUS_MIN = 4;
-export const STAMP_RADIUS_MAX = 512;
 // The static placement radius before any remembered size.
 export const DEFAULT_STAMP_RADIUS = NUMBER_STAMP_STYLE.radius;
 
@@ -770,6 +799,7 @@ abstract class BaseAction implements Action {
   abstract getBounds(): Bounds | null;
   abstract translate(dx: number, dy: number): Action;
   abstract rotateOnImage(direction: RotateDirection, oldW: number, oldH: number): Action;
+  abstract scaleOnImage(factor: number): Action;
   abstract serialize(): SerializedAction;
 
   getColor(): ColorRGBA | null {
@@ -1019,6 +1049,23 @@ class TextAction extends BaseAction {
       normalizeAngle(this.rotation + dr),
       this.style,
       this.editorSize
+    );
+  }
+
+  scaleOnImage(factor: number): Action {
+    // The stored (x, y) is the layout's top-left, and the layout's own size
+    // follows the font size, so scaling both maps every glyph position by the
+    // same factor. editorSize is image-space too (see EditorSize).
+    return new TextAction(
+      this.x * factor,
+      this.y * factor,
+      this.markup,
+      this.rotation,
+      {...this.style, size: this.style.size * factor},
+      this.editorSize && {
+        width: this.editorSize.width * factor,
+        height: this.editorSize.height * factor,
+      }
     );
   }
 
@@ -1290,6 +1337,23 @@ class NumberStampAction extends BaseAction {
       this.variant,
       normalizeAngle(this.rotation + dr),
       this.style
+    );
+  }
+
+  scaleOnImage(factor: number): Action {
+    return new NumberStampAction(
+      this.x * factor,
+      this.y * factor,
+      this.n,
+      this.groupId,
+      this.variant,
+      this.rotation,
+      {
+        ...this.style,
+        radius: this.style.radius * factor,
+        borderWidth: this.style.borderWidth * factor,
+        fontSize: this.style.fontSize * factor,
+      }
     );
   }
 
@@ -1601,6 +1665,11 @@ class StrokeAction extends BaseAction {
     return new StrokeAction(moved, this.style, this.tool);
   }
 
+  scaleOnImage(factor: number): Action {
+    const scaled: Array<[number, number]> = this.points.map(([x, y]) => [x * factor, y * factor]);
+    return new StrokeAction(scaled, {...this.style, width: this.style.width * factor}, this.tool);
+  }
+
   getColor(): ColorRGBA {
     return this.style.color;
   }
@@ -1698,6 +1767,15 @@ abstract class TwoEndpointAction extends BaseAction {
     return this.rebuild(nx1, ny1, nx2, ny2, this.style);
   }
 
+  // Endpoints and stroke width. Subclasses with their own image-space state
+  // (curve offset, callout tail, corner radius, embedded text) extend this.
+  scaleOnImage(factor: number): Action {
+    return this.rebuild(this.x1 * factor, this.y1 * factor, this.x2 * factor, this.y2 * factor, {
+      ...this.style,
+      width: this.style.width * factor,
+    });
+  }
+
   getColor(): ColorRGBA {
     return this.style.color;
   }
@@ -1791,6 +1869,20 @@ abstract class CurvableLineAction extends TwoEndpointAction {
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
     return this.makeCurved(x1, y1, x2, y2, style, this.curve);
+  }
+
+  // rebuild() passes the curve through unchanged, so the endpoints-and-width
+  // scale from the base class has to be extended with the offset, which is in
+  // image-space pixels along the segment's own axes.
+  scaleOnImage(factor: number): Action {
+    return this.makeCurved(
+      this.x1 * factor,
+      this.y1 * factor,
+      this.x2 * factor,
+      this.y2 * factor,
+      {...this.style, width: this.style.width * factor},
+      this.curve && {along: this.curve.along * factor, perp: this.curve.perp * factor}
+    );
   }
 
   // The Bezier control point in image space; the midpoint when straight.
@@ -2216,6 +2308,23 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
     return this.make(x1, y1, x2, y2, style, this.fill, this.rotation, this.text, this.tail);
+  }
+
+  // Extends the base with the box's own image-space state: the embedded text's
+  // font size and the callout tail's tip offset (local frame, so a uniform
+  // scale is a plain multiply).
+  scaleOnImage(factor: number): Action {
+    return this.make(
+      this.x1 * factor,
+      this.y1 * factor,
+      this.x2 * factor,
+      this.y2 * factor,
+      {...this.style, width: this.style.width * factor},
+      this.fill,
+      this.rotation,
+      {...this.text, style: {...this.text.style, size: this.text.style.size * factor}},
+      this.tail && {dx: this.tail.dx * factor, dy: this.tail.dy * factor}
+    );
   }
 
   getBounds(): Bounds {
@@ -2817,6 +2926,11 @@ class RectAction extends RotatableBoxAction {
     tail: TailOffset | null
   ): Action {
     return new RectAction(x1, y1, x2, y2, style, fill, rotation, text, this.cornerRadius, tail);
+  }
+
+  // make() preserves the radius, so the base's scale has to reapply it scaled.
+  scaleOnImage(factor: number): Action {
+    return super.scaleOnImage(factor).withCornerRadius(this.cornerRadius * factor);
   }
 
   getCornerRadius(): number {

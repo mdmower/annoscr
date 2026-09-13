@@ -1,4 +1,5 @@
 import Gdk from 'gi://Gdk?version=4.0';
+import Gio from 'gi://Gio?version=2.0';
 import GLib from 'gi://GLib?version=2.0';
 import Graphene from 'gi://Graphene?version=1.0';
 import Gtk from 'gi://Gtk?version=4.0';
@@ -6,6 +7,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import {CanvasView, ZOOM_MAX, ZOOM_MIN} from './canvas_view.js';
 import {TextEditor} from './text_editor.js';
 import {ZOOM_DETENTS, ZOOM_SCROLL_STEP} from './window_constants.js';
+import {setLabelledBy} from './a11y.js';
 import {_} from './i18n.js';
 
 // How long a cursor-anchored zoom's anchor persists after the last zoom event
@@ -24,6 +26,7 @@ export class ZoomController {
   private scrolled: Gtk.ScrolledWindow;
   private statusBar: Gtk.CenterBox;
   private statusLabel!: Gtk.Label;
+  private sizeButton!: Gtk.MenuButton;
   private zoomLabel!: Gtk.Label;
   private zoomSlider!: Gtk.Scale;
   private zoomControls!: Gtk.Box;
@@ -85,12 +88,30 @@ export class ZoomController {
       margin_top: 4,
       margin_bottom: 4,
     });
+    // The dimensions readout doubles as the entry point for the two image-size
+    // commands, since it is what the user looks at when the size is wrong.
+    // Full-strength label color, not the dim-label the other status text uses:
+    // this one is a button, and dimming it reads as inactive.
     this.statusLabel = new Gtk.Label({
       label: '',
       halign: Gtk.Align.START,
-      css_classes: ['dim-label', 'caption'],
+      css_classes: ['caption'],
     });
-    box.set_start_widget(this.statusLabel);
+    this.sizeButton = new Gtk.MenuButton({
+      child: this.statusLabel,
+      halign: Gtk.Align.START,
+      valign: Gtk.Align.CENTER,
+      visible: false,
+      css_classes: ['flat'],
+      // The status bar is at the bottom of the window, so the menu opens upward
+      // over the canvas rather than off the bottom edge.
+      direction: Gtk.ArrowType.UP,
+      tooltip_text: _('Change the image size'),
+    });
+    // The accessible name follows the label's text, so it announces the current
+    // dimensions rather than a static caption.
+    setLabelledBy(this.sizeButton, this.statusLabel);
+    box.set_start_widget(this.sizeButton);
 
     const fitBtn = new Gtk.Button({
       label: _('Fit'),
@@ -162,14 +183,25 @@ export class ZoomController {
     return box;
   }
 
+  // The image-size menu (Crop or expand / Scale image), supplied by the window
+  // since it owns the actions the menu items refer to.
+  setSizeMenu(model: Gio.MenuModel): void {
+    this.sizeButton.set_menu_model(model);
+  }
+
   refresh(): void {
     if (!this.statusLabel) return;
     const img = this.canvas.getImageDimensions();
     if (!img) {
       this.statusLabel.set_label('');
+      this.sizeButton.set_visible(false);
       this.zoomControls.set_visible(false);
       return;
     }
+    this.sizeButton.set_visible(true);
+    // While crop mode is active this label shows the live target size, so the
+    // menu that would start another size command is unavailable.
+    this.sizeButton.set_sensitive(this.canvas.getTool() !== 'resize');
     // Translatable "W \u00d7 H px" via a two-placeholder template, so a locale
     // can reorder or relabel the unit. Both the current and (resize-preview)
     // target dimensions render through the same template.

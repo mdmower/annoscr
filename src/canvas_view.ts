@@ -48,7 +48,7 @@ import {
   shapeWithoutText,
   styleValuesEqual,
 } from './actions.js';
-import {resizeSurface, rotateSurface} from './image_transforms.js';
+import {resizeSurface, rotateSurface, scaleSurface} from './image_transforms.js';
 import {renderToSurface, sampleSurfacePixel} from './exporter.js';
 import type {EditorSize, RotateDirection, TextAlign, TextStyle} from './actions.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
@@ -552,8 +552,8 @@ export const CanvasView = GObject.registerClass(
     private cleanStateRef: CanvasState | null = null;
 
     // Last pushState's coalesce key. Successive pushes with the same key
-    // replace the top entry instead of growing history (the slider drag
-    // case — one history entry per drag, not per tick). Any push without
+    // replace the top entry instead of growing history (the repeated-step
+    // case — one history entry per run of steps, not per step). Any push without
     // a key, or with a different key, ends the sequence. Operations that
     // don't push but should still end the sequence (undo/redo/setTool/...
     // /selection change) clear it explicitly.
@@ -1007,7 +1007,7 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Current corner radius for the given tool. Returns null for every tool but
-    // 'rect' (the Corners slider hides accordingly).
+    // 'rect' (the Corners control hides accordingly).
     getToolCornerRadius(toolId: ToolId): number | null {
       const def = defaultCornerRadiusForTool(toolId);
       if (def === null) return null;
@@ -1495,7 +1495,7 @@ export const CanvasView = GObject.registerClass(
       // Applicable but every selected action already had the value: handled,
       // but nothing to push.
       if (!changed) return true;
-      // Coalesce on the property AND the selection, so a slider drag over one
+      // Coalesce on the property AND the selection, so a run of steps over one
       // selection is a single entry but re-selecting starts a new one.
       this.pushState(
         {
@@ -1897,6 +1897,31 @@ export const CanvasView = GObject.registerClass(
       // points at a different on-screen spot than the (motionless) pointer.
       // Re-derive it from what's actually under the cursor in the rotated
       // frame.
+      this.refreshHoverCandidate();
+      this.queue_draw();
+    }
+
+    // Resample the source surface to `factor` times its current size and scale
+    // every action with it. Both the positions and the sizes multiply, so the
+    // annotations keep their place and their proportions; they are re-rendered
+    // as vectors at the new resolution rather than resampled with the image.
+    // The new dimensions are derived here so the caller only has to decide the
+    // factor.
+    scaleImage(factor: number): void {
+      const s = this.state.surface;
+      if (!s || !Number.isFinite(factor) || factor <= 0) return;
+      const w = Math.max(1, Math.round(s.getWidth() * factor));
+      const h = Math.max(1, Math.round(s.getHeight() * factor));
+      if (w === s.getWidth() && h === s.getHeight()) return;
+      this.pushState({
+        surface: scaleSurface(s, w, h),
+        actions: this.state.actions.map((a) => a.scaleOnImage(factor)),
+      });
+      this.liveStroke = null;
+      this.selectedIndices.clear();
+      this.editingActionIndex = -1;
+      // The actions moved with the image, so the cached candidate index refers
+      // to a different position on screen than the (motionless) pointer.
       this.refreshHoverCandidate();
       this.queue_draw();
     }

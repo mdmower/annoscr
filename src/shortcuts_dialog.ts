@@ -67,7 +67,8 @@ const SECTIONS: Section[] = [
     items: [
       {keys: ['Ctrl', 'R'], desc: N_('Rotate right (90°)')},
       {keys: ['Ctrl', 'Shift', 'R'], desc: N_('Rotate left (90°)')},
-      {keys: ['Ctrl', 'E'], desc: N_('Resize canvas')},
+      {keys: ['Ctrl', 'E'], desc: N_('Crop or expand canvas')},
+      {keys: ['Ctrl', 'Shift', 'E'], desc: N_('Scale image')},
     ],
   },
   {
@@ -115,10 +116,10 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    title: N_('Resize mode'),
+    title: N_('Crop or expand mode'),
     items: [
-      {keys: ['Enter'], desc: N_('Apply resize')},
-      {keys: ['Esc'], desc: N_('Cancel resize')},
+      {keys: ['Enter'], desc: N_('Apply the new canvas region')},
+      {keys: ['Esc'], desc: N_('Cancel')},
     ],
   },
 ];
