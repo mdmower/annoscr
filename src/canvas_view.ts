@@ -735,7 +735,7 @@ export const CanvasView = GObject.registerClass(
         }
         let size = 0;
         for (const s of added) size += s.getStride() * s.getHeight();
-        if (i < this.history.length - 1 && bytes + size > this.surfaceBytesCap) {
+        if (i < this.history.length - 1 && added.size > 0 && bytes + size > this.surfaceBytesCap) {
           const cut = Math.min(i + 1, this.historyCursor);
           if (cut > 0) {
             this.history.splice(0, cut);
