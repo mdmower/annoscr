@@ -76,9 +76,11 @@ export type ImageResampler = (
 ) => Cairo.ImageSurface | null;
 
 export interface Action {
-  // `resample` is used only by image items. Without it an item filters its
-  // source with BILINEAR, which drops detail when shrinking past 2:1.
-  draw(cr: Cairo.Context, scale: number, resample?: ImageResampler): void;
+  // `resample` and `deviceScale` are used only by image items. Without
+  // `resample` an item filters its source with BILINEAR, which drops detail
+  // when shrinking past 2:1. `deviceScale` is output pixels per unit of the
+  // context's device space (see PaintImageOptions); it defaults to 1.
+  draw(cr: Cairo.Context, scale: number, resample?: ImageResampler, deviceScale?: number): void;
   getBounds(): Bounds | null;
   translate(dx: number, dy: number): Action;
   // Transform this action so it rotates with the source image. `oldW`/`oldH`
@@ -3175,6 +3177,11 @@ export interface ImageAsset {
 export interface PaintImageOptions {
   // The view scale the CTM applies (1 on export).
   scale: number;
+  // Output pixels per unit of the context's device space: the display scale
+  // on the canvas, 1 on export. Not read from the target surface, because GTK
+  // hands a draw function a context in logical pixels at any display scale
+  // and applies the scale when it renders.
+  deviceScale: number;
   // Whether the box's axes are parallel to the output grid (no rotation, or a
   // multiple of 90°).
   aligned: boolean;
@@ -3193,13 +3200,12 @@ export function paintImage(
   src: Cairo.ImageSurface,
   w: number,
   h: number,
-  {scale, aligned, opacity, resample}: PaintImageOptions
+  {scale, deviceScale, aligned, opacity, resample}: PaintImageOptions
 ): void {
   const sw = src.getWidth();
   const sh = src.getHeight();
-  // Output pixels per image-space unit, including a HiDPI device scale.
-  const [dsx, dsy] = cr.getTarget().getDeviceScale();
-  const px = scale * Math.max(dsx, dsy);
+  // Output pixels per image-space unit.
+  const px = scale * deviceScale;
   const shrinking = Math.min(w / sw, h / sh) * px < 1;
   const copy =
     shrinking && resample
@@ -3215,7 +3221,8 @@ export function paintImage(
     // A sub-pixel origin would blur every pixel of the copy.
     if (aligned) {
       const [ox, oy] = cr.userToDevice(0, 0);
-      const [dx, dy] = cr.deviceToUserDistance(Math.round(ox) - ox, Math.round(oy) - oy);
+      const snap = (v: number): number => Math.round(v * deviceScale) / deviceScale - v;
+      const [dx, dy] = cr.deviceToUserDistance(snap(ox), snap(oy));
       cr.translate(dx, dy);
     }
     filter = Cairo.Filter.BILINEAR;
@@ -3262,7 +3269,7 @@ class ImageAction extends BaseAction {
     return new ImageAction(x1, y1, x2, y2, this.rotation, this.opacity, this.asset);
   }
 
-  draw(cr: Cairo.Context, scale: number, resample?: ImageResampler): void {
+  draw(cr: Cairo.Context, scale: number, resample?: ImageResampler, deviceScale = 1): void {
     const w = this.x2 - this.x1;
     const h = this.y2 - this.y1;
     if (w <= 0 || h <= 0) return;
@@ -3272,6 +3279,7 @@ class ImageAction extends BaseAction {
     cr.translate(-w / 2, -h / 2);
     paintImage(cr, this.asset.surface, w, h, {
       scale,
+      deviceScale,
       aligned: isQuarterTurn(this.rotation),
       opacity: this.opacity,
       resample,

@@ -610,6 +610,10 @@ export const CanvasView = GObject.registerClass(
     // Handler id for the StyleManager::notify::dark connection, held so it can
     // be disconnected on unrealize (0 = not connected).
     private darkHandlerId: number = 0;
+    // The window surface whose `notify::scale` repaints the canvas, while
+    // realized.
+    private nativeSurface: Gdk.Surface | null = null;
+    private scaleHandlerId: number = 0;
 
     // Resampled copies of the shrunk base image and image items for painting.
     private resampleCache = new ResampleCache(() => this.queue_draw());
@@ -644,6 +648,14 @@ export const CanvasView = GObject.registerClass(
       // so missing notifications while unrealized is harmless — the next paint
       // reads the current state.
       this.connect('realize', () => {
+        // Image copies are sized in output pixels, and the draw function's
+        // context doesn't change with the display scale, so a scale change
+        // (e.g. moving to another monitor) needs a repaint.
+        if (!this.nativeSurface) {
+          this.nativeSurface = this.get_native()?.get_surface() ?? null;
+          this.scaleHandlerId =
+            this.nativeSurface?.connect('notify::scale', () => this.queue_draw()) ?? 0;
+        }
         if (this.darkHandlerId) return;
         this.darkHandlerId = Adw.StyleManager.get_default().connect('notify::dark', () =>
           this.queue_draw()
@@ -653,6 +665,11 @@ export const CanvasView = GObject.registerClass(
         // A live auto-scroll tick must not outlive the widget's frame clock.
         this.stopAutoScroll();
         this.resampleCache.clear();
+        if (this.nativeSurface) {
+          this.nativeSurface.disconnect(this.scaleHandlerId);
+          this.nativeSurface = null;
+          this.scaleHandlerId = 0;
+        }
         if (!this.darkHandlerId) return;
         Adw.StyleManager.get_default().disconnect(this.darkHandlerId);
         this.darkHandlerId = 0;
@@ -3705,6 +3722,11 @@ export const CanvasView = GObject.registerClass(
       }
     }
 
+    // Output pixels per logical pixel (see PaintImageOptions).
+    private displayScale(): number {
+      return this.nativeSurface?.get_scale() ?? this.get_scale_factor();
+    }
+
     private onDraw(
       _widget: Gtk.DrawingArea,
       cr: Cairo.Context,
@@ -3739,8 +3761,15 @@ export const CanvasView = GObject.registerClass(
       cr.fill();
 
       const resample = this.resampleCache.lookup;
+      const ds = this.displayScale();
       this.resampleCache.beginPaint();
-      paintImage(cr, s, imgW, imgH, {scale: t.scale, aligned: true, opacity: 1, resample});
+      paintImage(cr, s, imgW, imgH, {
+        scale: t.scale,
+        deviceScale: ds,
+        aligned: true,
+        opacity: 1,
+        resample,
+      });
 
       const acts = this.state.actions;
       const sole = this.soleSelectedIndex();
@@ -3756,14 +3785,14 @@ export const CanvasView = GObject.registerClass(
         if ((this.actionGrab || this.rotateGrab) && this.actionPreview && i === sole) {
           // Mid-reshape (resize or rotate): render the preview in the stored
           // action's place.
-          this.actionPreview.draw(cr, t.scale, resample);
+          this.actionPreview.draw(cr, t.scale, resample, ds);
         } else if (this.moving && this.selectedIndices.has(i)) {
           cr.save();
           cr.translate(this.moveDx, this.moveDy);
-          acts[i].draw(cr, t.scale, resample);
+          acts[i].draw(cr, t.scale, resample, ds);
           cr.restore();
         } else {
-          acts[i].draw(cr, t.scale, resample);
+          acts[i].draw(cr, t.scale, resample, ds);
         }
       }
       this.resampleCache.endPaint();
