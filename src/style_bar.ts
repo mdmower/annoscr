@@ -6,7 +6,7 @@ import Cairo from 'cairo';
 import {CanvasView} from './canvas_view.js';
 import {TextEditor, TextEditorStyle} from './text_editor.js';
 import {FontEntry, getAvailableFonts} from './font_catalogue.js';
-import {colorToHex, colorToRgba, parseHexColor, rgbaToColor} from './gdk_color.js';
+import {drawSwatch, makeColorControls} from './color_controls.js';
 import {DASH_ORDER, TOOLS} from './window_constants.js';
 import {labelFromTooltip, setAccessibleLabel, setLabelledBy} from './a11y.js';
 import {_, formatN} from './i18n.js';
@@ -160,29 +160,6 @@ function setCaption(label: Gtk.Label, base: string, mixed: boolean): void {
     label.set_text(base);
   }
   setAccessibleLabel(label, mixed ? `${base} ${_('(mixed)')}` : base);
-}
-
-// Paint a color swatch: a checkerboard (so transparency is visible as such)
-// with the color over it and a hairline border, matching the look of a stock
-// GTK color button.
-function drawSwatch(cr: Cairo.Context, w: number, h: number, color: ColorRGBA): void {
-  const cell = 5;
-  cr.setSourceRGB(0.85, 0.85, 0.85);
-  cr.paint();
-  cr.setSourceRGB(0.55, 0.55, 0.55);
-  for (let y = 0; y < h; y += cell) {
-    for (let x = 0; x < w; x += cell) {
-      if ((Math.floor(x / cell) + Math.floor(y / cell)) % 2 === 0) cr.rectangle(x, y, cell, cell);
-    }
-  }
-  cr.fill();
-  cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
-  cr.rectangle(0, 0, w, h);
-  cr.fill();
-  cr.setSourceRGBA(0, 0, 0, 0.35);
-  cr.setLineWidth(1);
-  cr.rectangle(0.5, 0.5, w - 1, h - 1);
-  cr.stroke();
 }
 
 // The style bar: per-tool/selection style pickers (color, fill, width,
@@ -896,22 +873,16 @@ export class StyleBar {
     this.alignButtons.right.set_active(align === 'right');
   }
 
-  // A color swatch button whose popover holds an inline hex entry + opacity
-  // opacity field and a button into the full system Gtk.ColorDialog. Every path
-  // reports the chosen color via `onChosen` even when it equals the shown one
-  // (so a mixed selection flattens). Returns the button plus a setter that
-  // repaints the swatch.
+  // A color swatch button whose popover holds the shared hex / opacity /
+  // Palette… controls plus the in-canvas eyedropper. Every path reports the
+  // chosen color via `onChosen` even when it equals the shown one (so a mixed
+  // selection flattens). Returns the button plus a setter that repaints the
+  // swatch.
   private makeSwatchButton(onChosen: (color: ColorRGBA) => void): {
     button: Gtk.MenuButton;
     setColor: (c: ColorRGBA | null) => void;
   } {
     let current: ColorRGBA = [0, 0, 0, 1];
-    // Suppress the entry/opacity change handlers while we set their values
-    // programmatically (on popup, or when one control drives the other).
-    let syncing = false;
-    // The exact text syncControls() last wrote into the hex entry. applyHex
-    // gates on this so an untouched entry never commits (see applyHex).
-    let lastSyncedText = '';
 
     const area = new Gtk.DrawingArea({
       width_request: 28,
@@ -925,26 +896,6 @@ export class StyleBar {
     // because the swatch is a custom child and always-show-arrow defaults off.
     const button = new Gtk.MenuButton({child: area, tooltip_text: _('Pick a color')});
 
-    const box = new Gtk.Box({
-      orientation: Gtk.Orientation.VERTICAL,
-      spacing: 8,
-      margin_top: 8,
-      margin_bottom: 8,
-      margin_start: 8,
-      margin_end: 8,
-    });
-
-    const hexRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
-    const hexLabel = new Gtk.Label({label: _('Hex'), css_classes: ['caption']});
-    hexRow.append(hexLabel);
-    const hexEntry = new Gtk.Entry({
-      max_length: 9,
-      width_chars: 9,
-      hexpand: true,
-      tooltip_text: _('#RGB, #RGBA, #RRGGBB, or #RRGGBBAA'),
-    });
-    setLabelledBy(hexEntry, hexLabel);
-    hexRow.append(hexEntry);
     // In-canvas eyedropper: closes the popover and puts the canvas into
     // color-sampling mode. The picked pixel sets RGB and keeps the current
     // opacity — a composited pixel is opaque-blended, so its alpha isn't
@@ -955,31 +906,6 @@ export class StyleBar {
       valign: Gtk.Align.CENTER,
     });
     labelFromTooltip(pickBtn);
-    hexRow.append(pickBtn);
-    box.append(hexRow);
-
-    const opacityRow = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL, spacing: 6});
-    const opacityLabel = new Gtk.Label({label: _('Opacity'), css_classes: ['caption']});
-    opacityRow.append(opacityLabel);
-    opacityLabel.set_hexpand(true);
-    opacityLabel.set_xalign(0);
-    const opacitySpin = new Gtk.SpinButton({
-      adjustment: new Gtk.Adjustment({lower: 0, upper: 100, step_increment: 1, page_increment: 10}),
-      digits: 0,
-      width_request: 64,
-      valign: Gtk.Align.CENTER,
-      xalign: 1,
-    });
-    setLabelledBy(opacitySpin, opacityLabel);
-    opacityRow.append(opacitySpin);
-    box.append(opacityRow);
-
-    const paletteBtn = new Gtk.Button({label: _('Palette…')});
-    box.append(paletteBtn);
-
-    const popover = new Gtk.Popover({autohide: true});
-    popover.set_child(box);
-    button.set_popover(popover);
 
     const commit = (c: ColorRGBA): void => {
       current = c;
@@ -987,78 +913,29 @@ export class StyleBar {
       onChosen(c);
     };
 
+    const popover = new Gtk.Popover({autohide: true});
+    const controls = makeColorControls({
+      onChosen: commit,
+      hexRowEnd: pickBtn,
+      onPaletteOpen: () => popover.popdown(),
+    });
+    const box = controls.box;
+    box.margin_top = 8;
+    box.margin_bottom = 8;
+    box.margin_start = 8;
+    box.margin_end = 8;
+    popover.set_child(box);
+    button.set_popover(popover);
+
     pickBtn.connect('clicked', () => {
       popover.popdown();
       this.canvas.beginColorSample((c) => commit([c[0], c[1], c[2], current[3]]));
     });
 
-    // Reflect `current` into the entry + opacity field without re-triggering
-    // commits.
-    const syncControls = (): void => {
-      syncing = true;
-      lastSyncedText = colorToHex(current);
-      hexEntry.set_text(lastSyncedText);
-      opacitySpin.set_value(Math.round(current[3] * 100));
-      syncing = false;
-    };
-
-    // `force` true = the user pressed Enter (an explicit "apply this"), so the
-    // shown value broadcasts even when unchanged — the way to flatten a mixed
-    // selection to the displayed color. false = a focus-leave, which must not
-    // commit an untouched entry: the shown hex is an 8-bit rounding of a float
-    // color, so re-parsing an unedited entry yields a slightly different float
-    // and looks like a change; a spurious leave (the popover's own open/dismiss
-    // focus changes emit `leave` with no user input) would then silently
-    // flatten a mixed multi-selection. Gate that case on the text differing.
-    const applyHex = (force: boolean): void => {
-      if (!force && hexEntry.get_text() === lastSyncedText) return;
-      const parsed = parseHexColor(hexEntry.get_text());
-      if (!parsed) {
-        // Invalid input: snap the entry back to the live color.
-        syncControls();
-        return;
-      }
-      // 6-digit keeps the current opacity; 8-digit includes its own alpha.
-      const alpha = parsed.hadAlpha ? parsed.color[3] : current[3];
-      commit([parsed.color[0], parsed.color[1], parsed.color[2], alpha]);
-      // syncControls() normalizes the text via set_text(), which puts the
-      // cursor at position 0; move it to the end so editing can continue there.
-      syncControls();
-      hexEntry.set_position(-1);
-    };
-    hexEntry.connect('activate', () => applyHex(true));
-    // Also apply when focus leaves the entry, so typing then clicking another
-    // control commits without needing Enter.
-    const focusCtl = new Gtk.EventControllerFocus();
-    focusCtl.connect('leave', () => applyHex(false));
-    hexEntry.add_controller(focusCtl);
-
-    opacitySpin.connect('value-changed', () => {
-      if (syncing) return;
-      commit([current[0], current[1], current[2], opacitySpin.get_value() / 100]);
-    });
-
-    const dialog = new Gtk.ColorDialog({with_alpha: true});
-    paletteBtn.connect('clicked', () => {
-      popover.popdown();
-      const root = button.get_root() as Gtk.Window | null;
-      // Callback form (not the promise overload) — the project doesn't rely on
-      // GJS promisifying GTK async methods. choose_rgba_finish throws when the
-      // dialog is dismissed/cancelled, which we treat as "no change".
-      dialog.choose_rgba(root, colorToRgba(current), null, (_source, res) => {
-        try {
-          const rgba = dialog.choose_rgba_finish(res);
-          if (rgba) commit(rgbaToColor(rgba));
-        } catch {
-          // Cancelled or dismissed — leave the selection untouched.
-        }
-      });
-    });
-
-    // MenuButton shows the popover itself; sync the entry/opacity field to the live
-    // color just before it opens (create-popup-func runs pre-show, so there's
-    // no flash of stale values).
-    button.set_create_popup_func(() => syncControls());
+    // MenuButton shows the popover itself; sync the entry/opacity field to the
+    // live color just before it opens (create-popup-func runs pre-show, so
+    // there's no flash of stale values).
+    button.set_create_popup_func(() => controls.setColor(current));
 
     return {
       button,

@@ -9,10 +9,17 @@ import Cairo from 'cairo';
 
 import {AnnoscrApplication} from './application.js';
 import {CanvasView} from './canvas_view.js';
-import {createBlankSurface} from './image_transforms.js';
+import {anchorSurface, createBlankSurface} from './image_transforms.js';
 import {assetFromFile, assetFromPixbuf, loadFromFile, loadFromPixbuf} from './image_loader.js';
 import {takeScreenshot} from './screenshot.js';
-import {Action, ColorRGBA, TEXT_STYLE, makeTextAction, withShapeText} from './actions.js';
+import {
+  Action,
+  ColorRGBA,
+  TEXT_STYLE,
+  TRANSPARENT_FILL,
+  makeTextAction,
+  withShapeText,
+} from './actions.js';
 import type {ImageAsset} from './actions.js';
 import {TextEditor, TextEditorBeginOptions, TextEditorStyle} from './text_editor.js';
 import type {TextEditRequestOptions} from './canvas_view.js';
@@ -43,7 +50,14 @@ import {
 } from './settings.js';
 import {presentPreferences} from './preferences.js';
 import {presentShortcuts} from './shortcuts_dialog.js';
-import {confirmDiscard, showAbout, showNewCanvasDialog, showScaleImageDialog} from './dialogs.js';
+import {
+  confirmDiscard,
+  showAbout,
+  showNewCanvasDialog,
+  showReplaceBackgroundColorDialog,
+  showReplaceBackgroundImageDialog,
+  showScaleImageDialog,
+} from './dialogs.js';
 import {StyleBar} from './style_bar.js';
 import {setChosenFonts} from './font_catalogue.js';
 import {ZoomController} from './zoom_controller.js';
@@ -105,6 +119,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private skipCloseConfirm: boolean = false;
     private saveButton: Gtk.Button;
     private copyButton: Gtk.Button;
+    // Enabled once a canvas is open; the menu rows are insensitive until then.
+    private canvasActions: Gio.SimpleAction[] = [];
 
     // Path of the annotation file currently being edited (set on open or save
     // of a .annoscr), so a re-save offers the same name/folder. Cleared
@@ -197,6 +213,10 @@ export const AnnoscrWindow = GObject.registerClass(
       // Ctrl+S) write silently to the default folder.
       const imageSection = new Gio.Menu();
       imageSection.append(_('Insert image file…'), 'win.insertimage');
+      const replaceMenu = new Gio.Menu();
+      replaceMenu.append(_('With image…'), 'win.replacebgimage');
+      replaceMenu.append(_('With color…'), 'win.replacebgcolor');
+      imageSection.append_submenu(_('Replace background'), replaceMenu);
       imageSection.append(_('Save image as…'), 'win.saveas');
       menu.append_section(null, imageSection);
       // Annotation-file open/save: a reopenable document (image + editable
@@ -629,10 +649,11 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private installActions(app: InstanceType<typeof AnnoscrApplication>): void {
-      const add = (name: string, cb: () => void): void => {
+      const add = (name: string, cb: () => void): Gio.SimpleAction => {
         const action = new Gio.SimpleAction({name});
         action.connect('activate', () => cb());
         this.add_action(action);
+        return action;
       };
       add('preferences', () =>
         presentPreferences(this, {
@@ -657,6 +678,11 @@ export const AnnoscrWindow = GObject.registerClass(
       add('insertimage', () => this.insertImageDialog());
       add('cropcanvas', () => this.toolbar.toggleResizeMode());
       add('scaleimage', () => this.scaleImageDialog());
+      this.canvasActions = [
+        add('replacebgimage', () => this.replaceBackgroundWithImage()),
+        add('replacebgcolor', () => this.replaceBackgroundWithColor()),
+      ];
+      for (const a of this.canvasActions) a.set_enabled(false);
       app.set_accels_for_action('win.preferences', ['<Control>comma']);
       app.set_accels_for_action('win.shortcuts', ['<Control>question']);
       app.set_accels_for_action('win.quit', ['<Control>q']);
@@ -858,9 +884,14 @@ export const AnnoscrWindow = GObject.registerClass(
       // A plain image isn't tied to any annotation file.
       this.currentDocPath = null;
       this.canvas.setImage(surface);
+      this.showCanvas();
+    }
+
+    private showCanvas(): void {
       this.stack.set_visible_child_name('canvas');
       this.saveButton.set_sensitive(true);
       this.copyButton.set_sensitive(true);
+      for (const a of this.canvasActions) a.set_enabled(true);
     }
 
     // Same UI setup as setImage, but loads a saved document (surface + actions)
@@ -869,9 +900,7 @@ export const AnnoscrWindow = GObject.registerClass(
       this.editor.cancel();
       if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
       this.canvas.loadDocument(surface, actions);
-      this.stack.set_visible_child_name('canvas');
-      this.saveButton.set_sensitive(true);
-      this.copyButton.set_sensitive(true);
+      this.showCanvas();
     }
 
     // Rotate the whole canvas 90°, committing any in-progress text edit first.
@@ -889,6 +918,67 @@ export const AnnoscrWindow = GObject.registerClass(
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
       this.canvas.rotate(dir);
+    }
+
+    // Replace the base image, keeping the canvas size and every annotation.
+    // A pending crop is discarded first, as by every other command that
+    // replaces the image.
+    private replaceBackground(surface: Cairo.ImageSurface): void {
+      if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
+      this.canvas.replaceBackground(surface);
+    }
+
+    private replaceBackgroundWithColor(): void {
+      if (!this.canvas.hasImage()) return;
+      this.editor.commitIfActive();
+      showReplaceBackgroundColorDialog(this, (color) => {
+        const img = this.canvas.getImageDimensions();
+        if (img) this.replaceBackground(createBlankSurface(img.w, img.h, color));
+      });
+    }
+
+    // The file is not recorded in the recent strip, like an inserted image. An
+    // image of another size goes through the alignment dialog; its padding
+    // color is the crop/expand fill, written back when the control was shown.
+    private replaceBackgroundWithImage(): void {
+      if (!this.canvas.hasImage()) return;
+      this.editor.commitIfActive();
+      const dialog = imageFileDialog(_('Replace background with image'));
+      dialog.open(this, null, (_src, result) => {
+        let file: Gio.File | null;
+        try {
+          file = dialog.open_finish(result);
+        } catch (e) {
+          if (!(e instanceof Gtk.DialogError && e.code === Gtk.DialogError.DISMISSED)) {
+            console.warn('open_finish failed', e);
+          }
+          return;
+        }
+        if (!file) return;
+        let image: Cairo.ImageSurface;
+        try {
+          image = loadFromFile(file);
+        } catch (e) {
+          console.log(`replace background failed: ${causeOf(e)}`);
+          const name = file.get_basename() ?? file.get_uri();
+          this.showToast(_('Could not open "%s"').replace('%s', name));
+          return;
+        }
+        const target = this.canvas.getImageDimensions();
+        if (!target) return;
+        const size = {w: image.getWidth(), h: image.getHeight()};
+        if (size.w === target.w && size.h === target.h) {
+          this.replaceBackground(image);
+          return;
+        }
+        const fill = this.canvas.getToolFill('resize') ?? TRANSPARENT_FILL;
+        showReplaceBackgroundImageDialog(this, size, target, fill, (anchor, padding) => {
+          if (padding) this.canvas.setToolFill('resize', padding);
+          this.replaceBackground(
+            anchorSurface(image, target.w, target.h, anchor, padding ?? TRANSPARENT_FILL)
+          );
+        });
+      });
     }
 
     // A file list, not a single file: a Gio.File target receives only the first

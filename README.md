@@ -34,7 +34,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Number stamps**: numbered or lettered per group. Pick or reassign a stamp's group from the style bar, start a new group, and select a stamp to quickly identify all others in the group (if multiple groups exist).
 
-- **Transforms**: rotate the whole image, crop or expand the canvas, or scale the image to new dimensions. Scaling resamples the image and multiplies the annotations by the same factor, so they keep their place and re-render sharp at the new size. Both size commands are in the menu on the dimensions readout in the status bar.
+- **Transforms**: rotate the whole image, crop or expand the canvas, scale the image to new dimensions, or replace the background (the image under the annotations) with a color or another image. Scaling resamples the image and multiplies the annotations by the same factor, so they keep their place and re-render sharp at the new size. Both size commands are in the menu on the dimensions readout in the status bar; Replace background is in the primary menu. Replacing the background keeps the canvas size: an image of another size is cropped or padded to it, aligned by a 3x3 anchor you choose.
 
 - **Image I/O**: open a file, paste, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard. Dropping an image file on an empty window opens it; with an image already open, a dropped file is added as an image item.
 

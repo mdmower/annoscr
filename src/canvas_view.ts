@@ -2087,6 +2087,18 @@ export const CanvasView = GObject.registerClass(
       this.queue_draw();
     }
 
+    // Replace the base image with a surface of the same size. Annotation
+    // coordinates are unchanged, so the selection and hover candidate stay.
+    replaceBackground(surface: Cairo.ImageSurface): void {
+      const s = this.state.surface;
+      if (!s || surface.getWidth() !== s.getWidth() || surface.getHeight() !== s.getHeight()) {
+        return;
+      }
+      this.pushState({surface, actions: this.state.actions});
+      this.liveStroke = null;
+      this.queue_draw();
+    }
+
     undo(): void {
       if (this.historyCursor === 0) return;
       this.historyCursor--;

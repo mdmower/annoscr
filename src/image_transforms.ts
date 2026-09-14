@@ -63,6 +63,30 @@ export function resizeSurface(
   return dst;
 }
 
+// Where a source image sits on a canvas of a different size: the fraction of
+// the size difference placed before the image on each axis (0 = start, 0.5 =
+// centered, 1 = end).
+export type AnchorFraction = 0 | 0.5 | 1;
+export interface Anchor {
+  x: AnchorFraction;
+  y: AnchorFraction;
+}
+
+// Returns a (w × h) surface holding `src` placed by `anchor`, so a larger
+// source is cropped and a smaller one padded with `fill`, decided per axis. An
+// odd centering difference floors the placement offset toward the origin.
+export function anchorSurface(
+  src: Cairo.ImageSurface,
+  w: number,
+  h: number,
+  anchor: Anchor,
+  fill?: [number, number, number, number]
+): Cairo.ImageSurface {
+  const x = -Math.trunc((w - src.getWidth()) * anchor.x);
+  const y = -Math.trunc((h - src.getHeight()) * anchor.y);
+  return resizeSurface(src, x, y, w, h, fill);
+}
+
 export function createBlankSurface(
   w: number,
   h: number,
