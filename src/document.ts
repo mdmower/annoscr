@@ -36,7 +36,12 @@ import {
   isContainer,
   readContainer,
 } from './document_container.js';
-import {fileTimestamp, renderToSurface, surfaceFitPngBytes, surfaceToPngBytes} from './exporter.js';
+import {
+  fileTimestamp,
+  renderToSurface,
+  surfaceFitPngBytes,
+  surfaceToPngBytesAsync,
+} from './exporter.js';
 import {
   asClampedNumber,
   asColor,
@@ -127,10 +132,11 @@ function jsonChunk(tag: string, value: unknown): Chunk {
   return {tag, data: encoder.encode(JSON.stringify(value))};
 }
 
-export function serializeDocument(
+export async function serializeDocument(
   surface: Cairo.ImageSurface,
   actions: ReadonlyArray<Action>
-): Uint8Array {
+): Promise<Uint8Array> {
+  const image = await surfaceToPngBytesAsync(surface);
   return buildContainer([
     jsonChunk(TAG_META, {
       format: DOC_FORMAT,
@@ -144,7 +150,7 @@ export function serializeDocument(
       TAG_THUMBNAIL,
       surfaceFitPngBytes(renderToSurface(surface, actions), THUMB_MAX_W, THUMB_MAX_H)
     ),
-    pngChunk(TAG_IMAGE, surfaceToPngBytes(surface)),
+    pngChunk(TAG_IMAGE, image),
     jsonChunk(TAG_ACTIONS, serializeActions(actions)),
     // After the actions, so a reader of any earlier chunk skips the item
     // images.

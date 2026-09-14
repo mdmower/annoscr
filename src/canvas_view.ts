@@ -166,7 +166,7 @@ function normalizeRegion(r: {x1: number; y1: number; x2: number; y2: number}): R
   return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
 }
 
-interface CanvasState {
+export interface CanvasState {
   surface: Cairo.ImageSurface | null;
   actions: ReadonlyArray<Action>;
 }
@@ -859,11 +859,20 @@ export const CanvasView = GObject.registerClass(
       return this.state !== this.cleanStateRef;
     }
 
-    // Record the current state as the new "clean" reference. Call after a
-    // successful save to disk.
-    markClean(): void {
-      this.cleanStateRef = this.state;
+    // Record `state` as the new "clean" reference. Call after a successful
+    // save to disk, with the state the save wrote: the write completes
+    // asynchronously, possibly after further edits. Returns false, changing
+    // nothing, when the state is no longer in history (a new image or document
+    // has been loaded since, or it was trimmed); it can't become current again.
+    markClean(state: CanvasState): boolean {
+      if (!this.history.includes(state)) return false;
+      this.cleanStateRef = state;
       this.notifyStateChange();
+      return true;
+    }
+
+    isCurrentState(state: CanvasState): boolean {
+      return this.state === state;
     }
 
     setFitMode(): void {
@@ -939,19 +948,24 @@ export const CanvasView = GObject.registerClass(
     }
 
     // Composite current image + all visible actions to a fresh ARGB32 surface
-    // at the source image's native resolution. Returns null if no image.
-    exportSnapshot(): Cairo.ImageSurface | null {
-      const s = this.state.surface;
-      if (!s) return null;
-      return renderToSurface(s, this.state.actions);
+    // at the source image's native resolution, with the state it shows (for
+    // markClean). Returns null if no image.
+    exportSnapshot(): {surface: Cairo.ImageSurface; state: CanvasState} | null {
+      const state = this.state;
+      if (!state.surface) return null;
+      return {surface: renderToSurface(state.surface, state.actions), state};
     }
 
     // Current source surface plus its editable actions (NOT flattened), for
     // saving an annotation file. Null when there's no image.
-    documentSnapshot(): {surface: Cairo.ImageSurface; actions: ReadonlyArray<Action>} | null {
-      const s = this.state.surface;
-      if (!s) return null;
-      return {surface: s, actions: this.state.actions};
+    documentSnapshot(): {
+      surface: Cairo.ImageSurface;
+      actions: ReadonlyArray<Action>;
+      state: CanvasState;
+    } | null {
+      const state = this.state;
+      if (!state.surface) return null;
+      return {surface: state.surface, actions: state.actions, state};
     }
 
     setTool(toolId: ToolId): void {

@@ -22,7 +22,7 @@ import {
 } from './actions.js';
 import type {ImageAsset} from './actions.js';
 import {TextEditor, TextEditorBeginOptions, TextEditorStyle} from './text_editor.js';
-import type {TextEditRequestOptions} from './canvas_view.js';
+import type {CanvasState, TextEditRequestOptions} from './canvas_view.js';
 import {
   FORMATS,
   ImageFormat,
@@ -32,6 +32,7 @@ import {
   formatFromPath,
   saveSurface,
   surfaceThumbnailPngBytes,
+  writeFileBytes,
 } from './exporter.js';
 import {
   DOC_EXTENSION,
@@ -117,6 +118,12 @@ export const AnnoscrWindow = GObject.registerClass(
     // Set true just before we explicitly call close() after the user has
     // chosen Discard, so the close-request handler doesn't re-prompt.
     private skipCloseConfirm: boolean = false;
+    // Set when the close proceeds. An export that completes afterwards still
+    // writes its file but skips the window's feedback.
+    private closed: boolean = false;
+    // Image exports, clipboard copies, and annotation-file saves, run one at
+    // a time (enqueueExport).
+    private exportQueue: Promise<void> = Promise.resolve();
     private saveButton: Gtk.Button;
     private copyButton: Gtk.Button;
     // Enabled once a canvas is open; the menu rows are insensitive until then.
@@ -567,6 +574,8 @@ export const AnnoscrWindow = GObject.registerClass(
     private recordSaved(path: string, kind: RecentKind): void {
       if (!getSettings().rememberRecentFiles) return;
       rememberSavedFile(path, kind);
+      // A save that completes after the window closed has no strip to update.
+      if (this.closed) return;
       // Always rebuild, even when the entry was already leftmost: the file's
       // contents just changed, so its thumbnail has to be decoded again.
       this.recentStrip.invalidateThumbnail(path);
@@ -692,6 +701,7 @@ export const AnnoscrWindow = GObject.registerClass(
       this.connect('close-request', () => {
         // Returning false lets the close proceed — flush prefs at those points.
         if (this.skipCloseConfirm || !this.canvas.isDirty()) {
+          this.closed = true;
           this.flushSettings();
           this.recentStrip.shutdown();
           return false;
@@ -746,6 +756,7 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private showToast(title: string): void {
+      if (this.closed) return;
       this.toastOverlay.add_toast(new Adw.Toast({title}));
     }
 
@@ -1335,20 +1346,47 @@ export const AnnoscrWindow = GObject.registerClass(
     // name.
     private saveImageSilent(): void {
       this.editor.commitIfActive();
-      const surface = this.canvas.exportSnapshot();
-      if (!surface) return;
+      const snapshot = this.canvas.exportSnapshot();
+      if (!snapshot) return;
       const settings = getSettings();
       const format = settings.defaultSaveFormat;
       const folder = settings.defaultSaveFolder || defaultSaveFolderPath();
       const path = GLib.build_filenamev([folder, defaultSaveFilename(format)]);
-      try {
-        saveSurface(surface, path, format);
-        this.canvas.markClean();
-        this.onImageSaved(path, true, surface);
-      } catch (e) {
-        console.warn('saveSurface failed', e);
-        this.showToast(_('Could not save image'));
-      }
+      this.exportImage(snapshot, path, format, true);
+    }
+
+    // Run an encode-and-write after those already requested. In request order,
+    // the last save requested is the last to mark the canvas clean. The hold
+    // keeps the process running until the write completes if the window closes
+    // first.
+    private enqueueExport(job: () => Promise<void>): void {
+      const app = this.get_application();
+      app?.hold();
+      this.exportQueue = this.exportQueue
+        .then(job)
+        .catch((e: unknown) => {
+          console.warn('export failed', e);
+        })
+        .finally(() => app?.release());
+    }
+
+    private exportImage(
+      snapshot: {surface: Cairo.ImageSurface; state: CanvasState},
+      path: string,
+      format: ImageFormat,
+      silent: boolean
+    ): void {
+      this.enqueueExport(async () => {
+        try {
+          await saveSurface(snapshot.surface, path, format);
+        } catch (e) {
+          console.warn('saveSurface failed', e);
+          this.showToast(_('Could not save image'));
+          return;
+        }
+        this.canvas.markClean(snapshot.state);
+        this.onImageSaved(path, silent, snapshot.surface);
+      });
     }
 
     // Shared post-save handling for both the dialog and silent paths. On
@@ -1359,6 +1397,7 @@ export const AnnoscrWindow = GObject.registerClass(
     // dialog save already let the user pick (and see) the folder.
     private onImageSaved(path: string, silent: boolean, surface: Cairo.ImageSurface): void {
       this.recordSaved(path, 'image');
+      if (this.closed) return;
       if (getSettings().closeAfterImageSave) {
         this.sendExportNotification({
           title: _('Image saved'),
@@ -1470,8 +1509,8 @@ export const AnnoscrWindow = GObject.registerClass(
         }
         if (!file) return;
 
-        const surface = this.canvas.exportSnapshot();
-        if (!surface) return;
+        const snapshot = this.canvas.exportSnapshot();
+        if (!snapshot) return;
 
         let path = file.get_path();
         if (!path) return;
@@ -1485,14 +1524,7 @@ export const AnnoscrWindow = GObject.registerClass(
         const format = hasKnownExt ? formatFromPath(path) : settings.defaultSaveFormat;
         if (!hasKnownExt) path = path + FORMATS[format].ext;
 
-        try {
-          saveSurface(surface, path, format);
-          this.canvas.markClean();
-          this.onImageSaved(path, false, surface);
-        } catch (e) {
-          console.warn('saveSurface failed', e);
-          this.showToast(_('Could not save image'));
-        }
+        this.exportImage(snapshot, path, format, false);
       });
     }
 
@@ -1544,24 +1576,21 @@ export const AnnoscrWindow = GObject.registerClass(
         if (!path) return;
         if (!path.toLowerCase().endsWith(DOC_EXTENSION)) path += DOC_EXTENSION;
 
-        try {
-          Gio.File.new_for_path(path).replace_contents(
-            serializeDocument(snapshot.surface, snapshot.actions),
-            null,
-            false,
-            Gio.FileCreateFlags.NONE,
-            null
-          );
-          this.canvas.markClean();
+        this.enqueueExport(async () => {
+          try {
+            const data = await serializeDocument(snapshot.surface, snapshot.actions);
+            await writeFileBytes(Gio.File.new_for_path(path), data);
+          } catch (e) {
+            console.warn('save annotation file failed', e);
+            this.showToast(_('Could not save annotation file'));
+            return;
+          }
           // Track the saved path so a later re-save offers it (Save-As
           // behavior: saving to a new name switches the working document to
-          // that name).
-          this.currentDocPath = path;
+          // that name), unless another document was loaded during the save.
+          if (this.canvas.markClean(snapshot.state)) this.currentDocPath = path;
           this.recordSaved(path, 'document');
-        } catch (e) {
-          console.warn('save annotation file failed', e);
-          this.showToast(_('Could not save annotation file'));
-        }
+        });
       });
     }
 
@@ -1614,27 +1643,33 @@ export const AnnoscrWindow = GObject.registerClass(
     private copyImageToClipboard(): void {
       if (!this.canvas.hasImage()) return;
       this.editor.commitIfActive();
-      const surface = this.canvas.exportSnapshot();
-      if (!surface) return;
-      try {
-        copySurfaceToClipboard(this.get_clipboard(), surface);
+      const snapshot = this.canvas.exportSnapshot();
+      if (!snapshot) return;
+      const clipboard = this.get_clipboard();
+      this.enqueueExport(async () => {
+        try {
+          await copySurfaceToClipboard(clipboard, snapshot.surface);
+        } catch (e) {
+          console.warn('copySurfaceToClipboard failed', e);
+          this.showToast(_('Could not copy image'));
+          return;
+        }
+        if (this.closed) return;
         if (getSettings().closeAfterImageCopy) {
           // Clicking the notification reopens the copied image from the
           // clipboard. A copy doesn't mark the canvas saved, so skip the
-          // discard prompt on close (the prefs info text warns of this).
+          // discard prompt on close (the prefs info text warns of this),
+          // unless the canvas was edited while the copy was encoding.
           this.sendExportNotification({
             title: _('Image copied to clipboard'),
             pasteOnClick: true,
-            thumbnailBytes: surfaceThumbnailPngBytes(surface),
+            thumbnailBytes: surfaceThumbnailPngBytes(snapshot.surface),
           });
-          this.closeAfterExport(true);
+          this.closeAfterExport(this.canvas.isCurrentState(snapshot.state));
         } else {
           this.showToast(_('Image copied to clipboard'));
         }
-      } catch (e) {
-        console.warn('copySurfaceToClipboard failed', e);
-        this.showToast(_('Could not copy image'));
-      }
+      });
     }
 
     // Reopen the copied image when the "Image copied to clipboard" notification

@@ -1,5 +1,7 @@
 import GLib from 'gi://GLib?version=2.0';
+import Gio from 'gi://Gio?version=2.0';
 import Gdk from 'gi://Gdk?version=4.0';
+import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
 import Cairo from 'cairo';
 
 import type {Action, ColorRGBA} from './actions.js';
@@ -76,46 +78,102 @@ export function sampleSurfacePixel(
   return [p[0] / 255, p[1] / 255, p[2] / 255, alpha];
 }
 
-export function saveSurface(surface: Cairo.ImageSurface, path: string, format: ImageFormat): void {
-  if (format === 'png') {
-    surface.writeToPNG(path);
-    return;
-  }
-  // JPEG has no alpha channel — composite onto white before encoding so
-  // transparent regions don't go black on encoders that ignore the alpha byte.
-  const w = surface.getWidth();
-  const h = surface.getHeight();
-  const opaque = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
-  const cr = new Cairo.Context(opaque);
-  cr.setSourceRGB(1, 1, 1);
-  cr.paint();
-  cr.setSourceSurface(surface, 0, 0);
-  cr.paint();
-  opaque.flush();
-  // Gdk.pixbuf_get_from_surface is deprecated since 4.12. The replacement
-  // (Gdk.MemoryTexture from cairo pixels) requires
-  // cairo_image_surface_get_data, which GJS deliberately omits, so until GJS
-  // exposes it this path stays on the deprecated helper.
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const pixbuf = Gdk.pixbuf_get_from_surface(opaque, 0, 0, w, h);
-  // A null pixbuf means the read failed; throw so the caller doesn't mistake a
-  // no-op for a successful save (and wrongly mark the canvas clean).
-  if (!pixbuf) throw new Error('Failed to read surface pixels for JPEG encoding');
-  pixbuf.savev(path, 'jpeg', ['quality'], ['90']);
+function toError(e: unknown): Error {
+  return e instanceof Error ? e : new Error(String(e));
 }
 
-// Encode a surface to PNG bytes in memory (no file). Shared by the clipboard
-// copy and the annotation-file image embed. Same GJS constraint as the JPEG
-// path: no JS-accessible cairo pixel data, so we go via the deprecated pixbuf
-// helper and Gdk.Texture's PNG encoder. Throws on a failed read so callers
-// don't mistake a no-op for success.
-export function surfaceToPngBytes(surface: Cairo.ImageSurface): GLib.Bytes {
+// The surface's pixels as an unpremultiplied pixbuf. Gdk.pixbuf_get_from_surface
+// is deprecated since 4.12; its replacement (Gdk.MemoryTexture from cairo
+// pixels) requires cairo_image_surface_get_data, which GJS deliberately omits.
+// Throws on a failed read so callers don't mistake a no-op for success.
+function surfacePixbuf(surface: Cairo.ImageSurface): GdkPixbuf.Pixbuf {
   const w = surface.getWidth();
   const h = surface.getHeight();
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   const pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, w, h);
-  if (!pixbuf) throw new Error('Failed to read surface pixels for PNG encoding');
-  return Gdk.Texture.new_for_pixbuf(pixbuf).save_to_png_bytes();
+  if (!pixbuf) throw new Error('Failed to read surface pixels for encoding');
+  return pixbuf;
+}
+
+// Encodes on a GTask worker thread, so a full-resolution image doesn't block
+// the main loop. The pixbuf is a private copy of the pixels, which nothing on
+// the main thread writes to.
+function encodePixbuf(
+  pixbuf: GdkPixbuf.Pixbuf,
+  type: string,
+  keys: string[],
+  values: string[]
+): Promise<GLib.Bytes> {
+  const out = Gio.MemoryOutputStream.new_resizable();
+  return new Promise((resolve, reject) => {
+    pixbuf.save_to_streamv_async(out, type, keys, values, null, (_src, res) => {
+      try {
+        const ok = GdkPixbuf.Pixbuf.save_to_stream_finish(res);
+        if (!ok) throw new Error(`${type} encoding failed`);
+        out.close(null);
+        resolve(out.steal_as_bytes());
+      } catch (e) {
+        reject(toError(e));
+      }
+    });
+  });
+}
+
+export function writeFileBytes(file: Gio.File, bytes: GLib.Bytes | Uint8Array): Promise<void> {
+  return new Promise((resolve, reject) => {
+    file.replace_contents_bytes_async(
+      bytes,
+      null,
+      false,
+      Gio.FileCreateFlags.NONE,
+      null,
+      (_src, res) => {
+        try {
+          file.replace_contents_finish(res);
+          resolve();
+        } catch (e) {
+          reject(toError(e));
+        }
+      }
+    );
+  });
+}
+
+export async function saveSurface(
+  surface: Cairo.ImageSurface,
+  path: string,
+  format: ImageFormat
+): Promise<void> {
+  let bytes: GLib.Bytes;
+  if (format === 'png') {
+    bytes = await surfaceToPngBytesAsync(surface);
+  } else {
+    // JPEG has no alpha channel — composite onto white before encoding so
+    // transparent regions don't go black on encoders that ignore the alpha byte.
+    const opaque = new Cairo.ImageSurface(
+      Cairo.Format.ARGB32,
+      surface.getWidth(),
+      surface.getHeight()
+    );
+    const cr = new Cairo.Context(opaque);
+    cr.setSourceRGB(1, 1, 1);
+    cr.paint();
+    cr.setSourceSurface(surface, 0, 0);
+    cr.paint();
+    opaque.flush();
+    bytes = await encodePixbuf(surfacePixbuf(opaque), 'jpeg', ['quality'], ['90']);
+  }
+  await writeFileBytes(Gio.File.new_for_path(path), bytes);
+}
+
+// Encode a surface to PNG bytes in memory (no file), on the main thread. For
+// small images; surfaceToPngBytesAsync encodes a full-resolution one.
+export function surfaceToPngBytes(surface: Cairo.ImageSurface): GLib.Bytes {
+  return Gdk.Texture.new_for_pixbuf(surfacePixbuf(surface)).save_to_png_bytes();
+}
+
+export function surfaceToPngBytesAsync(surface: Cairo.ImageSurface): Promise<GLib.Bytes> {
+  return encodePixbuf(surfacePixbuf(surface), 'png', [], []);
 }
 
 // A SQUARE PNG thumbnail (side ≤ maxDim) with the image scaled to fit and
@@ -170,12 +228,12 @@ export function surfaceFitPngBytes(
 // deadlock when this same process pastes the clipboard back: the synchronous
 // PNG serializer and the synchronous stream reader both run on the main loop
 // and stall each other.
-export function copySurfaceToClipboard(
+export async function copySurfaceToClipboard(
   clipboard: Gdk.Clipboard,
   surface: Cairo.ImageSurface
-): void {
-  const provider = Gdk.ContentProvider.new_for_bytes('image/png', surfaceToPngBytes(surface));
-  clipboard.set_content(provider);
+): Promise<void> {
+  const bytes = await surfaceToPngBytesAsync(surface);
+  clipboard.set_content(Gdk.ContentProvider.new_for_bytes('image/png', bytes));
 }
 
 // Timestamp slug for default filenames, e.g. 2026-05-22-143015 (no extension).
