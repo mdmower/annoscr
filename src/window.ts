@@ -215,16 +215,12 @@ export const AnnoscrWindow = GObject.registerClass(
       // Primary menu — packed first so it is placed at the right edge, next to
       // the window controls (the standard GNOME position).
       const menu = new Gio.Menu();
-      // Always-dialog image export — the way to pick a one-off location when
-      // "save without choosing a location" makes the header Save button (and
-      // Ctrl+S) write silently to the default folder.
       const imageSection = new Gio.Menu();
       imageSection.append(_('Insert image file…'), 'win.insertimage');
       const replaceMenu = new Gio.Menu();
       replaceMenu.append(_('With image…'), 'win.replacebgimage');
       replaceMenu.append(_('With color…'), 'win.replacebgcolor');
       imageSection.append_submenu(_('Replace background'), replaceMenu);
-      imageSection.append(_('Save image as…'), 'win.saveas');
       menu.append_section(null, imageSection);
       // Annotation-file open/save: a reopenable document (image + editable
       // actions), distinct from the prominent PNG/JPEG export on the header
@@ -232,6 +228,10 @@ export const AnnoscrWindow = GObject.registerClass(
       const fileSection = new Gio.Menu();
       fileSection.append(_('Open annotation file…'), 'win.opendoc');
       fileSection.append(_('Save annotation file…'), 'win.savedoc');
+      // Always-dialog image export — the way to pick a one-off location when
+      // "save without choosing a location" makes the header Save button (and
+      // Ctrl+S) write silently to the default folder.
+      fileSection.append(_('Save image as…'), 'win.saveas');
       menu.append_section(null, fileSection);
       menu.append(_('Preferences'), 'win.preferences');
       menu.append(_('Keyboard shortcuts'), 'win.shortcuts');
