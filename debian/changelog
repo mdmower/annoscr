@@ -1,3 +1,45 @@
+annoscr (2.0.0) unstable; urgency=medium
+
+  * Annotation files: Annoscr 2.0 cannot open files written by Annoscr 1.4
+    or earlier (open and save them in Annoscr 1.5 first), and files saved
+    by 2.0 cannot be opened by 1.x releases.
+  * Images can be added to the canvas as items: paste with Ctrl+Shift+V,
+    drop image files on an open canvas, or choose Insert image file from
+    the primary menu. An item can be moved, resized (it keeps its
+    proportions; hold Shift to stretch it), rotated, and made translucent,
+    and keeps its full resolution. Dropping an image on an open canvas now
+    adds it as an item instead of replacing the canvas.
+  * Scale image (Ctrl+Shift+E) resamples the image to a new size, as a
+    percentage or in pixels, with the aspect ratio locked. Annotations
+    scale by the same factor and stay editable. Scale image and Crop or
+    expand (Ctrl+E, formerly Resize canvas) are in a menu on the image
+    dimensions in the status bar, which replaces the crop button in the
+    header bar.
+  * Replace background, in the primary menu, replaces the image under the
+    annotations with a color or another image, keeping the canvas size and
+    every annotation. An image of another size is cropped or padded to the
+    canvas, aligned by a 3x3 anchor.
+  * The Select and arrange menu (formerly the selection actions menu) is
+    shown whenever the Select tool is active, and adds every annotation of
+    one type to the selection, such as all arrows or all text.
+  * Stroke width, corner radius, font size, and opacity are set with spin
+    buttons instead of sliders. Width, corner radius, and font size accept
+    decimals, with ranges of 0.1 to 400, 0 to 2000, and 1 to 1000.
+  * Saving, exporting, and copying a large image no longer freezes the
+    window while the image is encoded.
+  * When zoomed out, the image is redrawn from a resampled copy after the
+    zoom stops changing, so text and thin lines stay legible.
+  * Ctrl+H shows or hides the recent files strip.
+  * Each change of line style, arrowhead, or text alignment is a separate
+    undo step. Changing a color and then changing it back no longer leaves
+    an undo step that does nothing.
+  * The curve handle is hidden on lines and arrows shorter than 64 pixels
+    on screen, so dragging a short segment moves it instead of bending it.
+  * Dragging a selection box selects a rectangle or oval with a callout
+    tail only when the tail's tip is also inside the box.
+
+ -- Matt Mower <mdmower@cmphys.com>  Sun, 13 Sep 2026 12:00:00 -0700
+
 annoscr (1.5.0) unstable; urgency=medium
 
   * A recent files strip below the status bar keeps thumbnails of the
