@@ -238,6 +238,9 @@ export function showScaleImageDialog(
       digits,
       width_request: 100,
       xalign: 1,
+      // A spin button commits typed text on the first Enter and activates the
+      // default response on the second.
+      activates_default: true,
     });
     setLabelledBy(spin, label);
     grid.attach(spin, 1, row, 1, 1);
@@ -319,7 +322,7 @@ export function showReplaceBackgroundColorDialog(
   dialog.set_default_response('replace');
   dialog.set_close_response('cancel');
 
-  const controls = makeColorControls({onChosen: () => {}, swatch: true});
+  const controls = makeColorControls({onChosen: () => {}, swatch: true, activatesDefault: true});
   controls.setColor([1, 1, 1, 1]);
   dialog.set_extra_child(controls.box);
 
@@ -487,7 +490,7 @@ export function showReplaceBackgroundImageDialog(
   groups.append(anchorGroup);
   let controls: ReturnType<typeof makeColorControls> | null = null;
   if (showFill) {
-    controls = makeColorControls({onChosen: () => {}, swatch: true});
+    controls = makeColorControls({onChosen: () => {}, swatch: true, activatesDefault: true});
     controls.setColor(fill);
     controls.box.set_valign(Gtk.Align.START);
     const fillGroup = fieldset(_('Fill'), controls.box, true);

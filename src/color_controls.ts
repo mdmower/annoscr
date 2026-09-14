@@ -44,12 +44,15 @@ export interface ColorControls {
 // flattens). `hexRowEnd` is appended after the entry (the style bar's
 // eyedropper button); `swatch` adds a preview of the current color before the
 // Hex caption, for hosts that show it nowhere else; `onPaletteOpen` runs before
-// the color dialog opens (a popover host closes itself).
+// the color dialog opens (a popover host closes itself); `activatesDefault`
+// makes Enter in the entry and the opacity field run the host dialog's default
+// response.
 export function makeColorControls(opts: {
   onChosen: (color: ColorRGBA) => void;
   hexRowEnd?: Gtk.Widget;
   swatch?: boolean;
   onPaletteOpen?: () => void;
+  activatesDefault?: boolean;
 }): ColorControls {
   let current: ColorRGBA = [0, 0, 0, 1];
   // Suppress the entry/opacity change handlers while their values are set
@@ -79,6 +82,7 @@ export function makeColorControls(opts: {
     width_chars: 9,
     hexpand: true,
     tooltip_text: _('#RGB, #RGBA, #RRGGBB, or #RRGGBBAA'),
+    activates_default: opts.activatesDefault === true,
   });
   setLabelledBy(hexEntry, hexLabel);
   hexRow.append(hexEntry);
@@ -96,6 +100,7 @@ export function makeColorControls(opts: {
     width_request: 64,
     valign: Gtk.Align.CENTER,
     xalign: 1,
+    activates_default: opts.activatesDefault === true,
   });
   setLabelledBy(opacitySpin, opacityLabel);
   opacityRow.append(opacitySpin);
