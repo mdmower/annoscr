@@ -7,10 +7,9 @@ import Gtk from 'gi://Gtk?version=4.0';
 
 import {setAccessibleLabel} from './a11y.js';
 import {DOC_PATTERN, TAG_IMAGE, TAG_THUMBNAIL, isDocumentName} from './document.js';
-import {NotContainerError, readChunkFromFile} from './document_container.js';
+import {readChunkFromFile} from './document_container.js';
 import {_} from './i18n.js';
 import {RecentEntry, forgetRecentFile, getRecentFiles, rememberAddedFiles} from './recent_files.js';
-import {isRecord} from './validators.js';
 import {IMAGE_MIME_TYPES} from './window_constants.js';
 
 // A horizontally scrolling list of recently opened files. Gtk.ListView recycles
@@ -25,11 +24,8 @@ const PLACEHOLDER_ICON_PX = 48;
 
 // Above this size an image gets a placeholder instead of a preview; it scales
 // during its decode, so the limit is large and a screenshot never reaches it.
+// Documents need no limit: their preview costs the same few reads at any size.
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
-// Documents written before the container format parse whole on the main loop to
-// reach their preview, so they keep a tighter limit. Container documents need
-// no limit: their preview costs the same few reads at any size.
-const MAX_LEGACY_DOCUMENT_BYTES = 32 * 1024 * 1024;
 
 // An intact file that is simply too big to preview — distinct from a decode
 // failure so each gets its own placeholder icon.
@@ -87,20 +83,6 @@ function fileSize(file: Gio.File, cancellable: Gio.Cancellable): Promise<number>
   });
 }
 
-function loadContents(file: Gio.File, cancellable: Gio.Cancellable): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    file.load_contents_async(cancellable, (_src, res) => {
-      try {
-        const [ok, contents] = file.load_contents_finish(res);
-        if (!ok) throw new Error('load_contents returned false');
-        resolve(contents);
-      } catch (e) {
-        reject(toError(e));
-      }
-    });
-  });
-}
-
 // Decode straight to thumbnail size — in device pixels, so a HiDPI display
 // gets a sharp preview — so a full-resolution screenshot is never materialized
 // just to be shrunk afterwards.
@@ -132,53 +114,6 @@ function pixbufAtScale(
   });
 }
 
-// The preview payload of a container document, or null when the file predates
-// the container. Only the chunk headers and the preview itself are read, where
-// parseDocument would decode the full-resolution image and rebuild every
-// action.
-async function containerPreviewBytes(
-  file: Gio.File,
-  cancellable: Gio.Cancellable
-): Promise<Uint8Array | null> {
-  try {
-    // Prefer the composited preview; a document saved without one falls back to
-    // its source image, which previews as a flat rectangle when the content is
-    // all in the action stack.
-    const preview =
-      (await readChunkFromFile(file, TAG_THUMBNAIL, cancellable)) ??
-      (await readChunkFromFile(file, TAG_IMAGE, cancellable));
-    if (!preview) throw new Error('annotation file carries no embedded image');
-    return preview;
-  } catch (e) {
-    // Only "this was never a container" falls back to the older reader; a
-    // corrupt container is a real failure and stays one.
-    if (e instanceof NotContainerError) return null;
-    throw e;
-  }
-}
-
-// The same preview out of a pre-container document: a JSON envelope with the
-// image base64-encoded inside it, so the whole file parses to reach it. Those
-// have no composited preview, so one built on a blank fill shows as a flat
-// rectangle.
-async function legacyPreviewBytes(
-  file: Gio.File,
-  cancellable: Gio.Cancellable
-): Promise<Uint8Array> {
-  const size = await fileSize(file, cancellable);
-  if (size > MAX_LEGACY_DOCUMENT_BYTES) {
-    throw new OversizeError(`${String(size)} bytes exceeds the preview limit`);
-  }
-  const contents = await loadContents(file, cancellable);
-  const envelope: unknown = JSON.parse(new TextDecoder().decode(contents));
-  if (!isRecord(envelope)) throw new Error('annotation file is not an object');
-  const image = isRecord(envelope.image) ? envelope.image : null;
-  if (!image || typeof image.data !== 'string') {
-    throw new Error('annotation file carries no embedded image');
-  }
-  return GLib.base64_decode(image.data);
-}
-
 // Classify a file offered to the list: an annotation document by extension,
 // anything else by the content type its name implies. Null means it can't be
 // listed - a folder, a file Annoscr can't annotate, or a remote URI with no
@@ -193,13 +128,20 @@ function listableEntry(file: Gio.File): RecentEntry | null {
   return type.startsWith('image/') ? {path, kind: 'image'} : null;
 }
 
+// A document's preview. Only the chunk headers and the preview itself are read,
+// where parseDocument would decode the full-resolution image and rebuild every
+// action.
 async function documentImageStream(
   file: Gio.File,
   cancellable: Gio.Cancellable
 ): Promise<Gio.InputStream> {
+  // Prefer the composited preview; a document saved without one falls back to
+  // its source image, which previews as a flat rectangle when the content is
+  // all in the action stack.
   const data =
-    (await containerPreviewBytes(file, cancellable)) ??
-    (await legacyPreviewBytes(file, cancellable));
+    (await readChunkFromFile(file, TAG_THUMBNAIL, cancellable)) ??
+    (await readChunkFromFile(file, TAG_IMAGE, cancellable));
+  if (!data) throw new Error('annotation file carries no embedded image');
   return Gio.MemoryInputStream.new_from_bytes(new GLib.Bytes(data));
 }
 
@@ -666,8 +608,6 @@ export class RecentStrip {
     const file = Gio.File.new_for_path(entry.path);
     let stream: Gio.InputStream;
     if (entry.kind === 'document') {
-      // Any size limit that applies belongs to the older format, so the stat
-      // happens in that branch rather than here.
       stream = await documentImageStream(file, cancellable);
     } else {
       // Checked before anything is read, so an oversized file costs one stat

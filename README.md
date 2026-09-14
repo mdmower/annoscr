@@ -41,9 +41,8 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 - **Recent files**: a strip of thumbnails below the status bar remembers the images and annotation files you open, so returning to an earlier screenshot is one click. Drop a selection of files onto the strip, or press Insert, to add files to it without opening any of them. Show or hide it from the status bar, right-click a thumbnail to reveal it in Files or forget it, and turn the feature off (which also clears the list) in Preferences.
 
 - **Annotation files**: save an editable `.annoscr` file (the canvas image plus your annotations) from the primary menu, then reopen it later to add, change, or remove annotations.
-  - Annoscr 1.5 introduced a new annotation file format. Files written by Annoscr 1.5 or later cannot be opened by earlier releases; files saved by earlier releases still open normally.
   - Files written by Annoscr 2.0 cannot be opened by 1.x releases.
-  - Open and re-save any annotation file written by Annoscr 1.4 or earlier: support for the old format will be dropped in a future Annoscr 2.0 release, which will no longer be able to open them.
+  - Annoscr 2.0 cannot open annotation files written by Annoscr 1.4 or earlier. To keep one, open it in Annoscr 1.5 and save it, then open the saved file in 2.0.
 
 - **View**: Fit-to-window, 1:1, or a continuous zoom slider from 25% to 400%; when zoomed in, right-click and drag to pan the canvas.
 

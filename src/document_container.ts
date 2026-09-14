@@ -34,25 +34,21 @@ export interface Chunk {
   data: Uint8Array;
 }
 
-// A malformed container: bad version, truncated chunk, unreadable length.
+// A malformed container: no magic, bad version, truncated chunk, unreadable
+// length.
 export class ContainerError extends Error {}
-
-// The file has no magic at all, so it was never a container. Distinct from
-// ContainerError so a caller can fall back to another reader without also
-// ignoring genuine corruption.
-export class NotContainerError extends ContainerError {}
 
 function view(bytes: Uint8Array): DataView {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 // Whether these bytes begin a container.
-export function isContainer(bytes: Uint8Array): boolean {
+function isContainer(bytes: Uint8Array): boolean {
   return bytes.length >= HEADER_SIZE && MAGIC.every((byte, i) => bytes[i] === byte);
 }
 
 function checkHeader(header: Uint8Array): void {
-  if (!isContainer(header)) throw new NotContainerError('missing container magic');
+  if (!isContainer(header)) throw new ContainerError('missing container magic');
   const version = view(header).getUint32(MAGIC.length, true);
   if (version !== CONTAINER_VERSION) {
     throw new ContainerError(`unsupported container version: ${String(version)}`);
@@ -191,7 +187,7 @@ export async function readChunkFromFile(
   try {
     const header = await readUpTo(stream, HEADER_SIZE, cancellable);
     if (header.length < HEADER_SIZE) {
-      throw new NotContainerError('file is shorter than a container header');
+      throw new ContainerError('file is shorter than a container header');
     }
     checkHeader(header);
     // A regular file always seeks; anything else (a pipe, say) would have to be

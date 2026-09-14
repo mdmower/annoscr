@@ -29,13 +29,7 @@ import {
   numberStampStyle,
   serializeActions,
 } from './actions.js';
-import {
-  Chunk,
-  buildContainer,
-  findChunk,
-  isContainer,
-  readContainer,
-} from './document_container.js';
+import {Chunk, buildContainer, findChunk, readContainer} from './document_container.js';
 import {
   fileTimestamp,
   renderToSurface,
@@ -63,8 +57,6 @@ import {APP_VERSION} from './version.js';
 // composited preview, the source image, the action stack, and each image
 // item's pixels, each its own length-prefixed payload — so a reader that needs one payload reads only that
 // one, and images are stored as PNG bytes rather than base64 a third larger.
-// Older documents are JSON envelopes; they still open (parseLegacyDocument) but
-// are never written again.
 
 // Canonical extension + dialog glob for annotation files.
 export const DOC_EXTENSION = '.annoscr';
@@ -433,7 +425,7 @@ function decodeImage(bytes: Uint8Array): Cairo.ImageSurface {
 
 // `assetChunks` are the IMGA payloads; only the ones an item refers to are
 // decoded.
-function buildActions(raw: unknown, assetChunks: ReadonlyArray<Uint8Array> = []): Action[] {
+function buildActions(raw: unknown, assetChunks: ReadonlyArray<Uint8Array>): Action[] {
   const serialized = sanitizeSerializedActions(raw);
   const stored = new Map<string, Uint8Array>();
   for (const data of assetChunks) {
@@ -464,10 +456,6 @@ function buildActions(raw: unknown, assetChunks: ReadonlyArray<Uint8Array> = [])
   }
 }
 
-export function parseDocument(bytes: Uint8Array): ParsedDocument {
-  return isContainer(bytes) ? parseContainerDocument(bytes) : parseLegacyDocument(bytes);
-}
-
 function checkMeta(data: Uint8Array | null): void {
   if (!data) throw new DocumentError('Annotation file has no metadata');
   let meta: unknown;
@@ -489,7 +477,7 @@ function checkMeta(data: Uint8Array | null): void {
   }
 }
 
-function parseContainerDocument(bytes: Uint8Array): ParsedDocument {
+export function parseDocument(bytes: Uint8Array): ParsedDocument {
   let chunks: Chunk[];
   try {
     chunks = readContainer(bytes);
@@ -513,42 +501,4 @@ function parseContainerDocument(bytes: Uint8Array): ParsedDocument {
   }
   const assetChunks = chunks.filter((c) => c.tag === TAG_ASSET).map((c) => c.data);
   return {surface: decodeImage(image), actions: buildActions(raw, assetChunks)};
-}
-
-// ---------- Documents written before the container ----------
-// A JSON envelope holding the image as base64. Frozen: nothing writes this
-// format any more and the reader is removed in 2.0, so its version constant is
-// separate from DOC_SCHEMA_VERSION and never changes.
-
-const LEGACY_JSON_VERSION = 1;
-
-interface DocumentEnvelope {
-  format: string;
-  version: number;
-  appVersion?: string;
-  image: {encoding: string; data: string};
-  // Untrusted until sanitizeSerializedActions validates each entry.
-  actions?: unknown;
-}
-
-function parseLegacyDocument(bytes: Uint8Array): ParsedDocument {
-  let env: DocumentEnvelope;
-  try {
-    env = JSON.parse(decoder.decode(bytes)) as DocumentEnvelope;
-  } catch {
-    throw new DocumentError('Not a valid annotation file (invalid JSON)');
-  }
-  if (!env || typeof env !== 'object' || env.format !== DOC_FORMAT) {
-    throw new DocumentError('Not an Annoscr annotation file');
-  }
-  if (env.version !== LEGACY_JSON_VERSION) {
-    throw new DocumentError(`Unsupported annotation file version: ${String(env.version)}`);
-  }
-  if (!env.image || env.image.encoding !== 'png-base64' || typeof env.image.data !== 'string') {
-    throw new DocumentError('Annotation file is missing its embedded image');
-  }
-  return {
-    surface: decodeImage(GLib.base64_decode(env.image.data)),
-    actions: buildActions(env.actions),
-  };
 }

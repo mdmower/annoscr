@@ -8,11 +8,6 @@
     <magic priority="80">
       <match type="string" value="ANNOSCR\x1A" offset="0"/>
     </magic>
-    <!-- Documents written before the container are a JSON envelope whose format
-         marker appears near the start. -->
-    <magic priority="60">
-      <match type="string" value="annoscr-document" offset="0:256"/>
-    </magic>
     <!-- A .annoscr is fundamentally an image plus editable annotations. -->
     <generic-icon name="image-x-generic"/>
   </mime-type>
