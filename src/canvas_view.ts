@@ -22,6 +22,7 @@ import {
   StampVariant,
   ToolId,
   TRANSPARENT_FILL,
+  actionAssets,
   actionToolId,
   actionType,
   createLiveStroke,
@@ -1822,12 +1823,18 @@ export const CanvasView = GObject.registerClass(
     // centered in the viewport, or offset from the previous insert's last item
     // (see insertSequence); each further item is offset from the one before by
     // CLONE_OFFSET_PX on both axes. An image larger than the canvas is scaled
-    // down to fit it, keeping its aspect ratio. The select-after-placement
-    // preference doesn't apply: there's no placement tool to stay in, so the
-    // caller switches to the select tool first.
+    // down to fit it, keeping its aspect ratio. An image identical to one in
+    // history or earlier in the batch reuses that asset, so its pixels are
+    // held and counted against the undo memory budget once. The
+    // select-after-placement preference doesn't apply: there's no placement
+    // tool to stay in, so the caller switches to the select tool first.
     insertImages(assets: ReadonlyArray<ImageAsset>): void {
       const surface = this.state.surface;
       if (!surface || assets.length === 0) return;
+      const known = new Map<string, ImageAsset>();
+      for (const {actions} of this.history) {
+        for (const a of actionAssets(actions)) known.set(a.id, a);
+      }
       // An image opened in the same call hasn't been allocated yet; its view
       // will show the whole canvas, so the canvas center is the viewport's.
       const allocated = this.get_width() > 0 && this.get_height() > 0;
@@ -1840,11 +1847,13 @@ export const CanvasView = GObject.registerClass(
           ? this.widgetToImage(...this.viewportCenterWidget())
           : [surface.getWidth() / 2, surface.getHeight() / 2];
       const cur = this.state.actions;
-      const added = assets.map((asset, k) => {
+      const added = assets.map((inserted, k) => {
         if (k > 0) {
           cx += off;
           cy += off;
         }
+        const asset = known.get(inserted.id) ?? inserted;
+        known.set(asset.id, asset);
         const sw = asset.surface.getWidth();
         const sh = asset.surface.getHeight();
         const fit = Math.min(1, surface.getWidth() / sw, surface.getHeight() / sh);
