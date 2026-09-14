@@ -151,12 +151,11 @@ function settingsPath(): string {
   return GLib.build_filenamev([GLib.get_user_config_dir(), 'annoscr', 'settings.json']);
 }
 
-// --- Validators
-// --------------------------------------------------------------- settings.json
-// is a plain file users may hand-edit, so every field is validated against its
-// expected type/domain on load. A bad or unrecognized value falls back to its
-// default rather than propagating into the UI (where a wrong type could, e.g.,
-// crash the save dialog on FORMATS[badFormat]).
+// --- Validators --------------------------------------------------------------
+// settings.json is a plain file users may hand-edit, so every field is
+// validated against its expected type/domain on load. A bad or unrecognized
+// value falls back to its default rather than propagating into the UI (where a
+// wrong type could, e.g., crash the save dialog on FORMATS[badFormat]).
 
 // An ordered list of non-empty, de-duplicated strings, or undefined when none
 // survive (so an empty list reads the same as an absent one). Family existence
