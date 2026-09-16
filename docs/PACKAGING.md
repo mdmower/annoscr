@@ -29,8 +29,8 @@ RPM and Arch packaging are under [packaging/](../packaging/). Run these from the
 ```sh
 # RPM (Fedora / openSUSE) - dnf builddep installs the spec's BuildRequires
 sudo dnf builddep packaging/rpm/annoscr.spec
-git archive --prefix=annoscr-2.0.0/ \
-  -o ~/rpmbuild/SOURCES/annoscr-2.0.0.tar.gz HEAD
+git archive --prefix=annoscr-2.1.0/ \
+  -o ~/rpmbuild/SOURCES/annoscr-2.1.0.tar.gz HEAD
 rpmbuild -ba packaging/rpm/annoscr.spec
 rpmlint -r packaging/rpm/annoscr.rpmlintrc \
   ~/rpmbuild/RPMS/noarch/annoscr-*.rpm

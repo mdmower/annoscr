@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        2.0.0
+Version:        2.1.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -82,6 +82,11 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Tue Sep 15 2026 Matt Mower <mdmower@cmphys.com> - 2.1.0-1
+- Each number stamp group has a Start number, which sets the number of its first stamp; the rest count up from there. In letter mode the field accepts a single letter, and letters still wrap after Z.
+- Text is measured the same way at every zoom level, so text in a rectangle or oval no longer re-wraps as the zoom changes, and what is drawn on screen matches the exported image.
+- On a HiDPI display, the image and image items are drawn at the display's full resolution instead of being scaled up from a lower-resolution copy.
+
 * Sun Sep 13 2026 Matt Mower <mdmower@cmphys.com> - 2.0.0-1
 - Annotation files: Annoscr 2.0 cannot open files written by Annoscr 1.4 or earlier (open and save them in Annoscr 1.5 first), and files saved by 2.0 cannot be opened by 1.x releases.
 - Images can be added to the canvas as items: paste with Ctrl+Shift+V, drop image files on an open canvas, or choose Insert image file from the primary menu. An item can be moved, resized (it keeps its proportions; hold Shift to stretch it), rotated, and made translucent, and keeps its full resolution. Dropping an image on an open canvas now adds it as an item instead of replacing the canvas.

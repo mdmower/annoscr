@@ -42,6 +42,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="2.1.0" date="2026-09-15">
+      <description its:translate="no">
+        <ul>
+          <li>Each number stamp group has a Start number, which sets the number of its first stamp; the rest count up from there. In letter mode the field accepts a single letter, and letters still wrap after Z.</li>
+          <li>Text is measured the same way at every zoom level, so text in a rectangle or oval no longer re-wraps as the zoom changes, and what is drawn on screen matches the exported image.</li>
+          <li>On a HiDPI display, the image and image items are drawn at the display's full resolution instead of being scaled up from a lower-resolution copy.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0" date="2026-09-13">
       <description its:translate="no">
         <ul>
