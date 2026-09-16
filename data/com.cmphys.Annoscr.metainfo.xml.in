@@ -17,6 +17,17 @@
 
   <launchable type="desktop-id">com.cmphys.Annoscr.desktop</launchable>
 
+  <screenshots>
+    <screenshot type="default" environment="gnome">
+      <caption>Annotating a screenshot: a callout, a lettered stamp, and pen strokes</caption>
+      <image type="source" width="1260" height="750">https://raw.githubusercontent.com/mdmower/annoscr/main/data/app-interface-light.png</image>
+    </screenshot>
+    <screenshot environment="gnome:dark">
+      <caption>The same annotations with the dark color scheme</caption>
+      <image type="source" width="1260" height="750">https://raw.githubusercontent.com/mdmower/annoscr/main/data/app-interface-dark.png</image>
+    </screenshot>
+  </screenshots>
+
   <url type="homepage">https://github.com/mdmower/annoscr</url>
 
   <provides>

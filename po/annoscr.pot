@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-15 21:05-0700\n"
+"POT-Creation-Date: 2026-09-15 22:05-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,7 +49,15 @@ msgid ""
 "resize as needed, then export or copy to clipboard."
 msgstr ""
 
-#: data/com.cmphys.Annoscr.metainfo.xml.in:28
+#: data/com.cmphys.Annoscr.metainfo.xml.in:22
+msgid "Annotating a screenshot: a callout, a lettered stamp, and pen strokes"
+msgstr ""
+
+#: data/com.cmphys.Annoscr.metainfo.xml.in:26
+msgid "The same annotations with the dark color scheme"
+msgstr ""
+
+#: data/com.cmphys.Annoscr.metainfo.xml.in:39
 msgid "Matt Mower"
 msgstr ""
 
