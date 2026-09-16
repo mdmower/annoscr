@@ -2,7 +2,12 @@
 
 Annoscr is a lightweight screenshot annotation tool for GNOME.
 
-<img width="541" height="381" src="data/screenshot.png" alt="Screenshot of Annoscr">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="data/app-interface-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="data/app-interface-light.png">
+  <img width="630" height="375" src="data/app-interface-light.png"
+    alt="The Annoscr window: a screenshot on the canvas with a callout, a lettered stamp and pen strokes, the style panel docked at the right, and the recent files strip below">
+</picture>
 
 ## Features
 
