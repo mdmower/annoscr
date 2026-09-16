@@ -990,6 +990,12 @@ function createMarkupLayout(
   markup: string
 ): Pango.Layout {
   const layout = PangoCairo.create_layout(cr);
+  // Pango rounds glyph advances to whole device pixels by default (pangocairo
+  // hints the font metrics to match), so text measures differently at every
+  // zoom and a shape's wrap points move as the window is resized. Unrounded
+  // positions keep metrics proportional to the image-space font size, so every
+  // zoom wraps identically to the export.
+  layout.get_context().set_round_glyph_positions(false);
   const desc = Pango.FontDescription.from_string(fontDesc);
   desc.set_absolute_size(sizePx * Pango.SCALE);
   layout.set_font_description(desc);
