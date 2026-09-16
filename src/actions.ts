@@ -311,17 +311,43 @@ export interface NumberStampStyle {
   fontSize: number; // image-space pixels
 }
 
-// 'number' renders the n-th stamp as String(n); 'letter' renders as A..Z,
-// restarting at A after Z. Variant is stored on each action so undo/redo of a
-// global variant change is just a normal history entry.
+// 'number' renders a stamp's count as String(n); 'letter' renders as A..Z,
+// restarting at A after Z (27 is A again, so labels repeat rather than rolling
+// over to AA). Variant is stored on each action so undo/redo of a global
+// variant change is just a normal history entry.
 export type StampVariant = 'number' | 'letter';
 export const DEFAULT_STAMP_VARIANT: StampVariant = 'number';
 
-function stampLabel(n: number, variant: StampVariant): string {
+// The number of a group's first stamp. Stored per stamp and kept uniform
+// within a group, like the variant. Always a number: the letter variant only
+// changes how it is displayed, so switching variants never rewrites it.
+export const DEFAULT_STAMP_START = 1;
+export const STAMP_START_MIN = 1;
+// A validity cap rather than a style limit, and generous for the same reason as
+// the other control bounds: the field is typed into, not dragged through.
+export const STAMP_START_MAX = 9999;
+
+// The label a stamp shows: its position within the group, offset by the
+// group's start.
+export function stampLabel(n: number, variant: StampVariant): string {
   if (variant === 'letter') {
     return String.fromCharCode(65 + ((n - 1) % 26));
   }
   return String(n);
+}
+
+// Parse a Start field's text back to a number. In letter mode only a single
+// A..Z is meaningful, so it maps onto 1..26; a start above 26 can only be
+// entered in number mode, and displays as its wrapped letter.
+export function parseStampStart(text: string, variant: StampVariant): number | null {
+  const t = text.trim();
+  if (variant === 'letter') {
+    if (!/^[A-Za-z]$/.test(t)) return null;
+    return t.toUpperCase().charCodeAt(0) - 64;
+  }
+  if (!/^[0-9]+$/.test(t)) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
 }
 
 const DEFAULT_COLOR: ColorRGBA = [0.85, 0.18, 0.18, 1.0];
@@ -786,6 +812,9 @@ export interface SerializedNumber {
   y: number;
   groupId: number;
   variant: StampVariant;
+  // The group's starting number. Optional so a document written before the
+  // field existed reads back as a group starting at 1.
+  start?: number;
   rotation: number;
   // The ordinal (n) is intentionally NOT stored — it's derived per group by
   // renumberStamps on load, so it can't drift from document order.
@@ -1309,6 +1338,9 @@ class NumberStampAction extends BaseAction {
     // referring to the same group across relabels.
     public readonly groupId: number,
     public readonly variant: StampVariant,
+    // The group's starting number, uniform across the group. The label is this
+    // stamp's ordinal offset by it, so a group can begin at 3 or at C.
+    public readonly start: number,
     public readonly rotation: number, // free angle in radians, CW (affects the digit only)
     public readonly style: NumberStampStyle
   ) {
@@ -1340,7 +1372,7 @@ class NumberStampAction extends BaseAction {
     const desc = Pango.FontDescription.from_string(s.fontDesc);
     desc.set_absolute_size(s.fontSize * Pango.SCALE);
     layout.set_font_description(desc);
-    layout.set_text(stampLabel(this.n, this.variant), -1);
+    layout.set_text(stampLabel(this.n + this.start - 1, this.variant), -1);
     const [textW, textH] = layout.get_pixel_size();
 
     // Same foreground as the border — single user-editable color.
@@ -1371,6 +1403,7 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       this.variant,
+      this.start,
       this.rotation,
       this.style
     );
@@ -1385,6 +1418,7 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       this.variant,
+      this.start,
       normalizeAngle(this.rotation + dr),
       this.style
     );
@@ -1397,6 +1431,7 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       this.variant,
+      this.start,
       this.rotation,
       {
         ...this.style,
@@ -1421,6 +1456,7 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       this.variant,
+      this.start,
       this.rotation,
       {
         ...this.style,
@@ -1440,6 +1476,7 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       this.variant,
+      this.start,
       this.rotation,
       {
         ...this.style,
@@ -1455,6 +1492,7 @@ class NumberStampAction extends BaseAction {
       n,
       this.groupId,
       this.variant,
+      this.start,
       this.rotation,
       this.style
     );
@@ -1467,6 +1505,20 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       variant,
+      this.start,
+      this.rotation,
+      this.style
+    );
+  }
+
+  withStart(start: number): Action {
+    return new NumberStampAction(
+      this.x,
+      this.y,
+      this.n,
+      this.groupId,
+      this.variant,
+      start,
       this.rotation,
       this.style
     );
@@ -1483,6 +1535,7 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       this.variant,
+      this.start,
       normalizeAngle(rotation),
       this.style
     );
@@ -1552,6 +1605,7 @@ class NumberStampAction extends BaseAction {
       this.n,
       this.groupId,
       this.variant,
+      this.start,
       this.rotation,
       {
         ...this.style,
@@ -1570,6 +1624,7 @@ class NumberStampAction extends BaseAction {
       y: this.y,
       groupId: this.groupId,
       variant: this.variant,
+      start: this.start,
       rotation: this.rotation,
       radius: s.radius,
       fillColor: s.fillColor,
@@ -1587,10 +1642,11 @@ export function makeNumberStampAction(
   n: number,
   groupId: number,
   variant: StampVariant = DEFAULT_STAMP_VARIANT,
+  start: number = DEFAULT_STAMP_START,
   rotation: number = 0,
   style: NumberStampStyle = NUMBER_STAMP_STYLE
 ): Action {
-  return new NumberStampAction(x, y, n, groupId, variant, normalizeAngle(rotation), style);
+  return new NumberStampAction(x, y, n, groupId, variant, start, normalizeAngle(rotation), style);
 }
 
 export function isNumberStampAction(action: Action): boolean {
@@ -1608,15 +1664,26 @@ export function numberStampVariant(action: Action): StampVariant | null {
   return action instanceof NumberStampAction ? action.variant : null;
 }
 
+// The stamp's group starting number, or null for non-stamp actions.
+export function numberStampStart(action: Action): number | null {
+  return action instanceof NumberStampAction ? action.start : null;
+}
+
 // The stamp's radius (image-space px), or null for non-stamp actions. Lets the
 // canvas remember a resized stamp's size as the next placement's default.
 export function numberStampRadius(action: Action): number | null {
   return action instanceof NumberStampAction ? action.style.radius : null;
 }
 
-// Move a stamp into a different group, adopting that group's variant so a
-// group stays uniformly Number or Letter. Non-stamp actions pass through.
-export function reassignStamp(action: Action, groupId: number, variant: StampVariant): Action {
+// Move a stamp into a different group, adopting that group's variant and start
+// so a group stays uniformly Number or Letter and numbers from one place.
+// Non-stamp actions pass through.
+export function reassignStamp(
+  action: Action,
+  groupId: number,
+  variant: StampVariant,
+  start: number
+): Action {
   if (!(action instanceof NumberStampAction)) return action;
   return new NumberStampAction(
     action.x,
@@ -1624,6 +1691,7 @@ export function reassignStamp(action: Action, groupId: number, variant: StampVar
     action.n,
     groupId,
     variant,
+    start,
     action.rotation,
     action.style
   );
@@ -1657,6 +1725,20 @@ export function setStampVariantInGroup(
   return actions.map((a) =>
     a instanceof NumberStampAction && a.groupId === groupId && a.variant !== variant
       ? a.withVariant(variant)
+      : a
+  );
+}
+
+// Rewrite the starting number of every stamp in one group, like
+// setStampVariantInGroup.
+export function setStampStartInGroup(
+  actions: ReadonlyArray<Action>,
+  groupId: number,
+  start: number
+): Action[] {
+  return actions.map((a) =>
+    a instanceof NumberStampAction && a.groupId === groupId && a.start !== start
+      ? a.withStart(start)
       : a
   );
 }
@@ -3695,6 +3777,7 @@ function deserializeAction(
         1,
         data.groupId,
         data.variant,
+        data.start ?? DEFAULT_STAMP_START,
         normalizeAngle(data.rotation),
         {
           radius: data.radius,

@@ -20,6 +20,8 @@ import {
   DashStyle,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
+  STAMP_START_MAX,
+  STAMP_START_MIN,
   StampVariant,
   TextAlign,
   WIDTH_MAX,
@@ -35,7 +37,10 @@ import {
   getShapeTextEditState,
   isShapeAction,
   numberStampGroup,
+  numberStampStart,
   numberStampVariant,
+  parseStampStart,
+  stampLabel,
   styleValuesEqual,
 } from './actions.js';
 
@@ -228,6 +233,16 @@ export class StyleBar {
   private variantGroup!: Gtk.Box;
   private variantLabel!: Gtk.Label;
   private variantDropdown!: Gtk.DropDown;
+
+  // Starting number for the stamp group. The value is always the number; the
+  // letter variant only changes how it is displayed and typed, so a start above
+  // 26 is kept across a variant switch even though it shows as a wrapped letter.
+  private startGroup!: Gtk.Box;
+  private startLabel!: Gtk.Label;
+  private startSpin!: Gtk.SpinButton;
+  // The variant the Start field currently renders in, read by its formatting
+  // and parsing handlers.
+  private startVariant: StampVariant = 'number';
   // The select-mode menu (select by type, and the actions on a selection) in
   // one overflow button, so it takes one bar slot. Visible whenever the select
   // tool is active.
@@ -552,6 +567,36 @@ export class StyleBar {
     this.variantGroup = makeRowGroup(variantSep, this.variantLabel, this.variantDropdown);
     styleBar.append(this.variantGroup);
 
+    // Start group (stamp). GJS cannot set the `input` signal's out parameter,
+    // so the handler rewrites the entry to the numeric form and lets GTK's own
+    // conversion read that back.
+    const startSep = makeSep();
+    this.startSpin = new Gtk.SpinButton({
+      adjustment: new Gtk.Adjustment({
+        lower: STAMP_START_MIN,
+        upper: STAMP_START_MAX,
+        step_increment: 1,
+        page_increment: 10,
+      }),
+      width_request: 76,
+      valign: Gtk.Align.CENTER,
+      xalign: 1,
+    });
+    // The @girs typing models `input` as returning the parsed value, which GJS
+    // has no way to deliver; the handler only edits the text.
+    (this.startSpin as unknown as Gtk.Widget).connect('input', () => {
+      this.normalizeStartText();
+      return false;
+    });
+    this.startSpin.connect('output', () => {
+      this.showStartValue();
+      return true;
+    });
+    this.startSpin.connect('value-changed', () => this.onStartPicked());
+    this.startLabel = new Gtk.Label({label: _('Start'), css_classes: ['caption']});
+    this.startGroup = makeRowGroup(startSep, this.startLabel, this.startSpin);
+    styleBar.append(this.startGroup);
+
     // Text color group — the getTextColor channel (a text's glyphs, or the text
     // embedded in a shape), distinct from the stroke/outline Color.
     const textColorSep = makeSep();
@@ -654,6 +699,7 @@ export class StyleBar {
       {group: this.filledHeadGroup, sep: filledHeadSep},
       {group: this.groupGroup, sep: groupSep},
       {group: this.variantGroup, sep: variantSep},
+      {group: this.startGroup, sep: startSep},
       {group: this.textColorGroup, sep: textColorSep},
       {group: this.fontGroup, sep: fontSep},
       {group: this.alignGroup, sep: alignSep},
@@ -1198,6 +1244,41 @@ export class StyleBar {
       _('Variant'),
       this.selectionMixed((a) => numberStampVariant(a))
     );
+
+    // Start shares the variant's visibility: both describe the group, so they
+    // appear together whenever a group is addressable.
+    const startValue: number | null =
+      tool === 'number'
+        ? this.canvas.getPlacementGroupStart()
+        : tool === 'select'
+          ? this.selectionSummary((a) => numberStampStart(a)).value
+          : null;
+    this.startGroup.set_visible(startValue !== null);
+    if (startValue !== null) {
+      this.startVariant = variantValue ?? 'number';
+      this.startSpin.set_value(startValue);
+      // set_value only emits `output` when the value actually changes, so the
+      // text is written directly — a variant switch alone leaves it unchanged.
+      this.showStartValue();
+    }
+    setCaption(
+      this.startLabel,
+      _('Start'),
+      this.selectionMixed((a) => numberStampStart(a))
+    );
+  }
+
+  // Render the Start field: the number itself, or the letter it maps to.
+  private showStartValue(): void {
+    this.startSpin.set_text(stampLabel(this.startSpin.get_value(), this.startVariant));
+  }
+
+  // Rewrite the Start field's text into the digits GTK's own conversion reads,
+  // so a typed letter becomes its count and anything unparseable restores the
+  // current value instead of falling back to zero.
+  private normalizeStartText(): void {
+    const parsed = parseStampStart(this.startSpin.get_text(), this.startVariant);
+    this.startSpin.set_text(String(parsed ?? this.startSpin.get_value()));
   }
 
   // Rebuild the group dropdown rows to "Group 1..count" plus a trailing
@@ -1236,6 +1317,16 @@ export class StyleBar {
       this.canvas.setSelectedGroupsVariant(variant);
     } else {
       this.canvas.setPlacementGroupVariant(variant);
+    }
+  }
+
+  private onStartPicked(): void {
+    if (this.updatingPicker || !this.startSpin) return;
+    const start = Math.round(this.startSpin.get_value());
+    if (this.canvas.getTool() === 'select') {
+      this.canvas.setSelectedGroupsStart(start);
+    } else {
+      this.canvas.setPlacementGroupStart(start);
     }
   }
 

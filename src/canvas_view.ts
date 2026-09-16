@@ -16,6 +16,7 @@ import {
   ResizeHandle,
   DEFAULT_DASH,
   DEFAULT_STAMP_RADIUS,
+  DEFAULT_STAMP_START,
   DEFAULT_STAMP_VARIANT,
   LiveStroke,
   SHAPE_TEXT_STYLE,
@@ -46,10 +47,12 @@ import {
   paintImage,
   numberStampRadius,
   numberStampStyle,
+  numberStampStart,
   numberStampVariant,
   reassignStamp,
   renumberStamps,
   roundedRectPath,
+  setStampStartInGroup,
   setStampVariantInGroup,
   shapeWithoutText,
   styleValuesEqual,
@@ -563,6 +566,10 @@ export const CanvasView = GObject.registerClass(
     private nextGroupId: number = 2;
     private groupVariants: Map<number, StampVariant> = new Map();
     private defaultStampVariant: StampVariant = DEFAULT_STAMP_VARIANT;
+    // A group's chosen starting number, stored here for the same reason as
+    // groupVariants: an empty group has no stamps to read it from. Unlike the
+    // variant it is not a remembered preference — a new group starts at 1.
+    private groupStarts: Map<number, number> = new Map();
 
     // Per-tool current font description. Only 'text' has an entry; other tools
     // have no editable font and return null from getToolFontDesc.
@@ -804,6 +811,7 @@ export const CanvasView = GObject.registerClass(
       this.placementGroupId = 1;
       this.nextGroupId = 2;
       this.groupVariants.clear();
+      this.groupStarts.clear();
       this.mode = 'fit';
       this.zoomFactor = 1;
       this.pendingInitialZoom = true;
@@ -839,6 +847,7 @@ export const CanvasView = GObject.registerClass(
       this.placementGroupId = maxGroup >= 1 ? maxGroup : 1;
       this.nextGroupId = Math.max(2, maxGroup + 1);
       this.groupVariants.clear();
+      this.groupStarts.clear();
       this.mode = 'fit';
       this.zoomFactor = 1;
       this.pendingInitialZoom = true;
@@ -1205,6 +1214,19 @@ export const CanvasView = GObject.registerClass(
       return this.groupVariantFor(this.placementGroupId);
     }
 
+    // The number of a group's first stamp: read from its stamps if it has any,
+    // else its remembered choice, else 1.
+    private groupStartFor(groupId: number): number {
+      for (const a of this.state.actions) {
+        if (numberStampGroup(a) === groupId) return numberStampStart(a)!;
+      }
+      return this.groupStarts.get(groupId) ?? DEFAULT_STAMP_START;
+    }
+
+    getPlacementGroupStart(): number {
+      return this.groupStartFor(this.placementGroupId);
+    }
+
     private groupHasStamps(groupId: number): boolean {
       return this.state.actions.some((a) => numberStampGroup(a) === groupId);
     }
@@ -1285,6 +1307,44 @@ export const CanvasView = GObject.registerClass(
       return true;
     }
 
+    // Set the active placement group's starting number and rewrite that group's
+    // existing stamps, mirroring setPlacementGroupVariant. Not remembered as a
+    // preference: a new group starts at 1.
+    setPlacementGroupStart(start: number): void {
+      this.groupStarts.set(this.placementGroupId, start);
+      const cur = this.state.actions;
+      const next = setStampStartInGroup(cur, this.placementGroupId, start);
+      if (next.some((a, i) => a !== cur[i])) {
+        this.pushState({surface: this.state.surface, actions: next}, 'stamp-start');
+      }
+      this.queue_draw();
+      this.notifyStateChange();
+    }
+
+    // Change the starting number of every group represented in the selection (a
+    // group numbers from one place, so this affects the whole group). Coalesced
+    // so stepping the spin button through values is one undo entry.
+    setSelectedGroupsStart(start: number): boolean {
+      const cur = this.state.actions;
+      const groups = new Set<number>();
+      for (const i of this.selectedIndices) {
+        const g = numberStampGroup(cur[i]);
+        if (g !== null) groups.add(g);
+      }
+      if (groups.size === 0) return false;
+      let next: Action[] = cur as Action[];
+      for (const g of groups) {
+        this.groupStarts.set(g, start);
+        next = setStampStartInGroup(next, g, start);
+      }
+      if (next.some((a, i) => a !== cur[i])) {
+        this.pushState({surface: this.state.surface, actions: next}, 'stamp-start');
+      }
+      this.queue_draw();
+      this.notifyStateChange();
+      return true;
+    }
+
     // Move the selected stamps into a group ('new' allocates one), each spliced
     // to just after that group's last existing member so it takes the last
     // number in the group; moved stamps adopt the target group's variant.
@@ -1299,8 +1359,9 @@ export const CanvasView = GObject.registerClass(
 
       const groupId = target === 'new' ? this.nextGroupId++ : target;
       const variant = this.groupVariantFor(groupId);
+      const start = this.groupStartFor(groupId);
       const moveSet = new Set(moveIdx);
-      const moved = moveIdx.map((i) => reassignStamp(cur[i], groupId, variant));
+      const moved = moveIdx.map((i) => reassignStamp(cur[i], groupId, variant, start));
       const rest = cur.filter((_a, i) => !moveSet.has(i));
 
       // Insert after the target group's last surviving member; if the target
@@ -2515,6 +2576,7 @@ export const CanvasView = GObject.registerClass(
           this.nextStampNumber(),
           this.placementGroupId,
           this.getPlacementGroupVariant(),
+          this.getPlacementGroupStart(),
           0,
           style
         )

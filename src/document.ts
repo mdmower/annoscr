@@ -7,6 +7,7 @@ import {
   DashStyle,
   DEFAULT_DASH,
   DEFAULT_STAMP_RADIUS,
+  DEFAULT_STAMP_START,
   DEFAULT_STAMP_VARIANT,
   EditorSize,
   ImageAsset,
@@ -18,6 +19,8 @@ import {
   TEXT_STYLE,
   TRANSPARENT_FILL,
   TextAlign,
+  STAMP_START_MAX,
+  STAMP_START_MIN,
   STORED_SIZE_MAX,
   STORED_SIZE_MIN,
   WIDTH_MIN,
@@ -308,6 +311,15 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
   // proportional to the validated radius.
   const defaults = numberStampStyle(foregroundColor, fillColor, radius);
   const variant = asStampVariant(raw.variant) ?? DEFAULT_STAMP_VARIANT;
+  // The start is optional content: a document written before the field existed,
+  // or a malformed one, reads back as a group starting at 1.
+  const start =
+    typeof raw.start === 'number' &&
+    Number.isInteger(raw.start) &&
+    raw.start >= STAMP_START_MIN &&
+    raw.start <= STAMP_START_MAX
+      ? raw.start
+      : DEFAULT_STAMP_START;
   // A bad group id is replaced by group 1; renumbering keeps the numbers
   // gap-free.
   const groupId =
@@ -320,6 +332,7 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
     y: requireFinite(raw.y, 'position'),
     groupId,
     variant,
+    start,
     rotation: asAngle(raw.rotation),
     radius,
     fillColor,

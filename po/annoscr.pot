@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-13 22:07-0700\n"
+"POT-Creation-Date: 2026-09-15 21:05-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -79,75 +79,75 @@ msgstr ""
 msgid "Annotate a screenshot. FILE is an image or .annoscr file to open."
 msgstr ""
 
-#: src/canvas_view.ts:635
+#: src/canvas_view.ts:646
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1498
+#: src/canvas_view.ts:1576
 msgid "Click the image to pick a color"
 msgstr ""
 
-#: src/canvas_view.ts:1513
+#: src/canvas_view.ts:1591
 msgid "Color pick canceled"
 msgstr ""
 
-#: src/canvas_view.ts:1542
+#: src/canvas_view.ts:1620
 msgid "Color picked"
 msgstr ""
 
-#: src/canvas_view.ts:1815 src/canvas_view.ts:1875
+#: src/canvas_view.ts:1893 src/canvas_view.ts:1953
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1875 src/canvas_view.ts:2712 src/shortcuts_dialog.ts:67
+#: src/canvas_view.ts:1953 src/canvas_view.ts:2791 src/shortcuts_dialog.ts:67
 msgid "Image"
 msgstr ""
 
-#: src/canvas_view.ts:1876
+#: src/canvas_view.ts:1954
 #, javascript-format
 msgid "%d images added"
 msgstr ""
 
-#: src/canvas_view.ts:1937
+#: src/canvas_view.ts:2015
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:2421
+#: src/canvas_view.ts:2499
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:2462 src/dialogs.ts:305 src/zoom_controller.ts:209
+#: src/canvas_view.ts:2540 src/dialogs.ts:305 src/zoom_controller.ts:209
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:2691
+#: src/canvas_view.ts:2770
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:2692
+#: src/canvas_view.ts:2771
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:2695
+#: src/canvas_view.ts:2774
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:2703 src/canvas_view.ts:2707
+#: src/canvas_view.ts:2782 src/canvas_view.ts:2786
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:2704
+#: src/canvas_view.ts:2783
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:2715
+#: src/canvas_view.ts:2794
 msgid "Annotation"
 msgstr ""
 
@@ -159,7 +159,7 @@ msgstr ""
 msgid "#RGB, #RGBA, #RRGGBB, or #RRGGBBAA"
 msgstr ""
 
-#: src/color_controls.ts:93 src/style_bar.ts:511 src/style_bar.ts:1061
+#: src/color_controls.ts:93 src/style_bar.ts:526 src/style_bar.ts:1107
 msgid "Opacity"
 msgstr ""
 
@@ -203,12 +203,12 @@ msgstr ""
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:81 src/style_bar.ts:593 src/style_bar.ts:1138
+#: src/dialogs.ts:81 src/style_bar.ts:638 src/style_bar.ts:1184
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:94 src/dialogs.ts:255 src/style_bar.ts:469
-#: src/style_bar.ts:1034
+#: src/dialogs.ts:94 src/dialogs.ts:255 src/style_bar.ts:484
+#: src/style_bar.ts:1080
 msgid "Width"
 msgstr ""
 
@@ -216,8 +216,8 @@ msgstr ""
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:136 src/dialogs.ts:496 src/style_bar.ts:439
-#: src/style_bar.ts:1025
+#: src/dialogs.ts:136 src/dialogs.ts:496 src/style_bar.ts:454
+#: src/style_bar.ts:1071
 msgid "Fill"
 msgstr ""
 
@@ -729,8 +729,8 @@ msgstr ""
 msgid "Bring to front"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:88 src/style_bar.ts:809 src/style_bar.ts:822
-#: src/style_bar.ts:827 src/window_constants.ts:106
+#: src/shortcuts_dialog.ts:88 src/style_bar.ts:855 src/style_bar.ts:868
+#: src/style_bar.ts:873 src/window_constants.ts:106
 msgid "Select"
 msgstr ""
 
@@ -750,7 +750,7 @@ msgstr ""
 msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:93 src/style_bar.ts:477 src/style_bar.ts:1043
+#: src/shortcuts_dialog.ts:93 src/style_bar.ts:492 src/style_bar.ts:1089
 #: src/window_constants.ts:116
 msgid "Line"
 msgstr ""
@@ -827,172 +827,176 @@ msgstr ""
 msgid "or"
 msgstr ""
 
-#: src/style_bar.ts:63
+#: src/style_bar.ts:68
 #, javascript-format
 msgid "Pen strokes (%d)"
 msgstr ""
 
-#: src/style_bar.ts:65
+#: src/style_bar.ts:70
 #, javascript-format
 msgid "Highlights (%d)"
 msgstr ""
 
-#: src/style_bar.ts:67
+#: src/style_bar.ts:72
 #, javascript-format
 msgid "Text (%d)"
 msgstr ""
 
-#: src/style_bar.ts:69
+#: src/style_bar.ts:74
 #, javascript-format
 msgid "Number stamps (%d)"
 msgstr ""
 
-#: src/style_bar.ts:71
+#: src/style_bar.ts:76
 #, javascript-format
 msgid "Lines (%d)"
 msgstr ""
 
-#: src/style_bar.ts:73
+#: src/style_bar.ts:78
 #, javascript-format
 msgid "Arrows (%d)"
 msgstr ""
 
-#: src/style_bar.ts:75
+#: src/style_bar.ts:80
 #, javascript-format
 msgid "Rectangles (%d)"
 msgstr ""
 
-#: src/style_bar.ts:77
+#: src/style_bar.ts:82
 #, javascript-format
 msgid "Ovals (%d)"
 msgstr ""
 
-#: src/style_bar.ts:79
+#: src/style_bar.ts:84
 #, javascript-format
 msgid "Images (%d)"
 msgstr ""
 
-#: src/style_bar.ts:162
+#: src/style_bar.ts:167
 msgid "(mixed)"
 msgstr ""
 
-#: src/style_bar.ts:403 src/style_bar.ts:406
+#: src/style_bar.ts:418 src/style_bar.ts:421
 msgid "Select and arrange"
 msgstr ""
 
-#: src/style_bar.ts:430 src/style_bar.ts:1016
+#: src/style_bar.ts:445 src/style_bar.ts:1062
 msgid "Color"
 msgstr ""
 
-#: src/style_bar.ts:475
+#: src/style_bar.ts:490
 msgid "Solid"
 msgstr ""
 
-#: src/style_bar.ts:475
+#: src/style_bar.ts:490
 msgid "Dashed"
 msgstr ""
 
-#: src/style_bar.ts:475
+#: src/style_bar.ts:490
 msgid "Dotted"
 msgstr ""
 
-#: src/style_bar.ts:498 src/style_bar.ts:1052
+#: src/style_bar.ts:513 src/style_bar.ts:1098
 msgid "Corners"
 msgstr ""
 
-#: src/style_bar.ts:521 src/style_bar.ts:1079
+#: src/style_bar.ts:536 src/style_bar.ts:1125
 msgid "Callout"
 msgstr ""
 
-#: src/style_bar.ts:527
+#: src/style_bar.ts:542
 msgid "Open"
 msgstr ""
 
-#: src/style_bar.ts:527
+#: src/style_bar.ts:542
 msgid "Filled"
 msgstr ""
 
-#: src/style_bar.ts:529 src/style_bar.ts:1070
+#: src/style_bar.ts:544 src/style_bar.ts:1116
 msgid "Arrowhead"
 msgstr ""
 
-#: src/style_bar.ts:543 src/style_bar.ts:1183
+#: src/style_bar.ts:558 src/style_bar.ts:1229
 msgid "Group"
 msgstr ""
 
-#: src/style_bar.ts:549 src/window_constants.ts:115
+#: src/style_bar.ts:564 src/window_constants.ts:115
 msgid "Number"
 msgstr ""
 
-#: src/style_bar.ts:549
+#: src/style_bar.ts:564
 msgid "Letter"
 msgstr ""
 
-#: src/style_bar.ts:551 src/style_bar.ts:1198
+#: src/style_bar.ts:566 src/style_bar.ts:1244
 msgid "Variant"
 msgstr ""
 
-#: src/style_bar.ts:560 src/style_bar.ts:1121
+#: src/style_bar.ts:596 src/style_bar.ts:1266
+msgid "Start"
+msgstr ""
+
+#: src/style_bar.ts:605 src/style_bar.ts:1167
 msgid "Text color"
 msgstr ""
 
-#: src/style_bar.ts:591 src/style_bar.ts:1131
+#: src/style_bar.ts:636 src/style_bar.ts:1177
 msgid "Font"
 msgstr ""
 
-#: src/style_bar.ts:620
+#: src/style_bar.ts:665
 msgid "Align left"
 msgstr ""
 
-#: src/style_bar.ts:623
+#: src/style_bar.ts:668
 msgid "Align center"
 msgstr ""
 
-#: src/style_bar.ts:629
+#: src/style_bar.ts:674
 msgid "Align right"
 msgstr ""
 
-#: src/style_bar.ts:641 src/style_bar.ts:1147
+#: src/style_bar.ts:686 src/style_bar.ts:1193
 msgid "Align"
 msgstr ""
 
-#: src/style_bar.ts:691
+#: src/style_bar.ts:737
 msgid "All (Ctrl+A)"
 msgstr ""
 
-#: src/style_bar.ts:700
+#: src/style_bar.ts:746
 msgid "Edit text"
 msgstr ""
 
-#: src/style_bar.ts:700
+#: src/style_bar.ts:746
 msgid "Add text"
 msgstr ""
 
-#: src/style_bar.ts:706
+#: src/style_bar.ts:752
 msgid "Straighten"
 msgstr ""
 
-#: src/style_bar.ts:709
+#: src/style_bar.ts:755
 msgid "Duplicate (Ctrl+D)"
 msgstr ""
 
-#: src/style_bar.ts:712
+#: src/style_bar.ts:758
 msgid "Bring to front (Ctrl+Shift+])"
 msgstr ""
 
-#: src/style_bar.ts:715
+#: src/style_bar.ts:761
 msgid "Bring forward (Ctrl+])"
 msgstr ""
 
-#: src/style_bar.ts:716
+#: src/style_bar.ts:762
 msgid "Send backward (Ctrl+[)"
 msgstr ""
 
-#: src/style_bar.ts:717
+#: src/style_bar.ts:763
 msgid "Send to back (Ctrl+Shift+[)"
 msgstr ""
 
-#: src/style_bar.ts:761
+#: src/style_bar.ts:807
 msgid "Stamps renumber within their group."
 msgstr ""
 
@@ -1000,20 +1004,20 @@ msgstr ""
 #. the popover and unparents it on dispose, avoiding the "Finalizing
 #. GtkButton … still has children left" warning at quit. No dropdown arrow
 #. because the swatch is a custom child and always-show-arrow defaults off.
-#: src/style_bar.ts:897
+#: src/style_bar.ts:943
 msgid "Pick a color"
 msgstr ""
 
-#: src/style_bar.ts:905
+#: src/style_bar.ts:951
 msgid "Pick a color from the image"
 msgstr ""
 
-#: src/style_bar.ts:1208
+#: src/style_bar.ts:1289
 #, javascript-format
 msgid "Group %d"
 msgstr ""
 
-#: src/style_bar.ts:1209
+#: src/style_bar.ts:1290
 msgid "+ New group"
 msgstr ""
 
