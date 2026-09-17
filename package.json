@@ -10,6 +10,7 @@
     "compile": "tsc -p .",
     "build": "meson compile -C build",
     "regenerate-languages": "meson compile -C build annoscr-pot",
+    "generate-types": "sh build-aux/generate-types.sh",
     "lint": "eslint .",
     "lint:deb": "sh build-aux/lint-deb.sh",
     "format": "prettier -w .",
