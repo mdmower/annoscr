@@ -12,12 +12,11 @@ dpkg-buildpackage -us -uc -b
 # the .deb is written to the parent directory
 ```
 
-Check the built package against Debian policy (the script lints the most recent `../annoscr_*.deb` with `lintian`):
+Check a release-built package against Debian policy (the script lints the most recent `dist/annoscr_*.deb` from `npm run dist` with `lintian`):
 
 ```sh
 sudo apt install lintian
 npm run lint:deb
-# or build and lint in one step:  debuild -us -uc -b
 ```
 
 The package installs a man page, so `man annoscr` documents the command-line options once installed.

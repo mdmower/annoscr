@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # Run lintian against the most recently built .deb to catch Debian policy
-# issues. Build a package first with `dpkg-buildpackage -us -uc -b` (it lands in
-# the parent directory).
+# issues. Build the packages first with `npm run dist` (it writes them to
+# dist/).
 #
 # Run via `npm run lint:deb`, or directly with `sh build-aux/lint-deb.sh`.
 
@@ -15,10 +15,10 @@ fi
 
 root=$(CDPATH="" cd -- "$(dirname -- "$0")/.." && pwd)
 
-# Newest annoscr_*.deb in the parent directory, where dpkg writes it.
-deb=$(ls -t "$root"/../annoscr_*.deb 2>/dev/null | head -n1 || true)
+# Newest annoscr_*.deb in dist/, where the release build writes it.
+deb=$(ls -t "$root"/dist/annoscr_*.deb 2>/dev/null | head -n1 || true)
 if [ -z "${deb:-}" ]; then
-  echo "No ../annoscr_*.deb found. Build one with: dpkg-buildpackage -us -uc -b" >&2
+  echo "No dist/annoscr_*.deb found. Build one with: npm run dist" >&2
   exit 1
 fi
 
