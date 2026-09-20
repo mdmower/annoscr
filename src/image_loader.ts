@@ -19,7 +19,6 @@ export function loadFromPixbuf(pixbuf: GdkPixbuf.Pixbuf): Cairo.ImageSurface {
   // requires cairo_image_surface_get_data, which GJS deliberately omits
   // (only getStride is exposed), so this path stays on the deprecated helper
   // until GJS exposes the pixel accessors.
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
   Gdk.cairo_set_source_pixbuf(cr, oriented, 0, 0);
   cr.paint();
   return surface;

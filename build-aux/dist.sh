@@ -65,8 +65,8 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   cp packaging/rpm/annoscr.spec packaging/rpm/annoscr.rpmlintrc packaging/arch/PKGBUILD "$work"/
 
   echo "==> .rpm (fedora container)"
-  docker pull -q fedora:41 >/dev/null
-  docker run --rm -v "$work":/work fedora:41 bash -euc '
+  docker pull -q fedora:43 >/dev/null
+  docker run --rm -v "$work":/work fedora:43 bash -euc '
     dnf -y install rpm-build "dnf-command(builddep)" >/dev/null 2>&1
     dnf -y builddep /work/annoscr.spec >/dev/null 2>&1
     mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS

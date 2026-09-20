@@ -202,6 +202,7 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
     fd.choose_family(parent, null, null, (_src, res) => {
       try {
         const family = fd.choose_family_finish(res);
+        if (!family) return;
         const name = family.get_name();
         if (!families.includes(name)) {
           families.push(name);

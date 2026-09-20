@@ -16,14 +16,14 @@ Homepage: https://github.com/mdmower/annoscr
 
 Package: annoscr
 Architecture: all
-# Floors set by the newest APIs used: GTK 4.14 accessibility (announce,
-# AccessibleList) and libadwaita 1.5 dialogs (the GNOME 46 baseline); GJS must
-# support gi:// ESM imports. The remaining typelibs have far older floors.
+# Minimum versions come from Debian 13 (GNOME 48), the oldest supported
+# distribution, whose GIR files the code is type-checked against. The remaining
+# typelibs have older minimums.
 Depends:
  ${misc:Depends},
- gjs (>= 1.72),
- gir1.2-gtk-4.0 (>= 4.14),
- gir1.2-adw-1 (>= 1.5),
+ gjs (>= 1.82),
+ gir1.2-gtk-4.0 (>= 4.18),
+ gir1.2-adw-1 (>= 1.7),
  gir1.2-gdkpixbuf-2.0,
  gir1.2-pango-1.0,
  gir1.2-xdp-1.0,

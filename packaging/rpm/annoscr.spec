@@ -28,11 +28,12 @@ BuildRequires:  appstream
 # depend on the packages directly. rpmlint's explicit-lib-dependency advisory
 # for libadwaita/libportal is a false positive here, filtered in
 # annoscr.rpmlintrc.
-# Version floors set by the newest APIs used: GTK 4.14 accessibility and
-# libadwaita 1.5 dialogs (the GNOME 46 baseline); GJS needs gi:// ESM imports.
-Requires:       gjs >= 1.72
-Requires:       gtk4 >= 4.14
-Requires:       libadwaita >= 1.5
+# Minimum versions come from Debian 13 (GNOME 48), the oldest supported
+# distribution, whose GIR files the code is type-checked against. The remaining
+# typelibs have older minimums.
+Requires:       gjs >= 1.82
+Requires:       gtk4 >= 4.18
+Requires:       libadwaita >= 1.7
 Requires:       gdk-pixbuf2
 Requires:       pango
 Requires:       libportal

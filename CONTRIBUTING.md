@@ -29,6 +29,20 @@ meson compile -C build
 ./build/src/annoscr # run from the build tree
 ```
 
+### Type-checking against the minimum versions
+
+Accurate types for the [minimum supported versions](README.md#requirements) of GTK, libadwaita, and GLib releases are generated with:
+
+```sh
+# Requires Docker - types generated from GIR files in Debian 13
+npm run generate-types
+npx tsc --noEmit
+```
+
+The generated types are output to `types/girs/` (gitignored). When available, `tsconfig.json` resolves `@girs/*` using local types instead of from `node_modules`.
+
+While building the application is possible using NPM-installed `@girs/*` types, some lint warnings may occur due to API mismatches between the minimum versions of libraries supported by the application and the typically newer versions that were used to generate the NPM-distributed types.
+
 ### Cleaning
 
 ```sh

@@ -582,11 +582,12 @@ export class StyleBar {
       valign: Gtk.Align.CENTER,
       xalign: 1,
     });
-    // The @girs typing models `input` as returning the parsed value, which GJS
-    // has no way to deliver; the handler only edits the text.
-    (this.startSpin as unknown as Gtk.Widget).connect('input', () => {
+    // GJS can't set the new_value out parameter, so the handler rewrites the
+    // text to its numeric form and returns FALSE (not handled), and GTK's
+    // default conversion parses the rewritten text.
+    this.startSpin.connect('input', () => {
       this.normalizeStartText();
-      return false;
+      return 0;
     });
     this.startSpin.connect('output', () => {
       this.showStartValue();

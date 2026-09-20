@@ -6,8 +6,8 @@ pkgdesc="Lightweight screenshot annotation tool for GNOME"
 arch=('any')
 url="https://github.com/mdmower/annoscr"
 license=('GPL-3.0-or-later')
-# Needs the GNOME 46 baseline (GTK 4.14 accessibility, libadwaita 1.5 dialogs,
-# GJS gi:// ESM imports); left unversioned as Arch is rolling and always current.
+# Needs GNOME 48 (GTK 4.18, libadwaita 1.7, GJS 1.82); left unversioned as Arch
+# is rolling and always current.
 depends=('gjs' 'gtk4' 'libadwaita' 'gdk-pixbuf2' 'pango' 'libportal' 'hicolor-icon-theme')
 # Screenshot capture needs a desktop portal with a Screenshot backend running.
 optdepends=('xdg-desktop-portal-gnome: screenshot capture (or another portal backend)')

@@ -1054,6 +1054,7 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.open_multiple(this, null, (_src, result) => {
         try {
           const list = dialog.open_multiple_finish(result);
+          if (!list) return;
           const files: Gio.File[] = [];
           for (let i = 0; i < list.get_n_items(); i++) {
             const item = list.get_item(i);
@@ -1497,7 +1498,7 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.set_default_filter(filter);
 
       dialog.save(this, null, (_src, result) => {
-        let file: Gio.File;
+        let file: Gio.File | null;
         try {
           file = dialog.save_finish(result);
         } catch (e) {
@@ -1558,7 +1559,7 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.set_default_filter(filter);
 
       dialog.save(this, null, (_src, result) => {
-        let file: Gio.File;
+        let file: Gio.File | null;
         try {
           file = dialog.save_finish(result);
         } catch (e) {
@@ -1610,7 +1611,7 @@ export const AnnoscrWindow = GObject.registerClass(
       dialog.set_default_filter(filter);
 
       dialog.open(this, null, (_src, result) => {
-        let file: Gio.File;
+        let file: Gio.File | null;
         try {
           file = dialog.open_finish(result);
         } catch (e) {

@@ -12,7 +12,12 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": false,
     "sourceMap": false,
-    "removeComments": false
+    "removeComments": false,
+    // Prefer generated types when available (fallback to NPM-installed types in node_modules is automatic).
+    // index.d.ts is included because a path mapping ignores package.json "exports".
+    "paths": {
+      "@girs/*": ["./types/girs/*/index.d.ts", "./types/girs/*"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

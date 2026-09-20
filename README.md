@@ -57,19 +57,19 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 ## Requirements
 
-Annoscr targets **GNOME 46** and newer. The minimum versions are set by the newest APIs it calls:
+Annoscr runs on **GNOME 48** and newer. The minimum versions of dependencies come from Debian 13, the oldest supported distribution:
 
-- **GTK ≥ 4.14**: accessibility (`Gtk.Accessible.announce`, `Gtk.AccessibleList`)
-- **libadwaita ≥ 1.5**: `Adw.AlertDialog`, `Adw.Dialog`, `Adw.PreferencesDialog`
-- **GJS ≥ 1.72**: ESM `gi://` imports
+- **GTK ≥ 4.18**
+- **libadwaita ≥ 1.7**
+- **GJS ≥ 1.82**
 
 It also loads GdkPixbuf 2, Pango / PangoCairo, and libportal (for screenshot capture), all of which have far older minimum versions satisfied by any system meeting the above. By distribution:
 
 | Distribution | Minimum           |
 | ------------ | ----------------- |
 | Debian       | 13 (trixie)       |
-| Ubuntu       | 24.04 LTS         |
-| Fedora       | 40                |
+| Ubuntu       | 26.04 LTS         |
+| Fedora       | 43                |
 | Arch         | current (rolling) |
 
 The Debian and Fedora packages declare these versions as dependencies, so a too-old system is refused at install time rather than failing at runtime.
@@ -103,7 +103,7 @@ sudo curl -fsSL https://repo.cmphys.com/cmphys-releases.gpg \
   -o /etc/apt/keyrings/cmphys-releases.gpg
 ```
 
-Then, create `/etc/apt/sources.list.d/cmphys.sources`, setting `Suites` to your distribution's codename. Use `trixie` or `forky` on Debian, `noble` or `resolute` on Ubuntu:
+Then, create `/etc/apt/sources.list.d/cmphys.sources`, setting `Suites` to your distribution's codename. Use `trixie` or `forky` on Debian, `resolute` on Ubuntu:
 
 ```
 Types: deb

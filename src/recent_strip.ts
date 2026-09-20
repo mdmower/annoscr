@@ -313,7 +313,7 @@ export class RecentStrip {
     dialog.set_default_filter(filter);
 
     dialog.open_multiple(root, null, (_src, result) => {
-      let picked: Gio.ListModel;
+      let picked: Gio.ListModel | null;
       try {
         picked = dialog.open_multiple_finish(result);
       } catch (e) {
@@ -324,6 +324,7 @@ export class RecentStrip {
         }
         return;
       }
+      if (!picked) return;
       const files: Gio.File[] = [];
       for (let i = 0; i < picked.get_n_items(); i++) {
         const item = picked.get_item(i);
