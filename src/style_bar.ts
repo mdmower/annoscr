@@ -7,15 +7,18 @@ import {CanvasView} from './canvas_view.js';
 import {TextEditor, TextEditorStyle} from './text_editor.js';
 import {FontEntry, getAvailableFonts} from './font_catalogue.js';
 import {drawSwatch, makeColorControls} from './color_controls.js';
-import {DASH_ORDER, TOOLS} from './window_constants.js';
+import {ARROW_END_ORDER, DASH_ORDER, TOOLS} from './window_constants.js';
 import {labelFromTooltip, setAccessibleLabel, setLabelledBy} from './a11y.js';
 import {_, formatN} from './i18n.js';
 import {
   Action,
   ActionType,
+  ArrowEnd,
   CORNER_RADIUS_MAX,
   CORNER_RADIUS_MIN,
   ColorRGBA,
+  DEFAULT_ARROW_HEAD,
+  DEFAULT_ARROW_TAIL,
   DEFAULT_DASH,
   DashStyle,
   FONT_SIZE_MAX,
@@ -26,10 +29,11 @@ import {
   TextAlign,
   WIDTH_MAX,
   WIDTH_MIN,
+  defaultArrowHeadForTool,
+  defaultArrowTailForTool,
   defaultCornerRadiusForTool,
   defaultDashForTool,
   defaultFillForTool,
-  defaultFilledHeadForTool,
   defaultFontDescForTool,
   defaultFontSizeForTool,
   defaultTextColorForTool,
@@ -203,11 +207,14 @@ export class StyleBar {
   private dashGroup!: Gtk.Box;
   private dashLabel!: Gtk.Label;
   private dashDropdown!: Gtk.DropDown;
-  // Filled-arrowhead selector (arrow only): Open (stroked) vs Filled (solid
-  // triangle). A 2-row dropdown to match the Dash/Variant controls.
-  private filledHeadGroup!: Gtk.Box;
-  private filledHeadLabel!: Gtk.Label;
-  private filledHeadDropdown!: Gtk.DropDown;
+  // What the arrow draws at each end (arrow only): none, wings, or a filled
+  // triangle. Two dropdowns matching the Dash/Variant controls.
+  private arrowHeadGroup!: Gtk.Box;
+  private arrowHeadLabel!: Gtk.Label;
+  private arrowHeadDropdown!: Gtk.DropDown;
+  private arrowTailGroup!: Gtk.Box;
+  private arrowTailLabel!: Gtk.Label;
+  private arrowTailDropdown!: Gtk.DropDown;
   // Rectangle corner radius (rect only): 0 = sharp, image-space px.
   private cornerGroup!: Gtk.Box;
   private cornerLabel!: Gtk.Label;
@@ -537,17 +544,22 @@ export class StyleBar {
     this.tailGroup = makeRowGroup(tailSep, this.tailLabel, this.tailSwitch);
     styleBar.append(this.tailGroup);
 
-    // Arrowhead group (arrow only) — row 0 = open, row 1 = filled.
-    const filledHeadSep = makeSep();
-    this.filledHeadDropdown = Gtk.DropDown.new_from_strings([_('Open'), _('Filled')]);
-    this.filledHeadDropdown.connect('notify::selected', () => this.onFilledHeadPicked());
-    this.filledHeadLabel = new Gtk.Label({label: _('Arrowhead'), css_classes: ['caption']});
-    this.filledHeadGroup = makeRowGroup(
-      filledHeadSep,
-      this.filledHeadLabel,
-      this.filledHeadDropdown
-    );
-    styleBar.append(this.filledHeadGroup);
+    // Arrow ends (arrow only) — selector index maps to an ArrowEnd via
+    // ARROW_END_ORDER. Head is the end the arrow was dragged to.
+    const arrowEndRows = (): string[] => [_('None'), _('Wings'), _('Filled')];
+    const arrowHeadSep = makeSep();
+    this.arrowHeadDropdown = Gtk.DropDown.new_from_strings(arrowEndRows());
+    this.arrowHeadDropdown.connect('notify::selected', () => this.onArrowHeadPicked());
+    this.arrowHeadLabel = new Gtk.Label({label: _('Head'), css_classes: ['caption']});
+    this.arrowHeadGroup = makeRowGroup(arrowHeadSep, this.arrowHeadLabel, this.arrowHeadDropdown);
+    styleBar.append(this.arrowHeadGroup);
+
+    const arrowTailSep = makeSep();
+    this.arrowTailDropdown = Gtk.DropDown.new_from_strings(arrowEndRows());
+    this.arrowTailDropdown.connect('notify::selected', () => this.onArrowTailPicked());
+    this.arrowTailLabel = new Gtk.Label({label: _('Tail'), css_classes: ['caption']});
+    this.arrowTailGroup = makeRowGroup(arrowTailSep, this.arrowTailLabel, this.arrowTailDropdown);
+    styleBar.append(this.arrowTailGroup);
 
     // Group selector (stamp). Rows are filled in refresh() from the canvas's
     // group list; the model starts empty.
@@ -697,7 +709,8 @@ export class StyleBar {
       {group: this.cornerGroup, sep: cornerSep},
       {group: this.opacityGroup, sep: opacitySep},
       {group: this.tailGroup, sep: tailSep},
-      {group: this.filledHeadGroup, sep: filledHeadSep},
+      {group: this.arrowHeadGroup, sep: arrowHeadSep},
+      {group: this.arrowTailGroup, sep: arrowTailSep},
       {group: this.groupGroup, sep: groupSep},
       {group: this.variantGroup, sep: variantSep},
       {group: this.startGroup, sep: startSep},
@@ -716,7 +729,8 @@ export class StyleBar {
     setLabelledBy(this.opacitySpin, this.opacityLabel);
     setLabelledBy(this.tailSwitch, this.tailLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);
-    setLabelledBy(this.filledHeadDropdown, this.filledHeadLabel);
+    setLabelledBy(this.arrowHeadDropdown, this.arrowHeadLabel);
+    setLabelledBy(this.arrowTailDropdown, this.arrowTailLabel);
     setLabelledBy(this.groupDropdown, this.groupLabel);
     setLabelledBy(this.variantDropdown, this.variantLabel);
     setLabelledBy(this.fontDropdown, this.fontLabel);
@@ -1109,13 +1123,24 @@ export class StyleBar {
       this.selectionMixed((a) => a.getOpacity())
     );
 
-    const filledHead = this.styleTargetFilledHead();
-    this.filledHeadGroup.set_visible(filledHead !== null);
-    if (filledHead !== null) this.filledHeadDropdown.set_selected(filledHead ? 1 : 0);
+    const arrowHead = this.styleTargetArrowHead();
+    this.arrowHeadGroup.set_visible(arrowHead !== null);
+    if (arrowHead !== null)
+      this.arrowHeadDropdown.set_selected(Math.max(0, ARROW_END_ORDER.indexOf(arrowHead)));
     setCaption(
-      this.filledHeadLabel,
-      _('Arrowhead'),
-      this.selectionMixed((a) => a.getFilledHead())
+      this.arrowHeadLabel,
+      _('Head'),
+      this.selectionMixed((a) => a.getArrowHead())
+    );
+
+    const arrowTail = this.styleTargetArrowTail();
+    this.arrowTailGroup.set_visible(arrowTail !== null);
+    if (arrowTail !== null)
+      this.arrowTailDropdown.set_selected(Math.max(0, ARROW_END_ORDER.indexOf(arrowTail)));
+    setCaption(
+      this.arrowTailLabel,
+      _('Tail'),
+      this.selectionMixed((a) => a.getArrowTail())
     );
 
     const tail = this.styleTargetTail();
@@ -1527,24 +1552,32 @@ export class StyleBar {
 
   // Callout-tail state to display, or null when the control should hide (text
   // edit, non-select tool, or no selected box shape). Select-mode only: the
-  // tail is per-shape geometry with no tool default. As with filledHead,
-  // `false` is a real value — compare against null.
+  // tail is per-shape geometry with no tool default. `false` is a real value —
+  // compare against null.
   private styleTargetTail(): boolean | null {
     if (this.editor.isActive()) return null;
     if (this.canvas.getTool() !== 'select') return null;
     return this.selectionSummary((a) => a.getTail()).value;
   }
 
-  // Filled-arrowhead state to display, or null when no applicable target (text
-  // edit, or a tool/selection with no arrowhead). `false` is a real value, so
-  // callers must compare against null, not test truthiness.
-  private styleTargetFilledHead(): boolean | null {
+  // The arrow end to display, or null when there's no applicable target (text
+  // edit, or a tool/selection with no arrowhead).
+  private styleTargetArrowHead(): ArrowEnd | null {
     if (this.editor.isActive()) return null;
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      return this.selectionSummary((a) => a.getFilledHead()).value;
+      return this.selectionSummary((a) => a.getArrowHead()).value;
     }
-    return this.canvas.getToolFilledHead(tool);
+    return this.canvas.getToolArrowHead(tool);
+  }
+
+  private styleTargetArrowTail(): ArrowEnd | null {
+    if (this.editor.isActive()) return null;
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      return this.selectionSummary((a) => a.getArrowTail()).value;
+    }
+    return this.canvas.getToolArrowTail(tool);
   }
 
   // Called from the fill swatch's dialog on OK (with the chosen color), so it
@@ -1584,14 +1617,25 @@ export class StyleBar {
     }
   }
 
-  private onFilledHeadPicked(): void {
-    if (this.updatingPicker || !this.filledHeadDropdown) return;
-    const filled = this.filledHeadDropdown.get_selected() === 1;
+  private onArrowHeadPicked(): void {
+    if (this.updatingPicker || !this.arrowHeadDropdown) return;
+    const end = ARROW_END_ORDER[this.arrowHeadDropdown.get_selected()] ?? DEFAULT_ARROW_HEAD;
     const tool = this.canvas.getTool();
     if (tool === 'select') {
-      this.canvas.replaceSelectedFilledHead(filled);
-    } else if (defaultFilledHeadForTool(tool) !== null) {
-      this.canvas.setToolFilledHead(tool, filled);
+      this.canvas.replaceSelectedArrowHead(end);
+    } else if (defaultArrowHeadForTool(tool) !== null) {
+      this.canvas.setToolArrowHead(tool, end);
+    }
+  }
+
+  private onArrowTailPicked(): void {
+    if (this.updatingPicker || !this.arrowTailDropdown) return;
+    const end = ARROW_END_ORDER[this.arrowTailDropdown.get_selected()] ?? DEFAULT_ARROW_TAIL;
+    const tool = this.canvas.getTool();
+    if (tool === 'select') {
+      this.canvas.replaceSelectedArrowTail(end);
+    } else if (defaultArrowTailForTool(tool) !== null) {
+      this.canvas.setToolArrowTail(tool, end);
     }
   }
 

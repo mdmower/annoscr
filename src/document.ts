@@ -3,8 +3,11 @@ import Cairo from 'cairo';
 
 import {
   Action,
+  ArrowEnd,
   ColorRGBA,
   DashStyle,
+  DEFAULT_ARROW_HEAD,
+  DEFAULT_ARROW_TAIL,
   DEFAULT_DASH,
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_START,
@@ -42,6 +45,7 @@ import {
 import {
   asClampedNumber,
   asColor,
+  asArrowEnd,
   asDash,
   asNonEmptyString,
   asStampVariant,
@@ -346,11 +350,21 @@ function sanitizeNumber(raw: Record<string, unknown>): SerializedAction {
 }
 
 // Line and arrow share the endpoint fields and the optional bend; only the
-// arrowhead flag differs.
+// arrow's two ends differ.
 function sanitizeSegment(raw: Record<string, unknown>, type: 'line' | 'arrow'): SerializedAction {
   const curve = sanitizeCurve(raw.curve);
   const base = {...sanitizeEndpoints(raw, type), ...(curve ? {curve} : {})};
-  return type === 'arrow' ? {type, ...base, filledHead: raw.filledHead === true} : {type, ...base};
+  if (type !== 'arrow') return {type, ...base};
+  // Files written before the two ends were styled separately carry a single
+  // filledHead flag: wings or a filled triangle at the head, never anything at
+  // the tail.
+  const legacyHead: ArrowEnd = raw.filledHead === true ? 'filled' : DEFAULT_ARROW_HEAD;
+  return {
+    type,
+    ...base,
+    head: asArrowEnd(raw.head) ?? legacyHead,
+    tail: asArrowEnd(raw.tail) ?? DEFAULT_ARROW_TAIL,
+  };
 }
 
 // Rect and oval share the box fields; only the rect has a corner radius.

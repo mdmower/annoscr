@@ -15,7 +15,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Styling**
   - Color and fill: type a hex value, set the opacity, open the full palette, or pick a color from the image with the eyedropper (a magnifier follows the pointer for pixel-accurate picks; Esc cancels).
-  - Stroke width, line style (solid / dashed / dotted), arrowheads (open or filled), and rounded rectangle corners.
+  - Stroke width, line style (solid / dashed / dotted), an arrow's head and tail (each none, wings, or filled), and rounded rectangle corners.
   - Text color, font, size, and alignment; a text fill (rounded corner background plate, transparent by default) keeps lettering legible over detailed images.
   - Remembered styles: each tool's defaults update when you create or restyle an annotation, so the next one matches.
 

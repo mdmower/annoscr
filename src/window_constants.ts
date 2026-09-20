@@ -1,13 +1,16 @@
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 
-import {DashStyle, ToolId} from './actions.js';
+import {ArrowEnd, DashStyle, ToolId} from './actions.js';
 import {N_} from './i18n.js';
 
 // Maps the dash dropdown's selection index to a DashStyle (and back, via
 // indexOf). Order must match the strings passed to
 // Gtk.DropDown.new_from_strings.
 export const DASH_ORDER: DashStyle[] = ['solid', 'dashed', 'dotted'];
+
+// The same mapping for the two arrow-end dropdowns (head and tail share it).
+export const ARROW_END_ORDER: ArrowEnd[] = ['none', 'wings', 'filled'];
 
 const WINDOW_CSS = `
   .annoscr-keycap {

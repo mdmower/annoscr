@@ -1,8 +1,10 @@
 import GLib from 'gi://GLib?version=2.0';
 
 import {
+  ArrowEnd,
   ColorRGBA,
   DashStyle,
+  DEFAULT_ARROW_HEAD,
   StampVariant,
   STORED_SIZE_MAX,
   STORED_SIZE_MIN,
@@ -11,6 +13,7 @@ import {
 } from './actions.js';
 import {ImageFormat} from './exporter.js';
 import {
+  asArrowEnd,
   asBool,
   asClampedNumber,
   asColor,
@@ -61,8 +64,9 @@ export interface ToolStyleEntry {
   width?: number;
   fill?: ColorRGBA;
   dash?: DashStyle;
-  // Filled (solid-triangle) arrowhead. Only the arrow tool writes it.
-  filledHead?: boolean;
+  // What an arrow draws at each end. Only the arrow tool writes them.
+  arrowHead?: ArrowEnd;
+  arrowTail?: ArrowEnd;
   // Rectangle corner radius (image-space px). Only the rect tool writes it.
   cornerRadius?: number;
   fontDesc?: string;
@@ -216,8 +220,15 @@ function asToolStyleEntry(raw: unknown): ToolStyleEntry | null {
   if (fill) entry.fill = fill;
   const dash = asDash(raw.dash);
   if (dash) entry.dash = dash;
-  const filledHead = asBool(raw.filledHead);
-  if (filledHead !== undefined) entry.filledHead = filledHead;
+  // filledHead is what settings written before the two ends were styled
+  // separately stored: a head that is either wings or a filled triangle.
+  const legacyHead = asBool(raw.filledHead);
+  const arrowHead =
+    asArrowEnd(raw.arrowHead) ??
+    (legacyHead === undefined ? undefined : legacyHead ? 'filled' : DEFAULT_ARROW_HEAD);
+  if (arrowHead) entry.arrowHead = arrowHead;
+  const arrowTail = asArrowEnd(raw.arrowTail);
+  if (arrowTail) entry.arrowTail = arrowTail;
   const cornerRadius = asClampedNumber(raw.cornerRadius, 0, STORED_SIZE_MAX);
   if (cornerRadius !== undefined) entry.cornerRadius = cornerRadius;
   const fontDesc = asNonEmptyString(raw.fontDesc);

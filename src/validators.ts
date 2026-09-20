@@ -1,4 +1,4 @@
-import {ColorRGBA, DashStyle, StampVariant} from './actions.js';
+import {ArrowEnd, ColorRGBA, DashStyle, StampVariant} from './actions.js';
 
 // Validation and coercion helpers shared by the JSON files the app reads back
 // (settings.json, .annoscr documents). Only helpers used by more than one
@@ -53,6 +53,10 @@ export function asColor(v: unknown): ColorRGBA | undefined {
 
 export function asDash(v: unknown): DashStyle | undefined {
   return v === 'solid' || v === 'dashed' || v === 'dotted' ? v : undefined;
+}
+
+export function asArrowEnd(v: unknown): ArrowEnd | undefined {
+  return v === 'none' || v === 'wings' || v === 'filled' ? v : undefined;
 }
 
 export function asStampVariant(v: unknown): StampVariant | undefined {

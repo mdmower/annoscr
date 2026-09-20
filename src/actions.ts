@@ -23,6 +23,14 @@ export function styleValuesEqual(a: unknown, b: unknown): boolean {
 export type DashStyle = 'solid' | 'dashed' | 'dotted';
 export const DEFAULT_DASH: DashStyle = 'solid';
 
+// What an arrow draws at one end of its shaft: nothing, two open wings, or a
+// filled triangle. The head is the end the arrow was dragged to, the tail the
+// end it started from; either can be any of the three, so an arrow can be made
+// double-headed or plain like a line.
+export type ArrowEnd = 'none' | 'wings' | 'filled';
+export const DEFAULT_ARROW_HEAD: ArrowEnd = 'wings';
+export const DEFAULT_ARROW_TAIL: ArrowEnd = 'none';
+
 interface Style {
   color: ColorRGBA;
   width: number;
@@ -123,11 +131,13 @@ export interface Action {
   // stamp). Only line / arrow / rect / oval have one.
   getDash(): DashStyle | null;
   withDash(dash: DashStyle): Action;
-  // Whether the arrowhead is drawn as a filled solid triangle (true) rather
-  // than two open strokes (false), or null for actions that have no arrowhead.
-  // Only ArrowAction has one.
-  getFilledHead(): boolean | null;
-  withFilledHead(filled: boolean): Action;
+  // What the segment draws at each of its ends (none / wings / filled), or
+  // null for actions with no arrowhead. Only ArrowAction has these: head is the
+  // end the arrow points to, tail the end it starts from.
+  getArrowHead(): ArrowEnd | null;
+  withArrowHead(end: ArrowEnd): Action;
+  getArrowTail(): ArrowEnd | null;
+  withArrowTail(end: ArrowEnd): Action;
   // The rectangle's corner radius in image-space pixels (0 = sharp corners), or
   // null for actions that aren't rounded rectangles. Only RectAction has one;
   // the radius is clamped to half the smaller side at draw time, so an
@@ -771,7 +781,8 @@ export interface SerializedLine extends SerializedEndpoints {
 
 export interface SerializedArrow extends SerializedEndpoints {
   type: 'arrow';
-  filledHead: boolean;
+  head: ArrowEnd;
+  tail: ArrowEnd;
   curve?: CurveOffset; // omitted when the segment is straight
 }
 
@@ -896,10 +907,16 @@ abstract class BaseAction implements Action {
   withDash(_dash: DashStyle): Action {
     return this;
   }
-  getFilledHead(): boolean | null {
+  getArrowHead(): ArrowEnd | null {
     return null;
   }
-  withFilledHead(_filled: boolean): Action {
+  withArrowHead(_end: ArrowEnd): Action {
+    return this;
+  }
+  getArrowTail(): ArrowEnd | null {
+    return null;
+  }
+  withArrowTail(_end: ArrowEnd): Action {
     return this;
   }
   getCornerRadius(): number | null {
@@ -2179,56 +2196,84 @@ class ArrowAction extends CurvableLineAction {
     x2: number,
     y2: number,
     style: Style,
-    private readonly filledHead: boolean = false,
+    private readonly head: ArrowEnd = DEFAULT_ARROW_HEAD,
+    private readonly tail: ArrowEnd = DEFAULT_ARROW_TAIL,
     curve: CurveOffset | null = null
   ) {
     super(x1, y1, x2, y2, style, curve);
   }
 
-  getFilledHead(): boolean {
-    return this.filledHead;
+  getArrowHead(): ArrowEnd {
+    return this.head;
   }
 
-  withFilledHead(filled: boolean): Action {
-    return new ArrowAction(this.x1, this.y1, this.x2, this.y2, this.style, filled, this.curve);
+  withArrowHead(end: ArrowEnd): Action {
+    return new ArrowAction(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.style,
+      end,
+      this.tail,
+      this.curve
+    );
   }
 
-  // The two arrowhead arm tips. Both draw() and getBounds() need them, so the
-  // geometry is computed in one place. The arms run back from the tip (x2, y2)
-  // at ±headAngle off the shaft's direction where it arrives at the tip — for a
-  // curved shaft that's the Bezier's end tangent (2·(P2 − Q) at t = 1), so the
-  // head stays aligned with the drawn curve instead of with the chord.
-  private arrowheadArms(): [[number, number], [number, number]] {
+  getArrowTail(): ArrowEnd {
+    return this.tail;
+  }
+
+  withArrowTail(end: ArrowEnd): Action {
+    return new ArrowAction(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.style,
+      this.head,
+      end,
+      this.curve
+    );
+  }
+
+  // The tip of one end, and the far end's point.
+  private endPoints(atHead: boolean): [number, number, number, number] {
+    return atHead ? [this.x2, this.y2, this.x1, this.y1] : [this.x1, this.y1, this.x2, this.y2];
+  }
+
+  // The two arm tips of the head at one end. Both draw() and getBounds() need
+  // them, so the geometry is computed in one place. The arms run back from the
+  // tip at ±headAngle off the direction the shaft points there — for a curved
+  // shaft that's the Bezier's tangent at that end, so a head stays aligned with
+  // the drawn curve instead of with the chord.
+  private arrowheadArms(atHead: boolean): [[number, number], [number, number]] {
+    const [tipX, tipY, farX, farY] = this.endPoints(atHead);
     const chord = Math.hypot(this.x2 - this.x1, this.y2 - this.y1);
     const [qx, qy] = this.control();
-    // Curved: the head follows the end tangent, 2·(P2 − Q). That vector is zero
-    // when the control point coincides with the tip, where atan2 would return
-    // an arbitrary angle rather than no answer — fall back to the chord so the
-    // head still has a well-defined direction.
-    const tangent = this.curve ? Math.hypot(this.x2 - qx, this.y2 - qy) : 0;
+    // Curved: the outward direction at an end is the tangent there, which for
+    // both ends of a quadratic points along (tip − Q). That vector is zero when
+    // the control point coincides with the tip, where atan2 would return an
+    // arbitrary angle rather than no answer — fall back to the chord so the head
+    // still has a well-defined direction.
+    const tangent = this.curve ? Math.hypot(tipX - qx, tipY - qy) : 0;
     const angle =
-      tangent > 1e-6
-        ? Math.atan2(this.y2 - qy, this.x2 - qx)
-        : Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
+      tangent > 1e-6 ? Math.atan2(tipY - qy, tipX - qx) : Math.atan2(tipY - farY, tipX - farX);
     // Cap the head at the shaft length so a short arrow's head shrinks with it
-    // rather than projecting back past the tail. A curved shaft is longer than
-    // its chord; the mean of the chord and the control polygon brackets the
-    // true arc length closely enough for the cap.
+    // rather than projecting back past the other end; with a head at both ends
+    // they get half the shaft each, so they meet instead of overlapping. A
+    // curved shaft is longer than its chord; the mean of the chord and the
+    // control polygon brackets the true arc length closely enough for the cap.
     const shaftLen = this.curve
       ? (chord + Math.hypot(qx - this.x1, qy - this.y1) + Math.hypot(this.x2 - qx, this.y2 - qy)) /
         2
       : chord;
-    const headLen = Math.min(this.style.width * 5, shaftLen);
+    const room = this.head !== 'none' && this.tail !== 'none' ? shaftLen / 2 : shaftLen;
+    const headLen = Math.min(this.style.width * 5, room);
     const headAngle = Math.PI / 6;
     return [
-      [
-        this.x2 - headLen * Math.cos(angle - headAngle),
-        this.y2 - headLen * Math.sin(angle - headAngle),
-      ],
-      [
-        this.x2 - headLen * Math.cos(angle + headAngle),
-        this.y2 - headLen * Math.sin(angle + headAngle),
-      ],
+      [tipX - headLen * Math.cos(angle - headAngle), tipY - headLen * Math.sin(angle - headAngle)],
+      [tipX - headLen * Math.cos(angle + headAngle), tipY - headLen * Math.sin(angle + headAngle)],
     ];
   }
 
@@ -2249,29 +2294,14 @@ class ArrowAction extends CurvableLineAction {
     this.pathSegment(cr);
     cr.stroke();
 
-    // Arrowhead is always solid — a dashed head looks broken. Clear any dash
-    // the shaft set. Round cap + join give the open head its rounded tip (the
-    // join where the arms meet) and rounded wing ends (the caps).
+    // A head is always solid — a dashed head looks broken. Clear any dash the
+    // shaft set. Round cap + join give the wings their rounded tip (the join
+    // where the arms meet) and rounded wing ends (the caps).
     cr.setDash([], 0);
     cr.setLineCap(Cairo.LineCap.ROUND);
     cr.setLineJoin(Cairo.LineJoin.ROUND);
-    const [[ax1, ay1], [ax2, ay2]] = this.arrowheadArms();
-    cr.moveTo(ax1, ay1);
-    cr.lineTo(this.x2, this.y2);
-    cr.lineTo(ax2, ay2);
-    if (this.filledHead) {
-      // Filled winged head: close the two arms into a triangle and fill it,
-      // then stroke the outline so the round joins/caps round the tip and wing
-      // ends to width/2 — matching the open head and the round-capped shaft.
-      // The rounded apex coincides with the shaft's round cap at the tip, so
-      // nothing protrudes past the point.
-      cr.closePath();
-      cr.fillPreserve();
-      cr.stroke();
-    } else {
-      // Open winged head: two strokes meeting at the tip.
-      cr.stroke();
-    }
+    this.drawHead(cr, true);
+    this.drawHead(cr, false);
 
     if (grouped) {
       cr.popGroupToSource();
@@ -2279,14 +2309,45 @@ class ArrowAction extends CurvableLineAction {
     }
   }
 
-  // Tight box around the drawn geometry: both endpoints plus the two arrowhead
-  // arm tips, padded by half the stroke width for the round caps, then widened
-  // to cover a curved shaft's extent. Unlike a uniform pad this leaves no empty
-  // space on the tail end or past the tip.
+  // One end's head, if it has one. Called with the shaft's stroke settings
+  // already in place (solid, round cap and join).
+  private drawHead(cr: Cairo.Context, atHead: boolean): void {
+    const end = atHead ? this.head : this.tail;
+    if (end === 'none') return;
+    const [tipX, tipY] = this.endPoints(atHead);
+    const [[ax1, ay1], [ax2, ay2]] = this.arrowheadArms(atHead);
+    cr.moveTo(ax1, ay1);
+    cr.lineTo(tipX, tipY);
+    cr.lineTo(ax2, ay2);
+    if (end === 'filled') {
+      // Close the two arms into a triangle and fill it, then stroke the outline
+      // so the round joins/caps round the tip and wing ends to width/2 —
+      // matching the wings head and the round-capped shaft. The rounded apex
+      // coincides with the shaft's round cap at the tip, so nothing protrudes
+      // past the point.
+      cr.closePath();
+      cr.fillPreserve();
+      cr.stroke();
+    } else {
+      // Wings: two strokes meeting at the tip.
+      cr.stroke();
+    }
+  }
+
+  // Tight box around the drawn geometry: both endpoints plus the arm tips of
+  // whichever ends have a head, padded by half the stroke width for the round
+  // caps, then widened to cover a curved shaft's extent. Unlike a uniform pad
+  // this leaves no empty space at a bare end or past a tip.
   getBounds(): Bounds {
-    const [arm1, arm2] = this.arrowheadArms();
-    const xs = [this.x1, this.x2, arm1[0], arm2[0]];
-    const ys = [this.y1, this.y2, arm1[1], arm2[1]];
+    const xs = [this.x1, this.x2];
+    const ys = [this.y1, this.y2];
+    for (const atHead of [true, false]) {
+      if ((atHead ? this.head : this.tail) === 'none') continue;
+      for (const [ax, ay] of this.arrowheadArms(atHead)) {
+        xs.push(ax);
+        ys.push(ay);
+      }
+    }
     const pad = this.style.width / 2;
     return this.expandToCurve({
       x1: Math.min(...xs) - pad,
@@ -2304,14 +2365,15 @@ class ArrowAction extends CurvableLineAction {
     style: Style,
     curve: CurveOffset | null
   ): Action {
-    return new ArrowAction(x1, y1, x2, y2, style, this.filledHead, curve);
+    return new ArrowAction(x1, y1, x2, y2, style, this.head, this.tail, curve);
   }
 
   serialize(): SerializedAction {
     return {
       type: 'arrow',
       ...this.endpointData(),
-      filledHead: this.filledHead,
+      head: this.head,
+      tail: this.tail,
       ...this.curveData(),
     };
   }
@@ -2322,7 +2384,8 @@ class ArrowLiveStroke extends EndpointLiveStroke {
     x1: number,
     y1: number,
     style: Style,
-    private readonly filledHead: boolean
+    private readonly head: ArrowEnd,
+    private readonly tail: ArrowEnd
   ) {
     super(x1, y1, style);
   }
@@ -2332,7 +2395,15 @@ class ArrowLiveStroke extends EndpointLiveStroke {
   }
 
   protected build(): Action {
-    return new ArrowAction(this.x1, this.y1, this.endX, this.endY, this.style, this.filledHead);
+    return new ArrowAction(
+      this.x1,
+      this.y1,
+      this.endX,
+      this.endY,
+      this.style,
+      this.head,
+      this.tail
+    );
   }
 }
 
@@ -3558,7 +3629,8 @@ export function createLiveStroke(
   width: number,
   fill: ColorRGBA,
   dash: DashStyle,
-  filledHead: boolean,
+  arrowHead: ArrowEnd,
+  arrowTail: ArrowEnd,
   cornerRadius: number
 ): LiveStroke {
   switch (toolId) {
@@ -3569,7 +3641,7 @@ export function createLiveStroke(
     case 'line':
       return new LineLiveStroke(x, y, {...LINE_STYLE, color, width, dash});
     case 'arrow':
-      return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width, dash}, filledHead);
+      return new ArrowLiveStroke(x, y, {...ARROW_STYLE, color, width, dash}, arrowHead, arrowTail);
     case 'rect':
       return new RectLiveStroke(x, y, {...SHAPE_STYLE, color, width, dash}, fill, cornerRadius);
     case 'oval':
@@ -3631,11 +3703,15 @@ export function defaultDashForTool(toolId: ToolId): DashStyle | null {
   }
 }
 
-// Default filled-arrowhead state. Only the arrow tool has one; everything
-// else returns null and the toggle hides accordingly. Arrows default to the
-// open (stroked) arrowhead.
-export function defaultFilledHeadForTool(toolId: ToolId): boolean | null {
-  return toolId === 'arrow' ? false : null;
+// Default head and tail. Only the arrow tool has them; everything else returns
+// null and the controls hide accordingly. A new arrow gets stroked wings at the
+// end it is dragged to and nothing at the other.
+export function defaultArrowHeadForTool(toolId: ToolId): ArrowEnd | null {
+  return toolId === 'arrow' ? DEFAULT_ARROW_HEAD : null;
+}
+
+export function defaultArrowTailForTool(toolId: ToolId): ArrowEnd | null {
+  return toolId === 'arrow' ? DEFAULT_ARROW_TAIL : null;
 }
 
 // The tool that produces an action of this type, so a select-mode style edit
@@ -3727,7 +3803,8 @@ function deserializeAction(
         data.x2,
         data.y2,
         {color: data.color, width: data.width, dash: data.dash},
-        data.filledHead,
+        data.head,
+        data.tail,
         data.curve ?? null
       );
     case 'rect':

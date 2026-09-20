@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: annoscr\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-15 22:05-0700\n"
+"POT-Creation-Date: 2026-09-20 13:26-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -87,75 +87,75 @@ msgstr ""
 msgid "Annotate a screenshot. FILE is an image or .annoscr file to open."
 msgstr ""
 
-#: src/canvas_view.ts:646
+#: src/canvas_view.ts:651
 msgid "Annotation canvas"
 msgstr ""
 
-#: src/canvas_view.ts:1576
+#: src/canvas_view.ts:1593
 msgid "Click the image to pick a color"
 msgstr ""
 
-#: src/canvas_view.ts:1591
+#: src/canvas_view.ts:1608
 msgid "Color pick canceled"
 msgstr ""
 
-#: src/canvas_view.ts:1620
+#: src/canvas_view.ts:1637
 msgid "Color picked"
 msgstr ""
 
-#: src/canvas_view.ts:1893 src/canvas_view.ts:1953
+#: src/canvas_view.ts:1920 src/canvas_view.ts:1980
 #, javascript-format
 msgid "%s added"
 msgstr ""
 
-#: src/canvas_view.ts:1953 src/canvas_view.ts:2791 src/shortcuts_dialog.ts:67
+#: src/canvas_view.ts:1980 src/canvas_view.ts:2818 src/shortcuts_dialog.ts:67
 msgid "Image"
 msgstr ""
 
-#: src/canvas_view.ts:1954
+#: src/canvas_view.ts:1981
 #, javascript-format
 msgid "%d images added"
 msgstr ""
 
-#: src/canvas_view.ts:2015
+#: src/canvas_view.ts:2042
 #, javascript-format
 msgid "%d deleted"
 msgstr ""
 
-#: src/canvas_view.ts:2499
+#: src/canvas_view.ts:2526
 #, javascript-format
 msgid "Rotated to %d°"
 msgstr ""
 
-#: src/canvas_view.ts:2540 src/dialogs.ts:305 src/zoom_controller.ts:209
+#: src/canvas_view.ts:2567 src/dialogs.ts:305 src/zoom_controller.ts:209
 msgid "%w × %h px"
 msgstr ""
 
-#: src/canvas_view.ts:2770
+#: src/canvas_view.ts:2797
 #, javascript-format
 msgid "%s tool"
 msgstr ""
 
-#: src/canvas_view.ts:2771
+#: src/canvas_view.ts:2798
 #, javascript-format
 msgid "%d annotations"
 msgstr ""
 
-#: src/canvas_view.ts:2774
+#: src/canvas_view.ts:2801
 #, javascript-format
 msgid "%d selected"
 msgstr ""
 
-#: src/canvas_view.ts:2782 src/canvas_view.ts:2786
+#: src/canvas_view.ts:2809 src/canvas_view.ts:2813
 msgid "Nothing selected"
 msgstr ""
 
-#: src/canvas_view.ts:2783
+#: src/canvas_view.ts:2810
 #, javascript-format
 msgid "%d items selected"
 msgstr ""
 
-#: src/canvas_view.ts:2794
+#: src/canvas_view.ts:2821
 msgid "Annotation"
 msgstr ""
 
@@ -167,7 +167,7 @@ msgstr ""
 msgid "#RGB, #RGBA, #RRGGBB, or #RRGGBBAA"
 msgstr ""
 
-#: src/color_controls.ts:93 src/style_bar.ts:526 src/style_bar.ts:1107
+#: src/color_controls.ts:93 src/style_bar.ts:533 src/style_bar.ts:1122
 msgid "Opacity"
 msgstr ""
 
@@ -211,12 +211,12 @@ msgstr ""
 msgid "Create"
 msgstr ""
 
-#: src/dialogs.ts:81 src/style_bar.ts:638 src/style_bar.ts:1184
+#: src/dialogs.ts:81 src/style_bar.ts:651 src/style_bar.ts:1210
 msgid "Size"
 msgstr ""
 
-#: src/dialogs.ts:94 src/dialogs.ts:255 src/style_bar.ts:484
-#: src/style_bar.ts:1080
+#: src/dialogs.ts:94 src/dialogs.ts:255 src/style_bar.ts:491
+#: src/style_bar.ts:1095
 msgid "Width"
 msgstr ""
 
@@ -224,8 +224,8 @@ msgstr ""
 msgid "Height"
 msgstr ""
 
-#: src/dialogs.ts:136 src/dialogs.ts:496 src/style_bar.ts:454
-#: src/style_bar.ts:1071
+#: src/dialogs.ts:136 src/dialogs.ts:496 src/style_bar.ts:461
+#: src/style_bar.ts:1086
 msgid "Fill"
 msgstr ""
 
@@ -458,93 +458,93 @@ msgid "Add a font"
 msgstr ""
 
 #. Saving
-#: src/preferences.ts:222
+#: src/preferences.ts:223
 msgid "Saving"
 msgstr ""
 
-#: src/preferences.ts:223 src/preferences.ts:238
+#: src/preferences.ts:224 src/preferences.ts:239
 msgid "Default save folder"
 msgstr ""
 
-#: src/preferences.ts:224
+#: src/preferences.ts:225
 msgid "Choose…"
 msgstr ""
 
-#: src/preferences.ts:227
+#: src/preferences.ts:228
 msgid "Reset to Pictures folder"
 msgstr ""
 
-#: src/preferences.ts:234
+#: src/preferences.ts:235
 msgid "Pictures folder"
 msgstr ""
 
-#: src/preferences.ts:266
+#: src/preferences.ts:267
 msgid "Default format"
 msgstr ""
 
-#: src/preferences.ts:277
+#: src/preferences.ts:278
 msgid "Save images without choosing a location"
 msgstr ""
 
-#: src/preferences.ts:278
+#: src/preferences.ts:279
 msgid ""
 "Write straight to the folder and format above; \"Save image as…\" still asks"
 msgstr ""
 
 #. Behavior
-#: src/preferences.ts:288
+#: src/preferences.ts:289
 msgid "Behavior"
 msgstr ""
 
-#: src/preferences.ts:290
+#: src/preferences.ts:291
 msgid "Confirm before discarding unsaved changes"
 msgstr ""
 
-#: src/preferences.ts:291
+#: src/preferences.ts:292
 msgid "Ask before replacing an annotated canvas you haven't saved"
 msgstr ""
 
-#: src/preferences.ts:300
+#: src/preferences.ts:301
 msgid "Select after placing"
 msgstr ""
 
-#: src/preferences.ts:301
+#: src/preferences.ts:302
 msgid ""
 "Switch to the select tool and select each annotation right after you place it"
 msgstr ""
 
-#: src/preferences.ts:310
+#: src/preferences.ts:311
 msgid "Remember recent files"
 msgstr ""
 
-#: src/preferences.ts:315
+#: src/preferences.ts:316
 #, javascript-format
 msgid ""
 "Remember up to %d opened images and annotation files. Turning this off "
 "clears history."
 msgstr ""
 
-#: src/preferences.ts:327
+#: src/preferences.ts:328
 msgid "Close after saving an image"
 msgstr ""
 
-#: src/preferences.ts:328
+#: src/preferences.ts:329
 msgid "Only when exporting a PNG or JPEG, not when saving an annotation file"
 msgstr ""
 
-#: src/preferences.ts:337
+#: src/preferences.ts:338
 msgid "Close after copying to the clipboard"
 msgstr ""
 
-#: src/preferences.ts:338
+#: src/preferences.ts:339
 msgid "Closes without prompting to save unsaved changes"
 msgstr ""
 
-#: src/preferences.ts:347
+#: src/preferences.ts:348
 msgid "Undo memory"
 msgstr ""
 
-#: src/preferences.ts:349
+#: src/preferences.ts:350
 msgid ""
 "Rotating or resizing the canvas keeps a full image copy per undo step; the "
 "oldest steps are dropped over this limit"
@@ -581,11 +581,11 @@ msgstr ""
 #. the desktop portal - one action, one name. Both entries name their key
 #. the way the Select and arrange menu does; GTK renders no accel for a menu
 #. model whose action has none set application-wide.
-#: src/recent_strip.ts:481
+#: src/recent_strip.ts:482
 msgid "Show in Files (Ctrl+Alt+O)"
 msgstr ""
 
-#: src/recent_strip.ts:484
+#: src/recent_strip.ts:485
 msgid "Forget (Delete)"
 msgstr ""
 
@@ -605,7 +605,7 @@ msgstr ""
 msgid "Take screenshot"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:36 src/window.ts:1479
+#: src/shortcuts_dialog.ts:36 src/window.ts:1480
 msgid "Save image"
 msgstr ""
 
@@ -737,12 +737,12 @@ msgstr ""
 msgid "Bring to front"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:88 src/style_bar.ts:855 src/style_bar.ts:868
-#: src/style_bar.ts:873 src/window_constants.ts:106
+#: src/shortcuts_dialog.ts:88 src/style_bar.ts:870 src/style_bar.ts:883
+#: src/style_bar.ts:888 src/window_constants.ts:109
 msgid "Select"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:89 src/window_constants.ts:107
+#: src/shortcuts_dialog.ts:89 src/window_constants.ts:110
 msgid "Pen"
 msgstr ""
 
@@ -750,7 +750,7 @@ msgstr ""
 msgid "Highlighter"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:91 src/window_constants.ts:114
+#: src/shortcuts_dialog.ts:91 src/window_constants.ts:117
 msgid "Text"
 msgstr ""
 
@@ -758,20 +758,20 @@ msgstr ""
 msgid "Number stamp"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:93 src/style_bar.ts:492 src/style_bar.ts:1089
-#: src/window_constants.ts:116
+#: src/shortcuts_dialog.ts:93 src/style_bar.ts:499 src/style_bar.ts:1104
+#: src/window_constants.ts:119
 msgid "Line"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:94 src/window_constants.ts:117
+#: src/shortcuts_dialog.ts:94 src/window_constants.ts:120
 msgid "Arrow"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:95 src/window_constants.ts:118
+#: src/shortcuts_dialog.ts:95 src/window_constants.ts:121
 msgid "Rectangle"
 msgstr ""
 
-#: src/shortcuts_dialog.ts:96 src/window_constants.ts:119
+#: src/shortcuts_dialog.ts:96 src/window_constants.ts:122
 msgid "Oval"
 msgstr ""
 
@@ -835,176 +835,186 @@ msgstr ""
 msgid "or"
 msgstr ""
 
-#: src/style_bar.ts:68
+#: src/style_bar.ts:72
 #, javascript-format
 msgid "Pen strokes (%d)"
 msgstr ""
 
-#: src/style_bar.ts:70
+#: src/style_bar.ts:74
 #, javascript-format
 msgid "Highlights (%d)"
 msgstr ""
 
-#: src/style_bar.ts:72
+#: src/style_bar.ts:76
 #, javascript-format
 msgid "Text (%d)"
 msgstr ""
 
-#: src/style_bar.ts:74
+#: src/style_bar.ts:78
 #, javascript-format
 msgid "Number stamps (%d)"
 msgstr ""
 
-#: src/style_bar.ts:76
+#: src/style_bar.ts:80
 #, javascript-format
 msgid "Lines (%d)"
 msgstr ""
 
-#: src/style_bar.ts:78
+#: src/style_bar.ts:82
 #, javascript-format
 msgid "Arrows (%d)"
 msgstr ""
 
-#: src/style_bar.ts:80
+#: src/style_bar.ts:84
 #, javascript-format
 msgid "Rectangles (%d)"
 msgstr ""
 
-#: src/style_bar.ts:82
+#: src/style_bar.ts:86
 #, javascript-format
 msgid "Ovals (%d)"
 msgstr ""
 
-#: src/style_bar.ts:84
+#: src/style_bar.ts:88
 #, javascript-format
 msgid "Images (%d)"
 msgstr ""
 
-#: src/style_bar.ts:167
+#: src/style_bar.ts:171
 msgid "(mixed)"
 msgstr ""
 
-#: src/style_bar.ts:418 src/style_bar.ts:421
+#: src/style_bar.ts:425 src/style_bar.ts:428
 msgid "Select and arrange"
 msgstr ""
 
-#: src/style_bar.ts:445 src/style_bar.ts:1062
+#: src/style_bar.ts:452 src/style_bar.ts:1077
 msgid "Color"
 msgstr ""
 
-#: src/style_bar.ts:490
+#: src/style_bar.ts:497
 msgid "Solid"
 msgstr ""
 
-#: src/style_bar.ts:490
+#: src/style_bar.ts:497
 msgid "Dashed"
 msgstr ""
 
-#: src/style_bar.ts:490
+#: src/style_bar.ts:497
 msgid "Dotted"
 msgstr ""
 
-#: src/style_bar.ts:513 src/style_bar.ts:1098
+#: src/style_bar.ts:520 src/style_bar.ts:1113
 msgid "Corners"
 msgstr ""
 
-#: src/style_bar.ts:536 src/style_bar.ts:1125
+#: src/style_bar.ts:543 src/style_bar.ts:1151
 msgid "Callout"
 msgstr ""
 
-#: src/style_bar.ts:542
-msgid "Open"
+#. Arrow ends (arrow only) — selector index maps to an ArrowEnd via
+#. ARROW_END_ORDER. Head is the end the arrow was dragged to.
+#: src/style_bar.ts:549
+msgid "None"
 msgstr ""
 
-#: src/style_bar.ts:542
+#: src/style_bar.ts:549
+msgid "Wings"
+msgstr ""
+
+#: src/style_bar.ts:549
 msgid "Filled"
 msgstr ""
 
-#: src/style_bar.ts:544 src/style_bar.ts:1116
-msgid "Arrowhead"
+#: src/style_bar.ts:553 src/style_bar.ts:1132
+msgid "Head"
 msgstr ""
 
-#: src/style_bar.ts:558 src/style_bar.ts:1229
+#: src/style_bar.ts:560 src/style_bar.ts:1142
+msgid "Tail"
+msgstr ""
+
+#: src/style_bar.ts:570 src/style_bar.ts:1255
 msgid "Group"
 msgstr ""
 
-#: src/style_bar.ts:564 src/window_constants.ts:115
+#: src/style_bar.ts:576 src/window_constants.ts:118
 msgid "Number"
 msgstr ""
 
-#: src/style_bar.ts:564
+#: src/style_bar.ts:576
 msgid "Letter"
 msgstr ""
 
-#: src/style_bar.ts:566 src/style_bar.ts:1244
+#: src/style_bar.ts:578 src/style_bar.ts:1270
 msgid "Variant"
 msgstr ""
 
-#: src/style_bar.ts:596 src/style_bar.ts:1266
+#: src/style_bar.ts:609 src/style_bar.ts:1292
 msgid "Start"
 msgstr ""
 
-#: src/style_bar.ts:605 src/style_bar.ts:1167
+#: src/style_bar.ts:618 src/style_bar.ts:1193
 msgid "Text color"
 msgstr ""
 
-#: src/style_bar.ts:636 src/style_bar.ts:1177
+#: src/style_bar.ts:649 src/style_bar.ts:1203
 msgid "Font"
 msgstr ""
 
-#: src/style_bar.ts:665
+#: src/style_bar.ts:678
 msgid "Align left"
 msgstr ""
 
-#: src/style_bar.ts:668
+#: src/style_bar.ts:681
 msgid "Align center"
 msgstr ""
 
-#: src/style_bar.ts:674
+#: src/style_bar.ts:687
 msgid "Align right"
 msgstr ""
 
-#: src/style_bar.ts:686 src/style_bar.ts:1193
+#: src/style_bar.ts:699 src/style_bar.ts:1219
 msgid "Align"
 msgstr ""
 
-#: src/style_bar.ts:737
+#: src/style_bar.ts:752
 msgid "All (Ctrl+A)"
 msgstr ""
 
-#: src/style_bar.ts:746
+#: src/style_bar.ts:761
 msgid "Edit text"
 msgstr ""
 
-#: src/style_bar.ts:746
+#: src/style_bar.ts:761
 msgid "Add text"
 msgstr ""
 
-#: src/style_bar.ts:752
+#: src/style_bar.ts:767
 msgid "Straighten"
 msgstr ""
 
-#: src/style_bar.ts:755
+#: src/style_bar.ts:770
 msgid "Duplicate (Ctrl+D)"
 msgstr ""
 
-#: src/style_bar.ts:758
+#: src/style_bar.ts:773
 msgid "Bring to front (Ctrl+Shift+])"
 msgstr ""
 
-#: src/style_bar.ts:761
+#: src/style_bar.ts:776
 msgid "Bring forward (Ctrl+])"
 msgstr ""
 
-#: src/style_bar.ts:762
+#: src/style_bar.ts:777
 msgid "Send backward (Ctrl+[)"
 msgstr ""
 
-#: src/style_bar.ts:763
+#: src/style_bar.ts:778
 msgid "Send to back (Ctrl+Shift+[)"
 msgstr ""
 
-#: src/style_bar.ts:807
+#: src/style_bar.ts:822
 msgid "Stamps renumber within their group."
 msgstr ""
 
@@ -1012,20 +1022,20 @@ msgstr ""
 #. the popover and unparents it on dispose, avoiding the "Finalizing
 #. GtkButton … still has children left" warning at quit. No dropdown arrow
 #. because the swatch is a custom child and always-show-arrow defaults off.
-#: src/style_bar.ts:943
+#: src/style_bar.ts:958
 msgid "Pick a color"
 msgstr ""
 
-#: src/style_bar.ts:951
+#: src/style_bar.ts:966
 msgid "Pick a color from the image"
 msgstr ""
 
-#: src/style_bar.ts:1289
+#: src/style_bar.ts:1315
 #, javascript-format
 msgid "Group %d"
 msgstr ""
 
-#: src/style_bar.ts:1290
+#: src/style_bar.ts:1316
 msgid "+ New group"
 msgstr ""
 
@@ -1186,96 +1196,96 @@ msgstr ""
 msgid "Insert image file"
 msgstr ""
 
-#: src/window.ts:1384
+#: src/window.ts:1385
 msgid "Could not save image"
 msgstr ""
 
-#: src/window.ts:1403
+#: src/window.ts:1404
 msgid "Image saved"
 msgstr ""
 
 #. Stayed open with no dialog shown — confirm with an in-window toast.
-#: src/window.ts:1412
+#: src/window.ts:1413
 #, javascript-format
 msgid "Saved %s"
 msgstr ""
 
-#: src/window.ts:1447
+#: src/window.ts:1448
 msgid "Show in Files"
 msgstr ""
 
 #. Single combined filter — extension in the filename decides the format.
 #. Two separate filters would mislead the user: Gtk.FileDialog doesn't
 #. report which one was active, so a dropdown pick can't drive format.
-#: src/window.ts:1488
+#: src/window.ts:1489
 msgid "Image (PNG, JPEG)"
 msgstr ""
 
-#: src/window.ts:1539
+#: src/window.ts:1540
 msgid "Save annotation file"
 msgstr ""
 
-#: src/window.ts:1553 src/window.ts:1605
+#: src/window.ts:1554 src/window.ts:1606
 msgid "Annotation file"
 msgstr ""
 
-#: src/window.ts:1585
+#: src/window.ts:1586
 msgid "Could not save annotation file"
 msgstr ""
 
-#: src/window.ts:1598
+#: src/window.ts:1599
 msgid "Opening an annotation file"
 msgstr ""
 
-#: src/window.ts:1604
+#: src/window.ts:1605
 msgid "Open annotation file"
 msgstr ""
 
-#: src/window.ts:1639
+#: src/window.ts:1640
 msgid "Could not open annotation file"
 msgstr ""
 
-#: src/window.ts:1654
+#: src/window.ts:1655
 msgid "Could not copy image"
 msgstr ""
 
-#: src/window.ts:1664 src/window.ts:1670
+#: src/window.ts:1665 src/window.ts:1671
 msgid "Image copied to clipboard"
 msgstr ""
 
-#: src/window.ts:1716
+#: src/window.ts:1717
 msgid "Pasting a new image"
 msgstr ""
 
-#: src/window.ts:1774 src/window.ts:1806
+#: src/window.ts:1775 src/window.ts:1807
 msgid "Could not paste image"
 msgstr ""
 
-#: src/window.ts:1786 src/window.ts:1803
+#: src/window.ts:1787 src/window.ts:1804
 msgid "Clipboard has no image to paste"
 msgstr ""
 
-#: src/window_constants.ts:81
+#: src/window_constants.ts:84
 msgid "Custom"
 msgstr ""
 
-#: src/window_constants.ts:82
+#: src/window_constants.ts:85
 msgid "640 × 480"
 msgstr ""
 
-#: src/window_constants.ts:83
+#: src/window_constants.ts:86
 msgid "800 × 600"
 msgstr ""
 
-#: src/window_constants.ts:84
+#: src/window_constants.ts:87
 msgid "1280 × 720 (HD)"
 msgstr ""
 
-#: src/window_constants.ts:85
+#: src/window_constants.ts:88
 msgid "1920 × 1080 (Full HD)"
 msgstr ""
 
-#: src/window_constants.ts:110
+#: src/window_constants.ts:113
 msgid "Highlight"
 msgstr ""
 

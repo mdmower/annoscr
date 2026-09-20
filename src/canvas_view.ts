@@ -8,12 +8,15 @@ import Cairo from 'cairo';
 import {
   Action,
   ActionType,
+  ArrowEnd,
   Bounds,
   ColorRGBA,
   DashStyle,
   HandleId,
   OrientedBounds,
   ResizeHandle,
+  DEFAULT_ARROW_HEAD,
+  DEFAULT_ARROW_TAIL,
   DEFAULT_DASH,
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_START,
@@ -30,9 +33,10 @@ import {
   defaultColorForTool,
   defaultTextColorForTool,
   defaultCornerRadiusForTool,
+  defaultArrowHeadForTool,
+  defaultArrowTailForTool,
   defaultDashForTool,
   defaultFillForTool,
-  defaultFilledHeadForTool,
   defaultFontDescForTool,
   defaultFontSizeForTool,
   defaultWidthForTool,
@@ -546,9 +550,10 @@ export const CanvasView = GObject.registerClass(
     // here; everything else has no editable dash (returns null).
     private toolDashes: Map<ToolId, DashStyle> = new Map();
 
-    // Per-tool filled-arrowhead state. Only 'arrow' ever has an entry; every
-    // other tool has no arrowhead (returns null).
-    private toolFilledHeads: Map<ToolId, boolean> = new Map();
+    // Per-tool arrow head and tail. Only 'arrow' ever has entries; every other
+    // tool has no arrowhead (returns null).
+    private toolArrowHeads: Map<ToolId, ArrowEnd> = new Map();
+    private toolArrowTails: Map<ToolId, ArrowEnd> = new Map();
 
     // Per-tool rectangle corner radius (image-space px). Only 'rect' ever has
     // an entry; every other tool has no corner radius (returns null).
@@ -1106,16 +1111,26 @@ export const CanvasView = GObject.registerClass(
       this.toolDashes.set(toolId, dash);
     }
 
-    // Current filled-arrowhead state for the given tool. Returns null for every
-    // tool but 'arrow' (the toggle hides accordingly).
-    getToolFilledHead(toolId: ToolId): boolean | null {
-      const def = defaultFilledHeadForTool(toolId);
+    // Current arrow head / tail for the given tool. Both return null for every
+    // tool but 'arrow' (the controls hide accordingly).
+    getToolArrowHead(toolId: ToolId): ArrowEnd | null {
+      const def = defaultArrowHeadForTool(toolId);
       if (def === null) return null;
-      return this.toolFilledHeads.get(toolId) ?? def;
+      return this.toolArrowHeads.get(toolId) ?? def;
     }
 
-    setToolFilledHead(toolId: ToolId, filled: boolean): void {
-      this.toolFilledHeads.set(toolId, filled);
+    setToolArrowHead(toolId: ToolId, end: ArrowEnd): void {
+      this.toolArrowHeads.set(toolId, end);
+    }
+
+    getToolArrowTail(toolId: ToolId): ArrowEnd | null {
+      const def = defaultArrowTailForTool(toolId);
+      if (def === null) return null;
+      return this.toolArrowTails.get(toolId) ?? def;
+    }
+
+    setToolArrowTail(toolId: ToolId, end: ArrowEnd): void {
+      this.toolArrowTails.set(toolId, end);
     }
 
     // Current corner radius for the given tool. Returns null for every tool but
@@ -1398,7 +1413,8 @@ export const CanvasView = GObject.registerClass(
       for (const [id, w] of this.toolWidths) ensure(id).width = w;
       for (const [id, f] of this.toolFills) ensure(id).fill = f;
       for (const [id, d] of this.toolDashes) ensure(id).dash = d;
-      for (const [id, h] of this.toolFilledHeads) ensure(id).filledHead = h;
+      for (const [id, h] of this.toolArrowHeads) ensure(id).arrowHead = h;
+      for (const [id, t] of this.toolArrowTails) ensure(id).arrowTail = t;
       for (const [id, r] of this.toolCornerRadii) ensure(id).cornerRadius = r;
       for (const [id, f] of this.toolFontDescs) ensure(id).fontDesc = f;
       for (const [id, s] of this.toolFontSizes) ensure(id).fontSize = s;
@@ -1420,7 +1436,8 @@ export const CanvasView = GObject.registerClass(
         if (e.width !== undefined) this.toolWidths.set(toolId, e.width);
         if (e.fill) this.toolFills.set(toolId, e.fill);
         if (e.dash) this.toolDashes.set(toolId, e.dash);
-        if (e.filledHead !== undefined) this.toolFilledHeads.set(toolId, e.filledHead);
+        if (e.arrowHead) this.toolArrowHeads.set(toolId, e.arrowHead);
+        if (e.arrowTail) this.toolArrowTails.set(toolId, e.arrowTail);
         if (e.cornerRadius !== undefined) this.toolCornerRadii.set(toolId, e.cornerRadius);
         if (e.fontDesc) this.toolFontDescs.set(toolId, e.fontDesc);
         if (e.fontSize !== undefined) this.toolFontSizes.set(toolId, e.fontSize);
@@ -1750,13 +1767,23 @@ export const CanvasView = GObject.registerClass(
       );
     }
 
-    replaceSelectedFilledHead(filled: boolean): boolean {
+    replaceSelectedArrowHead(end: ArrowEnd): boolean {
       return this.replaceSelectedProperty(
-        (a) => a.getFilledHead(),
-        (a, v) => a.withFilledHead(v),
-        filled,
+        (a) => a.getArrowHead(),
+        (a, v) => a.withArrowHead(v),
+        end,
         null,
-        (tid, v) => this.setToolFilledHead(tid, v)
+        (tid, v) => this.setToolArrowHead(tid, v)
+      );
+    }
+
+    replaceSelectedArrowTail(end: ArrowEnd): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getArrowTail(),
+        (a, v) => a.withArrowTail(v),
+        end,
+        null,
+        (tid, v) => this.setToolArrowTail(tid, v)
       );
     }
 
@@ -3023,26 +3050,33 @@ export const CanvasView = GObject.registerClass(
       }
       if (!isDragTool(this.currentToolId)) return;
       const [ix, iy] = this.widgetToImage(wx, wy);
-      const color =
-        this.getToolColor(this.currentToolId) ?? defaultColorForTool(this.currentToolId);
-      const width =
-        this.getToolWidth(this.currentToolId) ?? defaultWidthForTool(this.currentToolId) ?? 1;
-      const fill = this.getToolFill(this.currentToolId) ?? TRANSPARENT_FILL;
-      const dash = this.getToolDash(this.currentToolId) ?? DEFAULT_DASH;
-      const filledHead = this.getToolFilledHead(this.currentToolId) ?? false;
-      const cornerRadius = this.getToolCornerRadius(this.currentToolId) ?? 0;
+      this.beginLiveStroke(ix, iy);
+      this.queue_draw();
+    }
+
+    // Start the active drag tool's stroke at an image-space point, each style
+    // property taken from the tool's current value.
+    private beginLiveStroke(ix: number, iy: number): void {
+      const tool = this.currentToolId;
+      const color = this.getToolColor(tool) ?? defaultColorForTool(tool);
+      const width = this.getToolWidth(tool) ?? defaultWidthForTool(tool) ?? 1;
+      const fill = this.getToolFill(tool) ?? TRANSPARENT_FILL;
+      const dash = this.getToolDash(tool) ?? DEFAULT_DASH;
+      const arrowHead = this.getToolArrowHead(tool) ?? DEFAULT_ARROW_HEAD;
+      const arrowTail = this.getToolArrowTail(tool) ?? DEFAULT_ARROW_TAIL;
+      const cornerRadius = this.getToolCornerRadius(tool) ?? 0;
       this.liveStroke = createLiveStroke(
-        this.currentToolId,
+        tool,
         ix,
         iy,
         color,
         width,
         fill,
         dash,
-        filledHead,
+        arrowHead,
+        arrowTail,
         cornerRadius
       );
-      this.queue_draw();
     }
 
     private onDragUpdate(wx: number, wy: number, constrain: boolean, bypassDetent: boolean): void {
