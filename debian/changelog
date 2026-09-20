@@ -1,3 +1,18 @@
+annoscr (2.2.0) unstable; urgency=medium
+
+  * An arrow's head and its tail are set separately, and each can be
+    nothing, wings, or filled. Every combination is allowed, so an arrow
+    can point both ways or neither. Arrows in existing files keep the
+    heads they were saved with.
+  * Annoscr now requires GNOME 48 or newer: Debian 13, Ubuntu 26.04,
+    Fedora 43, or current Arch. Two calls it already made need GTK 4.18
+    and libadwaita 1.6, so the minimums it declared before were too low.
+  * The apt repository no longer serves a noble suite, since Ubuntu 24.04
+    is below the new minimum. On Ubuntu, set Suites to resolute.
+  * Cancelling "Add a font" in Preferences no longer logs a warning.
+
+ -- Matt Mower <mdmower@cmphys.com>  Sun, 20 Sep 2026 14:00:00 -0700
+
 annoscr (2.1.0) unstable; urgency=medium
 
   * Each number stamp group has a Start number, which sets the number of

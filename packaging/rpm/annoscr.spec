@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        2.1.0
+Version:        2.2.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -83,6 +83,11 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Sun Sep 20 2026 Matt Mower <mdmower@cmphys.com> - 2.2.0-1
+- An arrow's head and its tail are set separately, and each can be nothing, wings, or filled. Every combination is allowed, so an arrow can point both ways or neither. Arrows in existing files keep the heads they were saved with.
+- Annoscr now requires GNOME 48 or newer: Debian 13, Ubuntu 26.04, Fedora 43, or current Arch. Two calls it already made need GTK 4.18 and libadwaita 1.6, so the minimums it declared before were too low.
+- The apt repository no longer serves a noble suite, since Ubuntu 24.04 is below the new minimum. On Ubuntu, set Suites to resolute.
+- Cancelling "Add a font" in Preferences no longer logs a warning.
 * Tue Sep 15 2026 Matt Mower <mdmower@cmphys.com> - 2.1.0-1
 - Each number stamp group has a Start number, which sets the number of its first stamp; the rest count up from there. In letter mode the field accepts a single letter, and letters still wrap after Z.
 - Text is measured the same way at every zoom level, so text in a rectangle or oval no longer re-wraps as the zoom changes, and what is drawn on screen matches the exported image.
