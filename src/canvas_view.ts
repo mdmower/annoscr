@@ -605,6 +605,10 @@ export const CanvasView = GObject.registerClass(
     // across undo/redo because those just move the historyCursor — the
     // underlying state object in `history[i]` doesn't change.
     private cleanStateRef: CanvasState | null = null;
+    // The same kind of marker, set only by a fresh load and an annotation-file
+    // save. An image export or a copy does not set it, so afterwards the
+    // canvas still needs an annotation file.
+    private docCleanRef: CanvasState | null = null;
 
     // Last pushState's coalesce key. Successive pushes with the same key
     // replace the top entry instead of growing history (the repeated-step
@@ -810,6 +814,7 @@ export const CanvasView = GObject.registerClass(
       this.history = [{surface, actions: []}];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
+      this.docCleanRef = this.history[0];
       this.lastCoalesceKey = null;
       // New document → new groups. The remembered defaultStampVariant (a
       // tool preference, like the per-tool colors) is kept across images.
@@ -838,6 +843,7 @@ export const CanvasView = GObject.registerClass(
       this.history = [{surface, actions: restored}];
       this.historyCursor = 0;
       this.cleanStateRef = this.history[0];
+      this.docCleanRef = this.history[0];
       this.lastCoalesceKey = null;
       // Allocate future group ids above the highest loaded one (never reused)
       // and continue placement in the last group present. Variants are read
@@ -900,6 +906,18 @@ export const CanvasView = GObject.registerClass(
       if (!this.history.includes(state)) return false;
       this.cleanStateRef = state;
       this.notifyStateChange();
+      return true;
+    }
+
+    // True when the current state has not been written to an annotation file.
+    needsDocumentSave(): boolean {
+      return this.hasImage() && this.state !== this.docCleanRef;
+    }
+
+    // markClean for an annotation-file save; also sets docCleanRef.
+    markDocumentSaved(state: CanvasState): boolean {
+      if (!this.markClean(state)) return false;
+      this.docCleanRef = state;
       return true;
     }
 

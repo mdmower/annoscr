@@ -116,6 +116,28 @@ export function rememberSavedFile(path: string, kind: RecentKind): boolean {
   return true;
 }
 
+// Record a saved annotation file. When the canvas was opened from a listed
+// image, the file replaces that image's entry at the same index: when the user
+// opens listed screenshots one after another, the save made on opening the next
+// one must not change the order of the ones not yet opened. Any other entry for
+// the file is removed. Otherwise a listed file keeps its index, and an unlisted
+// one is inserted first, as rememberSavedFile does.
+export function rememberSavedDocument(path: string, sourcePath: string | null): void {
+  const s = state();
+  const entry: RecentEntry = {path, kind: 'document'};
+  const slot = sourcePath === null ? -1 : s.recentFiles.findIndex((e) => e.path === sourcePath);
+  if (slot >= 0) {
+    s.recentFiles = s.recentFiles
+      .map((e, i) => (i === slot ? entry : e))
+      .filter((e, i) => i === slot || e.path !== path);
+  } else if (!s.recentFiles.some((e) => e.path === path)) {
+    s.recentFiles = [entry, ...s.recentFiles].slice(0, RECENT_LIMIT);
+  } else {
+    return;
+  }
+  saveState(s);
+}
+
 // Add files to the strip without opening any of them (dropped on it, or picked
 // from its Add dialog). They go to the front in the order they were given (the
 // first one leftmost); an already-listed file keeps its place, since adding a

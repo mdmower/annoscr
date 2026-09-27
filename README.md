@@ -29,7 +29,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
   - Re-edit a text annotation by double-clicking it.
   - Dig through stacked annotations.
   - Undo / redo throughout.
-  - Discard confirmation of unsaved changes on exit.
+  - Ask first, save an annotation file, or discard unsaved changes when closing the window or replacing the canvas.
 
 - **Text labels**: give a rectangle or oval a centered caption; the text wraps to the box, aligns left / center / right, and rotates with the shape.
 
@@ -46,6 +46,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 - **Recent files**: a strip of thumbnails below the status bar remembers the images and annotation files you open, so returning to an earlier screenshot is one click. Drop a selection of files onto the strip, or press Insert, to add files to it without opening any of them. Show or hide it from the status bar, right-click a thumbnail to reveal it in Files or forget it, and turn the feature off (which also clears the list) in Preferences.
 
 - **Annotation files**: save an editable `.annoscr` file (the canvas image plus your annotations) from the primary menu, then reopen it later to add, change, or remove annotations.
+  - With Unsaved changes set to Save annotation file, closing the window or replacing the canvas saves over the annotation file you opened or saved, or else writes a new one to the default save folder, named after the image you opened. The new file replaces that image's entry in the recent files strip.
   - Files written by Annoscr 2.0 cannot be opened by 1.x releases.
   - Annoscr 2.0 cannot open annotation files written by Annoscr 1.4 or earlier. To keep one, open it in Annoscr 1.5 and save it, then open the saved file in 2.0.
 
@@ -53,7 +54,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Keyboard & accessibility**: the canvas is keyboard-operable (pan, step through, select, move, resize, rotate, and edit most annotations without the mouse), and every control has an accessible label for screen readers. The complete shortcut list is in the in-app reference (primary menu → Keyboard Shortcuts). Drawing new annotations with the keyboard is not yet possible.
 
-- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, style bar position (dock the style controls on any window edge; the left and right docks are a vertical panel), default tool at launch, remember tool styles between sessions, default save folder and format, saving images without a location prompt, confirm before discarding, select-after-placement, close-after-saving/copying, remembering recent files, and an undo-memory budget; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
+- **Preferences** (saved to `~/.config/annoscr/settings.json`): color scheme, style bar position (dock the style controls on any window edge; the left and right docks are a vertical panel), default tool at launch, remember tool styles between sessions, default save folder and format, saving images without a location prompt, what to do with unsaved changes (ask, save an annotation file, or discard), select-after-placement, close-after-saving/copying, remembering recent files, and an undo-memory budget; the font list offered in the text menu is editable too. The primary menu also holds a keyboard-shortcuts reference and About.
 
 ## Requirements
 

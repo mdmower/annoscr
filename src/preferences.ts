@@ -1,11 +1,13 @@
 import Gio from 'gi://Gio?version=2.0';
 import Gtk from 'gi://Gtk?version=4.0';
 import Adw from 'gi://Adw?version=1';
+import Pango from 'gi://Pango?version=1.0';
 
 import {
   ColorScheme,
   StyleBarPosition,
   UndoMemory,
+  UnsavedChanges,
   getSettings,
   updateSettings,
 } from './settings.js';
@@ -26,6 +28,37 @@ const STYLE_BAR_POSITION_LABELS = [N_('Top'), N_('Bottom'), N_('Left'), N_('Righ
 // ComboRow's collapsed value truncate.
 const UNDO_MEMORY_ORDER: UndoMemory[] = ['low', 'normal', 'high', 'unlimited'];
 const UNDO_MEMORY_LABELS = [N_('128 MiB'), N_('256 MiB'), N_('1 GiB'), N_('Unlimited')];
+
+const UNSAVED_CHANGES_ORDER: UnsavedChanges[] = ['ask', 'save', 'discard'];
+const UNSAVED_CHANGES_LABELS = [N_('Ask'), N_('Save annotation file'), N_('Discard')];
+
+// Minimum width of a combo row's selected value, in characters. Next to a long
+// subtitle the stock label is ellipsized to a few letters ("Sav…"); 11 fits
+// "Save anno…" in Cantarell 11, measured.
+const COMBO_VALUE_MIN_CHARS = 11;
+
+// Replace a combo row's selected-value label with one that has a minimum
+// width. The label is right-aligned so a short value stays next to the arrow.
+// The popup keeps the stock factory, moved to list-factory first.
+function setMinValueWidth(row: Adw.ComboRow): void {
+  const factory = new Gtk.SignalListItemFactory();
+  factory.connect('setup', (_f, obj) => {
+    (obj as Gtk.ListItem).set_child(
+      new Gtk.Label({
+        xalign: 1,
+        ellipsize: Pango.EllipsizeMode.END,
+        width_chars: COMBO_VALUE_MIN_CHARS,
+      })
+    );
+  });
+  factory.connect('bind', (_f, obj) => {
+    const item = obj as Gtk.ListItem;
+    const label = item.get_child() as Gtk.Label;
+    label.set_label(item.get_item<Gtk.StringObject>().get_string());
+  });
+  row.set_list_factory(row.get_factory());
+  row.set_factory(factory);
+}
 
 // Apply a color scheme via libadwaita. Called from the dialog on change and
 // once at startup so the saved choice takes effect before any UI is shown.
@@ -283,20 +316,26 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
     updateSettings({saveWithoutDialog: silentSaveRow.get_active()});
   });
   saving.add(silentSaveRow);
+
+  // In the Saving group because a new file is written to the default save
+  // folder.
+  const unsavedRow = new Adw.ComboRow({
+    title: _('Unsaved changes'),
+    subtitle: _(
+      'Applies when closing the window or replacing the canvas. Saving overwrites the open annotation file, if any, or creates one in the default save folder.'
+    ),
+    model: Gtk.StringList.new(UNSAVED_CHANGES_LABELS.map((l) => _(l))),
+    selected: Math.max(0, UNSAVED_CHANGES_ORDER.indexOf(s.unsavedChanges)),
+  });
+  setMinValueWidth(unsavedRow);
+  unsavedRow.connect('notify::selected', () => {
+    updateSettings({unsavedChanges: UNSAVED_CHANGES_ORDER[unsavedRow.get_selected()] ?? 'ask'});
+  });
+  saving.add(unsavedRow);
   page.add(saving);
 
   // Behavior
   const behavior = new Adw.PreferencesGroup({title: _('Behavior')});
-  const confirmRow = new Adw.SwitchRow({
-    title: _('Confirm before discarding unsaved changes'),
-    subtitle: _("Ask before replacing an annotated canvas you haven't saved"),
-    active: s.confirmDiscard,
-  });
-  confirmRow.connect('notify::active', () => {
-    updateSettings({confirmDiscard: confirmRow.get_active()});
-  });
-  behavior.add(confirmRow);
-
   const selectAfterRow = new Adw.SwitchRow({
     title: _('Select after placing'),
     subtitle: _('Switch to the select tool and select each annotation right after you place it'),
@@ -336,7 +375,9 @@ export function presentPreferences(parent: Gtk.Window, callbacks?: PreferencesCa
 
   const closeAfterCopyRow = new Adw.SwitchRow({
     title: _('Close after copying to the clipboard'),
-    subtitle: _('Closes without prompting to save unsaved changes'),
+    subtitle: _(
+      'Closes without asking about unsaved changes. If Unsaved changes is set to save, saves an annotation file first.'
+    ),
     active: s.closeAfterImageCopy,
   });
   closeAfterCopyRow.connect('notify::active', () => {

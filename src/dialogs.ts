@@ -7,7 +7,6 @@ import {Anchor, AnchorFraction, createBlankSurface} from './image_transforms.js'
 import {makeColorControls} from './color_controls.js';
 import {colorToRgba, rgbaToColor} from './gdk_color.js';
 import {DEFAULT_PRESET_INDEX, SIZE_PRESETS} from './window_constants.js';
-import {getSettings} from './settings.js';
 import {APP_VERSION} from './version.js';
 import {setAccessibleLabel, setLabelledBy} from './a11y.js';
 import {_} from './i18n.js';
@@ -26,19 +25,9 @@ export function showAbout(parent: Gtk.Widget): void {
   about.present(parent);
 }
 
-// Runs onProceed immediately when confirmation is disabled or there is nothing
-// dirty to lose; otherwise gates it behind a destructive "Discard changes?"
-// alert.
-export function confirmDiscard(
-  parent: Gtk.Widget,
-  action: string,
-  isDirty: boolean,
-  onProceed: () => void
-): void {
-  if (!getSettings().confirmDiscard || !isDirty) {
-    onProceed();
-    return;
-  }
+// The "Discard changes?" alert. onProceed runs only if the user chooses
+// Discard.
+export function confirmDiscard(parent: Gtk.Widget, action: string, onProceed: () => void): void {
   const dialog = new Adw.AlertDialog({
     heading: _('Discard changes?'),
     // `action` is a translated verb phrase (e.g. "Opening a file") supplied by

@@ -30,6 +30,7 @@ import {
   defaultSaveFilename,
   defaultSaveFolderPath,
   formatFromPath,
+  renderToSurface,
   saveSurface,
   surfaceThumbnailPngBytes,
   writeFileBytes,
@@ -72,6 +73,7 @@ import {
   isStripVisible,
   pruneMissingRecentFiles,
   rememberOpenedFile,
+  rememberSavedDocument,
   rememberSavedFile,
   setStripVisible,
 } from './recent_files.js';
@@ -79,10 +81,10 @@ import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
 import {labelFromTooltip} from './a11y.js';
 import {_} from './i18n.js';
 
-// After an autoclose export we close the window but keep the process alive this
-// long, so the just-sent notification's async D-Bus delivery completes before
-// the app exits. The window is already destroyed, so the app appears closed
-// meanwhile.
+// After closing the window with a notification (an auto-close export, or an
+// auto-save on close) we keep the process running this long, so the
+// notification's async D-Bus delivery completes before the app exits. The window is already
+// destroyed, so the app appears closed meanwhile.
 const NOTIFY_GRACE_MS = 1000;
 
 // How long a cold-relaunch paste waits for the clipboard to advertise content
@@ -95,6 +97,91 @@ const CLIPBOARD_READY_TIMEOUT_MS = 3000;
 // message doesn't.
 function causeOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+type DocumentSnapshot = {
+  surface: Cairo.ImageSurface;
+  actions: ReadonlyArray<Action>;
+  state: CanvasState;
+};
+
+// An annotation file an auto-save wrote, for the close notification.
+type SavedDocument = {path: string; thumbnail: GLib.Bytes};
+
+// What a notification on close shows (sendExportNotification).
+interface CloseNotification {
+  title: string;
+  body?: string;
+  // A saved file: clicking the notification reopens it in Annoscr; with
+  // showInFiles, a button also reveals it in the file manager.
+  openPath?: string;
+  showInFiles?: boolean;
+  // A clipboard copy: clicking the notification opens the copied image.
+  pasteOnClick?: boolean;
+  // The square thumbnail bytes for the notification icon.
+  thumbnailBytes?: GLib.Bytes;
+}
+
+// An auto-close export: an image save or a clipboard copy, with the thumbnail
+// of the exported image.
+type ExportCause =
+  | {kind: 'image'; path: string; silent: boolean; thumbnail: GLib.Bytes}
+  | {kind: 'copy'; thumbnail: GLib.Bytes};
+
+// What closed the window: the window's own close, or an auto-close export.
+type CloseCause = {kind: 'window'} | ExportCause;
+
+// The notification sent on close, naming `doc` when an auto-save wrote one.
+// A window close without a saved file sends none.
+function closeNotification(cause: CloseCause, doc: SavedDocument | null): CloseNotification | null {
+  if (cause.kind === 'image') {
+    const name = GLib.path_get_basename(cause.path);
+    return {
+      title: doc ? _('Image and annotation file saved') : _('Image saved'),
+      body: doc
+        ? _('%1$s and %2$s')
+            .replace('%1$s', () => name)
+            .replace('%2$s', () => GLib.path_get_basename(doc.path))
+        : name,
+      openPath: cause.path,
+      showInFiles: cause.silent,
+      thumbnailBytes: cause.thumbnail,
+    };
+  }
+  if (!doc) {
+    return cause.kind === 'copy'
+      ? {title: _('Image copied to clipboard'), pasteOnClick: true, thumbnailBytes: cause.thumbnail}
+      : null;
+  }
+  return {
+    title:
+      cause.kind === 'copy' ? _('Image copied, annotation file saved') : _('Annotation file saved'),
+    body: GLib.path_get_basename(doc.path),
+    openPath: doc.path,
+    showInFiles: true,
+    thumbnailBytes: doc.thumbnail,
+  };
+}
+
+function savedMessage(path: string): string {
+  return _('Saved %s').replace('%s', () => GLib.path_get_basename(path));
+}
+
+// A file name without its extension.
+function stemOf(path: string): string {
+  const base = GLib.path_get_basename(path);
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+
+// `<stem>.annoscr` in `folder`, with " (2)", " (3)", and so on appended to the
+// stem when that name is taken, so an auto-save never overwrites a file.
+function unusedDocPath(folder: string, stem: string): string {
+  const pathFor = (suffix: string): string =>
+    GLib.build_filenamev([folder, stem + suffix + DOC_EXTENSION]);
+  let path = pathFor('');
+  for (let n = 2; GLib.file_test(path, GLib.FileTest.EXISTS); n++) path = pathFor(` (${n})`);
+  return path;
 }
 
 // A file dialog offering the image types the loader decodes.
@@ -115,9 +202,13 @@ export const AnnoscrWindow = GObject.registerClass(
     private canvas: InstanceType<typeof CanvasView>;
     private stack: Gtk.Stack;
     private editor: InstanceType<typeof TextEditor>;
-    // Set true just before we explicitly call close() after the user has
-    // chosen Discard, so the close-request handler doesn't re-prompt.
-    private skipCloseConfirm: boolean = false;
+    // Set when a close may proceed without applying the Unsaved changes
+    // preference: the user chose Discard, an auto-save wrote the canvas, or an
+    // auto-close copy does not show the Ask dialog.
+    private closeApproved: boolean = false;
+    // Set while an Unsaved changes auto-save is written. Close and replace
+    // requests made meanwhile are ignored.
+    private autoSaving: boolean = false;
     // Set when the close proceeds. An export that completes afterwards still
     // writes its file but skips the window's feedback.
     private closed: boolean = false;
@@ -135,6 +226,10 @@ export const AnnoscrWindow = GObject.registerClass(
     // (open/blank/paste/drop/screenshot), since that's no longer "this
     // document".
     private currentDocPath: string | null = null;
+    // Path of the image file the canvas was opened from: an auto-save names
+    // its annotation file after it, and an annotation-file save replaces its
+    // recent-strip entry. Cleared by every other kind of canvas replacement.
+    private currentSourcePath: string | null = null;
     // The collaborators the window builds and connects. Each owns one
     // region of the shell: the dockable style-picker bar, the scrolled view
     // plus bottom zoom bar, and the tool selector plus resize toolbar.
@@ -569,11 +664,13 @@ export const AnnoscrWindow = GObject.registerClass(
       if (rememberOpenedFile(path, kind)) this.recentStrip.refresh();
     }
 
-    // Record a just-saved file, which moves to the front of the strip whether
-    // it was already listed or not.
-    private recordSaved(path: string, kind: RecentKind): void {
+    // Record a just-saved file. An image is moved or inserted first in the
+    // strip; an annotation file is recorded by rememberSavedDocument, with the
+    // path of the image the saved canvas was opened from.
+    private recordSaved(path: string, kind: RecentKind, sourcePath: string | null = null): void {
       if (!getSettings().rememberRecentFiles) return;
-      rememberSavedFile(path, kind);
+      if (kind === 'document') rememberSavedDocument(path, sourcePath);
+      else rememberSavedFile(path, kind);
       // A save that completes after the window closed has no strip to update.
       if (this.closed) return;
       // Always rebuild, even when the entry was already leftmost: the file's
@@ -583,8 +680,8 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     // Reopen through the same guarded entry point the file manager and command
-    // line use, so the unsaved-changes prompt and the image/document dispatch
-    // apply.
+    // line use, so the Unsaved changes preference and the image/document
+    // dispatch apply.
     private openRecent(entry: RecentEntry): void {
       const file = Gio.File.new_for_path(entry.path);
       if (!file.query_exists(null)) {
@@ -699,19 +796,147 @@ export const AnnoscrWindow = GObject.registerClass(
 
     private installCloseGuard(): void {
       this.connect('close-request', () => {
-        // Returning false lets the close proceed — flush prefs at those points.
-        if (this.skipCloseConfirm || !this.canvas.isDirty()) {
-          this.closed = true;
-          this.flushSettings();
-          this.recentStrip.shutdown();
-          return false;
-        }
-        confirmDiscard(this, _('Closing the window'), this.canvas.isDirty(), () => {
-          this.skipCloseConfirm = true;
-          this.close();
-        });
-        return true; // block the default close until the user responds
+        // Returning true prevents the close.
+        if (!this.closeApproved && this.deferClose()) return true;
+        this.closed = true;
+        this.flushSettings();
+        this.recentStrip.shutdown();
+        return false;
       });
+    }
+
+    // What the Unsaved changes preference requires before the canvas is closed
+    // or replaced. Save mode commits an open text edit first, so the file
+    // includes it.
+    private unsavedAction(): 'proceed' | 'save' | 'ask' {
+      const mode = getSettings().unsavedChanges;
+      if (mode === 'save') {
+        this.editor.commitIfActive();
+        return this.canvas.needsDocumentSave() ? 'save' : 'proceed';
+      }
+      return mode === 'ask' && this.canvas.isDirty() ? 'ask' : 'proceed';
+    }
+
+    // Apply the Unsaved changes preference to a replacement of the canvas.
+    // `action` names the replacement in the Ask dialog. After an auto-save,
+    // `onProceed` runs only if the canvas was not edited during the write.
+    private guardUnsaved(action: string, onProceed: () => void): void {
+      if (this.autoSaving) return;
+      switch (this.unsavedAction()) {
+        case 'save':
+          this.autoSave(
+            (path) => {
+              this.showToast(savedMessage(path));
+              onProceed();
+            },
+            () => confirmDiscard(this, action, onProceed)
+          );
+          return;
+        case 'ask':
+          confirmDiscard(this, action, onProceed);
+          return;
+        case 'proceed':
+          onProceed();
+      }
+    }
+
+    // Apply the Unsaved changes preference to a close request. Returns true
+    // when the close is deferred: an auto-save closes the window after writing
+    // the file, and the Ask dialog closes it if the user chooses Discard.
+    private deferClose(): boolean {
+      if (this.autoSaving) return true;
+      const action = this.unsavedAction();
+      if (action === 'save') {
+        this.closeAfterAutoSave({kind: 'window'});
+      } else if (action === 'ask') {
+        confirmDiscard(this, _('Closing the window'), () => this.finishClose({kind: 'window'}));
+      }
+      return action !== 'proceed';
+    }
+
+    // Write the annotation file, then close with the notification for
+    // `cause`. On failure the Ask dialog offers to close without it.
+    private closeAfterAutoSave(cause: CloseCause): void {
+      this.autoSave(
+        (path, snapshot) =>
+          this.finishClose(cause, {
+            path,
+            thumbnail:
+              cause.kind === 'window'
+                ? surfaceThumbnailPngBytes(renderToSurface(snapshot.surface, snapshot.actions))
+                : cause.thumbnail,
+          }),
+        () => confirmDiscard(this, _('Closing the window'), () => this.finishClose(cause))
+      );
+    }
+
+    // Close without applying the Unsaved changes preference again, after
+    // sending the notification for `cause`.
+    private finishClose(cause: CloseCause, doc: SavedDocument | null = null): void {
+      this.closeApproved = true;
+      this.closeWithNotification(closeNotification(cause, doc));
+    }
+
+    // Write the canvas to an annotation file for Save mode: over the file it
+    // was opened from or saved as, else to a new file in the default save
+    // folder named after its source image. `onSaved` runs only if the canvas
+    // is unchanged when the write completes; an edit made meanwhile means the
+    // user kept working, so the close or replacement is not done. `onFailed`
+    // runs after the error toast.
+    private autoSave(
+      onSaved: (path: string, snapshot: DocumentSnapshot) => void,
+      onFailed: () => void
+    ): void {
+      const snapshot = this.canvas.documentSnapshot();
+      if (!snapshot) return;
+      const sourcePath = this.currentSourcePath;
+      this.autoSaving = true;
+      this.enqueueExport(async () => {
+        let path: string | null;
+        try {
+          // Resolved when the job runs: an annotation-file save queued before
+          // it may have set currentDocPath, and a second file must not be
+          // created.
+          const target = this.currentDocPath ?? {
+            folder: getSettings().defaultSaveFolder || defaultSaveFolderPath(),
+            stem: stemOf(sourcePath ?? defaultDocFilename()),
+          };
+          path = await this.writeDocument(snapshot, target, sourcePath);
+        } finally {
+          this.autoSaving = false;
+        }
+        if (path === null) onFailed();
+        else if (this.canvas.isCurrentState(snapshot.state)) onSaved(path, snapshot);
+        else this.showToast(savedMessage(path));
+      });
+    }
+
+    // Serialize and write an annotation file, mark the canvas saved, and
+    // record the file in the recent strip. `target` is a path, or a folder and
+    // name stem from which an unused name is made just before the write.
+    // Returns the path written, or null after an error toast. Runs in an
+    // enqueueExport job.
+    private async writeDocument(
+      snapshot: DocumentSnapshot,
+      target: string | {folder: string; stem: string},
+      sourcePath: string | null
+    ): Promise<string | null> {
+      let path: string;
+      try {
+        const data = await serializeDocument(snapshot.surface, snapshot.actions);
+        path = typeof target === 'string' ? target : unusedDocPath(target.folder, target.stem);
+        await writeFileBytes(Gio.File.new_for_path(path), data);
+      } catch (e) {
+        console.warn('save annotation file failed', e);
+        this.showToast(_('Could not save annotation file'));
+        return null;
+      }
+      // Track the saved path so a later save uses it (saving to a new name
+      // switches the working document to that name), unless another canvas
+      // was loaded during the write.
+      if (this.canvas.markDocumentSaved(snapshot.state)) this.currentDocPath = path;
+      this.recordSaved(path, 'document', sourcePath);
+      return path;
     }
 
     // Pick the color for a text commit. Re-edit preserves the existing
@@ -760,14 +985,8 @@ export const AnnoscrWindow = GObject.registerClass(
       this.toastOverlay.add_toast(new Adw.Toast({title}));
     }
 
-    // Show a destructive-action confirmation if the canvas has unsaved
-    // annotations. `onProceed` runs only when the user explicitly discards,
-    // or immediately if the canvas is already clean.
-
     private openImageDialog(): void {
-      confirmDiscard(this, _('Opening a new image'), this.canvas.isDirty(), () =>
-        this.openImageDialogUnchecked()
-      );
+      this.guardUnsaved(_('Opening a new image'), () => this.openImageDialogUnchecked());
     }
 
     private openImageDialogUnchecked(): void {
@@ -788,15 +1007,15 @@ export const AnnoscrWindow = GObject.registerClass(
 
     createBlankCanvas(w: number, h: number): void {
       // Guards an unsaved canvas before replacing it. Harmless at cold startup
-      // (confirmDiscard proceeds immediately when nothing is dirty); the guard
-      // matters now that `--new` can reach an already-running instance.
-      confirmDiscard(this, _('Creating a blank canvas'), this.canvas.isDirty(), () =>
+      // (there is no canvas yet); needed because `--new` can reach an
+      // already-running instance.
+      this.guardUnsaved(_('Creating a blank canvas'), () =>
         this.setImage(createBlankSurface(w, h, [1, 1, 1, 1]))
       );
     }
 
     private newBlankCanvas(): void {
-      confirmDiscard(this, _('Creating a blank canvas'), this.canvas.isDirty(), () =>
+      this.guardUnsaved(_('Creating a blank canvas'), () =>
         showNewCanvasDialog(this, (surface) => this.setImage(surface))
       );
     }
@@ -806,13 +1025,9 @@ export const AnnoscrWindow = GObject.registerClass(
     // other file to the image loader, guarding an unsaved canvas first.
     openFileChecked(file: Gio.File): void {
       if (this.isDocumentFile(file)) {
-        confirmDiscard(this, _('Opening this annotation file'), this.canvas.isDirty(), () =>
-          this.openDocumentFile(file)
-        );
+        this.guardUnsaved(_('Opening this annotation file'), () => this.openDocumentFile(file));
       } else {
-        confirmDiscard(this, _('Opening this image'), this.canvas.isDirty(), () =>
-          this.openFile(file)
-        );
+        this.guardUnsaved(_('Opening this image'), () => this.openFile(file));
       }
     }
 
@@ -846,7 +1061,7 @@ export const AnnoscrWindow = GObject.registerClass(
             this.set_visible(true);
             this.present();
             if (uri) {
-              confirmDiscard(this, _('Opening the screenshot'), this.canvas.isDirty(), () =>
+              this.guardUnsaved(_('Opening the screenshot'), () =>
                 this.openFile(Gio.File.new_for_uri(uri))
               );
             }
@@ -876,6 +1091,7 @@ export const AnnoscrWindow = GObject.registerClass(
     openFile(file: Gio.File): void {
       try {
         this.setImage(loadFromFile(file));
+        this.currentSourcePath = file.get_path();
         this.recordOpened(file, 'image');
       } catch (e) {
         // Covers both load/decode failures and I/O errors (missing file,
@@ -892,8 +1108,10 @@ export const AnnoscrWindow = GObject.registerClass(
       // image.
       this.editor.cancel();
       if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
-      // A plain image isn't tied to any annotation file.
+      // A plain image isn't tied to any annotation file; openFile sets the
+      // source path after this.
       this.currentDocPath = null;
+      this.currentSourcePath = null;
       this.canvas.setImage(surface);
       this.showCanvas();
     }
@@ -910,6 +1128,7 @@ export const AnnoscrWindow = GObject.registerClass(
     private setDocument(surface: Cairo.ImageSurface, actions: ReadonlyArray<Action>): void {
       this.editor.cancel();
       if (this.canvas.getTool() === 'resize') this.toolbar.exitResizeMode(false);
+      this.currentSourcePath = null;
       this.canvas.loadDocument(surface, actions);
       this.showCanvas();
     }
@@ -1016,9 +1235,7 @@ export const AnnoscrWindow = GObject.registerClass(
       if (images.length === 0) {
         const doc = files[0];
         if (!doc) return;
-        confirmDiscard(this, _('Opening this annotation file'), this.canvas.isDirty(), () =>
-          this.openDocumentFile(doc)
-        );
+        this.guardUnsaved(_('Opening this annotation file'), () => this.openDocumentFile(doc));
         return;
       }
       let rest = images;
@@ -1393,24 +1610,21 @@ export const AnnoscrWindow = GObject.registerClass(
     // Shared post-save handling for both the dialog and silent paths. On
     // autoclose the window is closing, so feedback is a system notification
     // (a toast would be destroyed with the window). Clicking it reopens the
-    // saved file;
-    // the "Show in Files" button is offered only for a silent save, since a
-    // dialog save already let the user pick (and see) the folder.
+    // saved file; the "Show in Files" button is offered only for a silent
+    // save, since a dialog save already let the user pick (and see) the
+    // folder. An auto-save already being written for a close or replacement
+    // cancels the autoclose.
     private onImageSaved(path: string, silent: boolean, surface: Cairo.ImageSurface): void {
       this.recordSaved(path, 'image');
       if (this.closed) return;
-      if (getSettings().closeAfterImageSave) {
-        this.sendExportNotification({
-          title: _('Image saved'),
-          body: GLib.path_get_basename(path),
-          openPath: path,
-          showInFiles: silent,
-          thumbnailBytes: surfaceThumbnailPngBytes(surface),
-        });
-        this.closeAfterExport(false);
+      if (getSettings().closeAfterImageSave && !this.autoSaving) {
+        this.closeAfterExport(
+          {kind: 'image', path, silent, thumbnail: surfaceThumbnailPngBytes(surface)},
+          false
+        );
       } else if (silent) {
         // Stayed open with no dialog shown — confirm with an in-window toast.
-        this.showToast(_('Saved %s').replace('%s', GLib.path_get_basename(path)));
+        this.showToast(savedMessage(path));
       }
       // Dialog save without autoclose: the file dialog itself was the feedback.
     }
@@ -1420,18 +1634,7 @@ export const AnnoscrWindow = GObject.registerClass(
     // letterboxed thumbnail (as the screenshot portal shows one); a raw
     // FileIcon would be distorted by GNOME's square icon slot just like a
     // copy's bytes.
-    private sendExportNotification(opts: {
-      title: string;
-      body?: string;
-      // A saved file: clicking the notification reopens it in Annoscr; with
-      // showInFiles, a button also reveals it in the file manager.
-      openPath?: string;
-      showInFiles?: boolean;
-      // A clipboard copy: clicking the notification opens the copied image.
-      pasteOnClick?: boolean;
-      // The square thumbnail bytes for the notification icon.
-      thumbnailBytes?: GLib.Bytes;
-    }): void {
+    private sendExportNotification(opts: CloseNotification): void {
       const app = this.get_application();
       if (!app) return;
       const notification = Gio.Notification.new(opts.title);
@@ -1456,13 +1659,27 @@ export const AnnoscrWindow = GObject.registerClass(
       app.send_notification('annoscr-export', notification);
     }
 
-    // Close the window after an autoclose export, keeping the process alive
-    // briefly so the notification's async delivery completes before the app
-    // exits.
-    private closeAfterExport(skipConfirm: boolean): void {
+    // Close the window after an autoclose export. Save mode writes the
+    // annotation file first and sends one notification for both. Otherwise the
+    // export's notification is sent, and the close applies the Unsaved changes
+    // preference unless `skipAsk`.
+    private closeAfterExport(cause: ExportCause, skipAsk: boolean): void {
+      if (this.unsavedAction() === 'save') {
+        this.closeAfterAutoSave(cause);
+        return;
+      }
+      if (skipAsk) this.closeApproved = true;
+      this.closeWithNotification(closeNotification(cause, null));
+    }
+
+    // Close the window. After sending a notification, the process keeps
+    // running briefly so the notification's async delivery completes before
+    // the app exits; a copy's clipboard data is read from the process in that
+    // time as well.
+    private closeWithNotification(notification: CloseNotification | null): void {
       const app = this.get_application();
-      if (skipConfirm) this.skipCloseConfirm = true;
-      if (app) {
+      if (notification && app) {
+        this.sendExportNotification(notification);
         app.hold();
         GLib.timeout_add(GLib.PRIORITY_DEFAULT, NOTIFY_GRACE_MS, () => {
           app.release();
@@ -1577,28 +1794,15 @@ export const AnnoscrWindow = GObject.registerClass(
         if (!path) return;
         if (!path.toLowerCase().endsWith(DOC_EXTENSION)) path += DOC_EXTENSION;
 
+        const sourcePath = this.currentSourcePath;
         this.enqueueExport(async () => {
-          try {
-            const data = await serializeDocument(snapshot.surface, snapshot.actions);
-            await writeFileBytes(Gio.File.new_for_path(path), data);
-          } catch (e) {
-            console.warn('save annotation file failed', e);
-            this.showToast(_('Could not save annotation file'));
-            return;
-          }
-          // Track the saved path so a later re-save offers it (Save-As
-          // behavior: saving to a new name switches the working document to
-          // that name), unless another document was loaded during the save.
-          if (this.canvas.markClean(snapshot.state)) this.currentDocPath = path;
-          this.recordSaved(path, 'document');
+          await this.writeDocument(snapshot, path, sourcePath);
         });
       });
     }
 
     private openDocumentDialog(): void {
-      confirmDiscard(this, _('Opening an annotation file'), this.canvas.isDirty(), () =>
-        this.openDocumentDialogUnchecked()
-      );
+      this.guardUnsaved(_('Opening an annotation file'), () => this.openDocumentDialogUnchecked());
     }
 
     private openDocumentDialogUnchecked(): void {
@@ -1656,17 +1860,14 @@ export const AnnoscrWindow = GObject.registerClass(
           return;
         }
         if (this.closed) return;
-        if (getSettings().closeAfterImageCopy) {
-          // Clicking the notification reopens the copied image from the
-          // clipboard. A copy doesn't mark the canvas saved, so skip the
-          // discard prompt on close (the prefs info text warns of this),
-          // unless the canvas was edited while the copy was encoding.
-          this.sendExportNotification({
-            title: _('Image copied to clipboard'),
-            pasteOnClick: true,
-            thumbnailBytes: surfaceThumbnailPngBytes(snapshot.surface),
-          });
-          this.closeAfterExport(this.canvas.isCurrentState(snapshot.state));
+        if (getSettings().closeAfterImageCopy && !this.autoSaving) {
+          // A copy doesn't mark the canvas saved, so the close skips the Ask
+          // prompt (the preference subtitle says so), unless the canvas was
+          // edited while the copy was encoding.
+          this.closeAfterExport(
+            {kind: 'copy', thumbnail: surfaceThumbnailPngBytes(snapshot.surface)},
+            this.canvas.isCurrentState(snapshot.state)
+          );
         } else {
           this.showToast(_('Image copied to clipboard'));
         }
@@ -1714,9 +1915,7 @@ export const AnnoscrWindow = GObject.registerClass(
     }
 
     private pasteFromClipboard(): void {
-      confirmDiscard(this, _('Pasting a new image'), this.canvas.isDirty(), () =>
-        this.pasteFromClipboardUnchecked()
-      );
+      this.guardUnsaved(_('Pasting a new image'), () => this.pasteFromClipboardUnchecked());
     }
 
     private pasteFromClipboardUnchecked(): void {
@@ -1724,8 +1923,8 @@ export const AnnoscrWindow = GObject.registerClass(
         (pixbuf) => this.setImage(loadFromPixbuf(pixbuf)),
         (files) => {
           // A copied file can be an annotation file as well as an image, so
-          // it's routed like a drop. No discard guard here: pasteFromClipboard
-          // already ran it.
+          // it's routed like a drop. No unsaved-changes guard here:
+          // pasteFromClipboard already ran it.
           const file = files[0];
           if (this.isDocumentFile(file)) this.openDocumentFile(file);
           else this.openFile(file);

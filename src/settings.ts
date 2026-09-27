@@ -36,6 +36,10 @@ export type StyleBarPosition = 'top' | 'bottom' | 'left' | 'right';
 // / canvas-resize snapshots retain; see CanvasView's surface cap).
 export type UndoMemory = 'low' | 'normal' | 'high' | 'unlimited';
 
+// What closing or replacing a canvas with unsaved changes does: ask first,
+// write an annotation file first, or discard the changes.
+export type UnsavedChanges = 'ask' | 'save' | 'discard';
+
 // The byte budget a preset stands for; null = no budget. The mapping is
 // defined here so Preferences (labels) and the window (applying it to the
 // canvas) can't diverge.
@@ -94,7 +98,7 @@ export interface AnnoscrSettings {
   // Save images straight to the default folder with an auto-generated name,
   // skipping the file dialog. "Save image as…" still opens the dialog.
   saveWithoutDialog: boolean;
-  confirmDiscard: boolean;
+  unsavedChanges: UnsavedChanges;
   // After placing an annotation, switch to the select tool with the new item
   // selected (so it's immediately editable/resizable/rotatable). Off keeps the
   // current tool for rapid repeated placement.
@@ -102,8 +106,9 @@ export interface AnnoscrSettings {
   // Close the window after exporting an image (PNG/JPEG). Does not apply to
   // saving an annotation (.annoscr) file.
   closeAfterImageSave: boolean;
-  // Close the window after copying the image to the clipboard. Because a copy
-  // doesn't mark the canvas saved, auto-closing skips the discard prompt.
+  // Close the window after copying the image to the clipboard. A copy doesn't
+  // mark the canvas saved, so the close does not show the Ask dialog; Save
+  // mode still writes the annotation file first.
   closeAfterImageCopy: boolean;
   undoMemory: UndoMemory;
   // Remember files opened from disk (images, annotation files, and captured
@@ -135,7 +140,7 @@ const DEFAULTS: AnnoscrSettings = {
   defaultSaveFolder: '',
   defaultSaveFormat: 'png',
   saveWithoutDialog: false,
-  confirmDiscard: true,
+  unsavedChanges: 'ask',
   selectAfterPlacement: true,
   closeAfterImageSave: false,
   closeAfterImageCopy: false,
@@ -196,6 +201,10 @@ function asUndoMemory(v: unknown): UndoMemory {
   return v === 'low' || v === 'normal' || v === 'high' || v === 'unlimited'
     ? v
     : DEFAULTS.undoMemory;
+}
+
+function asUnsavedChanges(v: unknown): UnsavedChanges | undefined {
+  return v === 'ask' || v === 'save' || v === 'discard' ? v : undefined;
 }
 
 function asFormat(v: unknown): ImageFormat {
@@ -268,7 +277,10 @@ function sanitize(raw: unknown): AnnoscrSettings {
     defaultSaveFolder: asString(raw.defaultSaveFolder) ?? DEFAULTS.defaultSaveFolder,
     defaultSaveFormat: asFormat(raw.defaultSaveFormat),
     saveWithoutDialog: asBool(raw.saveWithoutDialog) ?? DEFAULTS.saveWithoutDialog,
-    confirmDiscard: asBool(raw.confirmDiscard) ?? DEFAULTS.confirmDiscard,
+    // confirmDiscard is the switch this setting replaced; off meant discard.
+    unsavedChanges:
+      asUnsavedChanges(raw.unsavedChanges) ??
+      (asBool(raw.confirmDiscard) === false ? 'discard' : DEFAULTS.unsavedChanges),
     selectAfterPlacement: asBool(raw.selectAfterPlacement) ?? DEFAULTS.selectAfterPlacement,
     closeAfterImageSave: asBool(raw.closeAfterImageSave) ?? DEFAULTS.closeAfterImageSave,
     closeAfterImageCopy: asBool(raw.closeAfterImageCopy) ?? DEFAULTS.closeAfterImageCopy,
