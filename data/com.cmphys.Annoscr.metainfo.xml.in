@@ -42,6 +42,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="2.3.0" date="2026-09-27">
+      <description its:translate="no">
+        <ul>
+          <li>In Preferences, the "Confirm before discarding unsaved changes" switch is replaced by Unsaved changes, with three choices: Ask, Save annotation file, or Discard. It applies when the window closes and when opening, pasting, capturing, or creating a canvas replaces the current one. The switch's setting is kept: on becomes Ask, and off becomes Discard.</li>
+          <li>With Save annotation file, the changes are saved over the annotation file that was opened or last saved, or else to a new file in the default save folder, named after the opened image. Exporting an image or copying to the clipboard does not count as this save. If the save fails, an error is shown, followed by the "Discard changes?" dialog.</li>
+          <li>When the window closes after such a save, a notification names the annotation file. With "Close after saving an image" or "Close after copying to the clipboard" on, a single notification reports both the image and the annotation file.</li>
+          <li>An annotation file saved from an image in the recent files strip, automatically or from the primary menu, replaces that image's entry at the same position instead of being added at the front.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.2.0" date="2026-09-20">
       <description its:translate="no">
         <ul>

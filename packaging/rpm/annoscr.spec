@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        2.2.0
+Version:        2.3.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -83,6 +83,11 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Sun Sep 27 2026 Matt Mower <mdmower@cmphys.com> - 2.3.0-1
+- In Preferences, the "Confirm before discarding unsaved changes" switch is replaced by Unsaved changes, with three choices: Ask, Save annotation file, or Discard. It applies when the window closes and when opening, pasting, capturing, or creating a canvas replaces the current one. The switch's setting is kept: on becomes Ask, and off becomes Discard.
+- With Save annotation file, the changes are saved over the annotation file that was opened or last saved, or else to a new file in the default save folder, named after the opened image. Exporting an image or copying to the clipboard does not count as this save. If the save fails, an error is shown, followed by the "Discard changes?" dialog.
+- When the window closes after such a save, a notification names the annotation file. With "Close after saving an image" or "Close after copying to the clipboard" on, a single notification reports both the image and the annotation file.
+- An annotation file saved from an image in the recent files strip, automatically or from the primary menu, replaces that image's entry at the same position instead of being added at the front.
 * Sun Sep 20 2026 Matt Mower <mdmower@cmphys.com> - 2.2.0-1
 - An arrow's head and its tail are set separately, and each can be nothing, wings, or filled. Every combination is allowed, so an arrow can point both ways or neither. Arrows in existing files keep the heads they were saved with.
 - Annoscr now requires GNOME 48 or newer: Debian 13, Ubuntu 26.04, Fedora 43, or current Arch. Two calls it already made need GTK 4.18 and libadwaita 1.6, so the minimums it declared before were too low.

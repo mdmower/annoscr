@@ -1,3 +1,25 @@
+annoscr (2.3.0) unstable; urgency=medium
+
+  * In Preferences, the "Confirm before discarding unsaved changes" switch
+    is replaced by Unsaved changes, with three choices: Ask, Save annotation
+    file, or Discard. It applies when the window closes and when opening,
+    pasting, capturing, or creating a canvas replaces the current one. The
+    switch's setting is kept: on becomes Ask, and off becomes Discard.
+  * With Save annotation file, the changes are saved over the annotation
+    file that was opened or last saved, or else to a new file in the default
+    save folder, named after the opened image. Exporting an image or copying
+    to the clipboard does not count as this save. If the save fails, an
+    error is shown, followed by the "Discard changes?" dialog.
+  * When the window closes after such a save, a notification names the
+    annotation file. With "Close after saving an image" or "Close after
+    copying to the clipboard" on, a single notification reports both the
+    image and the annotation file.
+  * An annotation file saved from an image in the recent files strip,
+    automatically or from the primary menu, replaces that image's entry at
+    the same position instead of being added at the front.
+
+ -- Matt Mower <mdmower@cmphys.com>  Sun, 27 Sep 2026 16:30:00 -0700
+
 annoscr (2.2.0) unstable; urgency=medium
 
   * An arrow's head and its tail are set separately, and each can be
