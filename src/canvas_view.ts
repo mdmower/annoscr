@@ -73,6 +73,7 @@ import type {
   TextStyle,
 } from './actions.js';
 import {ResampleCache} from './resample_cache.js';
+import {BlurCache, paintBlur} from './blur.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
 import {announce, setAccessibleDescription, setAccessibleLabel} from './a11y.js';
 import {TOOLS} from './window_constants.js';
@@ -488,6 +489,9 @@ export const CanvasView = GObject.registerClass(
     // Index of an action currently being re-edited; hidden from render
     // (the live editor widget shows in its place).
     private editingActionIndex: number = -1;
+    // The re-edited box shape drawn without its text, kept across paints so
+    // the blur cache sees the same object while the edit lasts.
+    private editedBox: {source: Action; box: Action | null} | null = null;
 
     // One-press latch: set when a press is consumed by committing an open
     // text editor — a click-away from a re-edit, or a text-tool click-away
@@ -656,6 +660,8 @@ export const CanvasView = GObject.registerClass(
 
     // Resampled copies of the shrunk base image and image items for painting.
     private resampleCache = new ResampleCache(() => this.queue_draw());
+    // Blurred backdrops of the shapes with Blur on.
+    private blurCache = new BlurCache();
 
     // The history state the last image insert pushed, and the center of the
     // last item it placed. A further insert while that state is still current
@@ -1903,6 +1909,17 @@ export const CanvasView = GObject.registerClass(
         (a, v) => a.withTailWidth(v),
         width,
         'tailWidth',
+        () => {}
+      );
+    }
+
+    // Blur is a per-shape choice with no tool default, like the callout tail.
+    replaceSelectedBlur(sigma: number): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getBlur(),
+        (a, v) => a.withBlur(v),
+        sigma,
+        'blur',
         () => {}
       );
     }
@@ -3911,6 +3928,33 @@ export const CanvasView = GObject.registerClass(
       return this.nativeSurface?.get_scale() ?? this.get_scale_factor();
     }
 
+    // The actions as a paint draws them, bottom to top, with the offset a
+    // dragged selection is drawn at. The re-edited action is hidden so the live
+    // editor replaces it, except that a box shape keeps its outline and fill
+    // (only its text is hidden) so the box being labelled doesn't disappear. A
+    // resize or rotate draws its preview in the stored action's place.
+    private drawnLayers(
+      acts: ReadonlyArray<Action>
+    ): Array<{action: Action; dx: number; dy: number}> {
+      const sole = this.soleSelectedIndex();
+      const layers: Array<{action: Action; dx: number; dy: number}> = [];
+      for (let i = 0; i < acts.length; i++) {
+        if (i === this.editingActionIndex) {
+          if (this.editedBox?.source !== acts[i]) {
+            this.editedBox = {source: acts[i], box: shapeWithoutText(acts[i])};
+          }
+          if (this.editedBox.box) layers.push({action: this.editedBox.box, dx: 0, dy: 0});
+        } else if ((this.actionGrab || this.rotateGrab) && this.actionPreview && i === sole) {
+          layers.push({action: this.actionPreview, dx: 0, dy: 0});
+        } else if (this.moving && this.selectedIndices.has(i)) {
+          layers.push({action: acts[i], dx: this.moveDx, dy: this.moveDy});
+        } else {
+          layers.push({action: acts[i], dx: 0, dy: 0});
+        }
+      }
+      return layers;
+    }
+
     private onDraw(
       _widget: Gtk.DrawingArea,
       cr: Cairo.Context,
@@ -3956,29 +4000,28 @@ export const CanvasView = GObject.registerClass(
       });
 
       const acts = this.state.actions;
-      const sole = this.soleSelectedIndex();
-      for (let i = 0; i < acts.length; i++) {
-        if (i === this.editingActionIndex) {
-          // The edited action is hidden so the live editor replaces it. A box
-          // shape, though, keeps its outline/fill drawn (only its text is
-          // hidden) so the box being labelled doesn't disappear.
-          const box = shapeWithoutText(acts[i]);
-          if (box) box.draw(cr, t.scale);
-          continue;
+      const layers = this.drawnLayers(acts);
+      // The layers with their move offsets applied, for blurring what lies
+      // beneath a shape; built only when one blurs.
+      let blurLayers: Action[] | null = null;
+      for (let k = 0; k < layers.length; k++) {
+        const {action, dx, dy} = layers[k];
+        if ((action.getBlur() ?? 0) > 0) {
+          blurLayers ??= layers.map((l) =>
+            l.dx !== 0 || l.dy !== 0 ? l.action.translate(l.dx, l.dy) : l.action
+          );
+          paintBlur(cr, s, blurLayers, k, this.blurCache, getCheckerPattern());
         }
-        if ((this.actionGrab || this.rotateGrab) && this.actionPreview && i === sole) {
-          // Mid-reshape (resize or rotate): render the preview in the stored
-          // action's place.
-          this.actionPreview.draw(cr, t.scale, resample, ds);
-        } else if (this.moving && this.selectedIndices.has(i)) {
+        if (dx !== 0 || dy !== 0) {
           cr.save();
-          cr.translate(this.moveDx, this.moveDy);
-          acts[i].draw(cr, t.scale, resample, ds);
+          cr.translate(dx, dy);
+          action.draw(cr, t.scale, resample, ds);
           cr.restore();
         } else {
-          acts[i].draw(cr, t.scale, resample, ds);
+          action.draw(cr, t.scale, resample, ds);
         }
       }
+      this.blurCache.sweep();
       this.resampleCache.endPaint();
       if (this.liveStroke) this.liveStroke.draw(cr, t.scale);
 

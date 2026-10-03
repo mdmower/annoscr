@@ -159,6 +159,12 @@ export interface Action {
   // (centered where the line from the box center to the tip crosses the
   // outline), or unchanged when there's no tail or the base already is.
   withAutoTailBase(): Action;
+  // The blur the box shape applies to what's drawn beneath it, inside its
+  // outline, as a Gaussian standard deviation in image px (0 = none), or null
+  // for actions that can't blur (only rect / oval can). Like the callout tail,
+  // there's no per-tool default: new shapes start unblurred.
+  getBlur(): number | null;
+  withBlur(sigma: number): Action;
   // Whether the segment is bent into a curve, or null for actions that can't be
   // (only line / arrow can). Like the callout tail this is presence-only: the
   // bend itself is geometry dragged via the 'curve' handle, with no per-tool
@@ -860,6 +866,7 @@ interface SerializedBoxData {
   rotation: number;
   text?: SerializedShapeText; // omitted when the box has no text
   tail?: TailOffset; // omitted when the box has no callout tail
+  blur?: number; // Gaussian standard deviation in image px; omitted when the box doesn't blur
 }
 
 export interface SerializedRect extends SerializedEndpoints, SerializedBoxData {
@@ -1007,6 +1014,12 @@ abstract class BaseAction implements Action {
     return this;
   }
   withAutoTailBase(): Action {
+    return this;
+  }
+  getBlur(): number | null {
+    return null;
+  }
+  withBlur(_sigma: number): Action {
     return this;
   }
   getCurve(): boolean | null {
@@ -2514,7 +2527,9 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     protected readonly text: ShapeText = EMPTY_SHAPE_TEXT,
     // Optional callout tail (tip offset from center, local frame); see
     // TailOffset. Defaults to none, like text.
-    protected readonly tail: TailOffset | null = null
+    protected readonly tail: TailOffset | null = null,
+    // The blur's standard deviation in image px, 0 for none.
+    protected readonly blur: number = 0
   ) {
     super(x1, y1, x2, y2, style);
   }
@@ -2543,7 +2558,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     fill: ColorRGBA,
     rotation: number,
     text: ShapeText,
-    tail: TailOffset | null
+    tail: TailOffset | null,
+    blur: number
   ): Action;
 
   private center(): [number, number] {
@@ -2554,7 +2570,9 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     return [Math.abs(this.x2 - this.x1) / 2, Math.abs(this.y2 - this.y1) / 2];
   }
 
-  draw(cr: Cairo.Context, _scale: number): void {
+  // Append the outline (box and any drawable tail) to the current path, in
+  // image space. Nothing is appended for a zero-size box.
+  appendOutline(cr: Cairo.Context): void {
     const [cx, cy] = this.center();
     const [hW, hH] = this.halfExtents();
     if (hW <= 0 || hH <= 0) return;
@@ -2563,6 +2581,13 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     if (this.rotation !== 0) cr.rotate(this.rotation);
     this.buildPath(cr, hW, hH);
     cr.restore();
+  }
+
+  draw(cr: Cairo.Context, _scale: number): void {
+    const [cx, cy] = this.center();
+    const [hW, hH] = this.halfExtents();
+    if (hW <= 0 || hH <= 0) return;
+    this.appendOutline(cr);
     if (this.fill[3] > 0) {
       const [fr, fg, fb, fa] = this.fill;
       cr.setSourceRGBA(fr, fg, fb, fa);
@@ -2598,12 +2623,23 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   }
 
   protected rebuild(x1: number, y1: number, x2: number, y2: number, style: Style): Action {
-    return this.make(x1, y1, x2, y2, style, this.fill, this.rotation, this.text, this.tail);
+    return this.make(
+      x1,
+      y1,
+      x2,
+      y2,
+      style,
+      this.fill,
+      this.rotation,
+      this.text,
+      this.tail,
+      this.blur
+    );
   }
 
   // Extends the base with the box's own image-space state: the embedded text's
-  // font size and the callout tail's tip offset (local frame, so a uniform
-  // scale is a plain multiply).
+  // font size, the callout tail's tip offset (local frame, so a uniform scale
+  // is a plain multiply), and the blur.
   scaleOnImage(factor: number): Action {
     return this.make(
       this.x1 * factor,
@@ -2614,7 +2650,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.fill,
       this.rotation,
       {...this.text, style: {...this.text.style, size: this.text.style.size * factor}},
-      this.tail && scaleTail(this.tail, factor)
+      this.tail && scaleTail(this.tail, factor),
+      this.blur * factor
     );
   }
 
@@ -2704,7 +2741,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.fill,
       normalizeAngle(this.rotation + dr),
       this.text,
-      this.tail
+      this.tail,
+      this.blur
     );
   }
 
@@ -2722,7 +2760,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       fill,
       this.rotation,
       this.text,
-      this.tail
+      this.tail,
+      this.blur
     );
   }
 
@@ -2740,7 +2779,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.fill,
       normalizeAngle(rotation),
       this.text,
-      this.tail
+      this.tail,
+      this.blur
     );
   }
 
@@ -2784,7 +2824,30 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.fill,
       this.rotation,
       this.text,
-      tail
+      tail,
+      this.blur
+    );
+  }
+
+  // ---- Blur ----
+
+  getBlur(): number {
+    return this.blur;
+  }
+
+  withBlur(sigma: number): Action {
+    if (sigma === this.blur) return this;
+    return this.make(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      this.style,
+      this.fill,
+      this.rotation,
+      this.text,
+      this.tail,
+      Math.max(0, sigma)
     );
   }
 
@@ -2810,7 +2873,8 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.fill,
       this.rotation,
       {markup, style},
-      this.tail
+      this.tail,
+      this.blur
     );
   }
 
@@ -2930,11 +2994,23 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     // The tail's center offset is kept, so resizing moves the tip with the box
     // (and can move it inside the shape — the triangle then hides until the tip
     // is dragged back out).
-    return this.make(x1, y1, x2, y2, this.style, this.fill, this.rotation, this.text, this.tail);
+    return this.make(
+      x1,
+      y1,
+      x2,
+      y2,
+      this.style,
+      this.fill,
+      this.rotation,
+      this.text,
+      this.tail,
+      this.blur
+    );
   }
 
   // Shared serialized box fields (fill, rotation, and embedded text / callout
-  // tail when present); subclasses prepend their type tag and any extra state.
+  // tail / blur when present); subclasses prepend their type tag and any extra
+  // state.
   protected boxData(): SerializedBoxData {
     const data: SerializedBoxData = {
       fill: this.fill,
@@ -2944,6 +3020,7 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       data.text = {markup: this.text.markup, style: {...this.text.style}};
     }
     if (this.tail) data.tail = {...this.tail};
+    if (this.blur > 0) data.blur = this.blur;
     return data;
   }
 }
@@ -3239,9 +3316,10 @@ class RectAction extends RotatableBoxAction {
     rotation: number = 0,
     text: ShapeText = EMPTY_SHAPE_TEXT,
     private readonly cornerRadius: number = 0,
-    tail: TailOffset | null = null
+    tail: TailOffset | null = null,
+    blur: number = 0
   ) {
-    super(x1, y1, x2, y2, style, fill, rotation, text, tail);
+    super(x1, y1, x2, y2, style, fill, rotation, text, tail, blur);
   }
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
@@ -3280,9 +3358,22 @@ class RectAction extends RotatableBoxAction {
     fill: ColorRGBA,
     rotation: number,
     text: ShapeText,
-    tail: TailOffset | null
+    tail: TailOffset | null,
+    blur: number
   ): Action {
-    return new RectAction(x1, y1, x2, y2, style, fill, rotation, text, this.cornerRadius, tail);
+    return new RectAction(
+      x1,
+      y1,
+      x2,
+      y2,
+      style,
+      fill,
+      rotation,
+      text,
+      this.cornerRadius,
+      tail,
+      blur
+    );
   }
 
   // make() preserves the radius, so the base's scale has to reapply it scaled.
@@ -3305,7 +3396,8 @@ class RectAction extends RotatableBoxAction {
       this.rotation,
       this.text,
       radius,
-      this.tail
+      this.tail,
+      this.blur
     );
   }
 
@@ -3361,9 +3453,10 @@ class OvalAction extends RotatableBoxAction {
     fill: ColorRGBA,
     rotation: number = 0,
     text: ShapeText = EMPTY_SHAPE_TEXT,
-    tail: TailOffset | null = null
+    tail: TailOffset | null = null,
+    blur: number = 0
   ) {
-    super(x1, y1, x2, y2, style, fill, rotation, text, tail);
+    super(x1, y1, x2, y2, style, fill, rotation, text, tail, blur);
   }
 
   protected buildPath(cr: Cairo.Context, halfW: number, halfH: number): void {
@@ -3415,9 +3508,10 @@ class OvalAction extends RotatableBoxAction {
     fill: ColorRGBA,
     rotation: number,
     text: ShapeText,
-    tail: TailOffset | null
+    tail: TailOffset | null,
+    blur: number
   ): Action {
-    return new OvalAction(x1, y1, x2, y2, style, fill, rotation, text, tail);
+    return new OvalAction(x1, y1, x2, y2, style, fill, rotation, text, tail, blur);
   }
 
   serialize(): SerializedAction {
@@ -3442,6 +3536,22 @@ class OvalLiveStroke extends EndpointLiveStroke {
   protected build(): Action {
     return new OvalAction(this.x1, this.y1, this.endX, this.endY, this.style, this.fill);
   }
+}
+
+// What a renderer needs to blur what's beneath a box shape: the blur's
+// standard deviation in image px, and the outline that confines it.
+export interface BlurShape {
+  sigma: number;
+  bounds: Bounds;
+  appendOutline(cr: Cairo.Context): void;
+}
+
+// The blur a box shape applies to what's beneath it, or null for none.
+export function blurShape(action: Action): BlurShape | null {
+  if (!(action instanceof RotatableBoxAction)) return null;
+  const sigma = action.getBlur();
+  if (sigma <= 0) return null;
+  return {sigma, bounds: action.getBounds(), appendOutline: (cr) => action.appendOutline(cr)};
 }
 
 // Whether the action is a box shape (rect / oval) that can hold centered text.
@@ -4142,7 +4252,8 @@ function deserializeAction(
         normalizeAngle(data.rotation),
         deserializeShapeText(data.text),
         data.cornerRadius,
-        data.tail ?? null
+        data.tail ?? null,
+        data.blur ?? 0
       );
     case 'oval':
       return new OvalAction(
@@ -4154,7 +4265,8 @@ function deserializeAction(
         data.fill,
         normalizeAngle(data.rotation),
         deserializeShapeText(data.text),
-        data.tail ?? null
+        data.tail ?? null,
+        data.blur ?? 0
       );
     case 'text':
       return new TextAction(

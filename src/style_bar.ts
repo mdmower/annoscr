@@ -118,6 +118,15 @@ const WIDTH_PREVIEW_PX = 44;
 // by eye.
 const FONT_BUTTON_MAX_CHARS = 22;
 
+// The Blur slider runs 0..100 (0 = no blur) and sets a standard deviation that
+// grows with the square of the position, so the low strengths that obscure
+// small text get most of the travel. The far right is a fraction of the
+// image's longer side, so a position covers the same text sizes on a 1x or a
+// 2x screenshot and after Scale image; the floor keeps a small image's range
+// usable. A stored blur past the far right shows there unchanged.
+const BLUR_SLIDER_FRACTION = 0.08;
+const BLUR_SLIDER_FLOOR = 32;
+
 // A dropdown factory whose label ellipsizes. An unellipsized label's minimum
 // width is its full text, so a selected long font family would force the
 // fixed-width dock wider (DOCK_WIDTH is only a floor). Ellipsize is a
@@ -202,6 +211,11 @@ export class StyleBar {
   private fillGroup!: Gtk.Box;
   private fillLabel!: Gtk.Label;
   private fillSwatchSet!: (c: ColorRGBA | null) => void;
+  // Blur slider (selected rect/oval only): blurs what's beneath the shape,
+  // inside its outline.
+  private blurGroup!: Gtk.Box;
+  private blurLabel!: Gtk.Label;
+  private blurScale!: Gtk.Scale;
   private widthSpin!: Gtk.SpinButton;
   private widthPreview!: Gtk.DrawingArea;
   private widthGroup!: Gtk.Box;
@@ -499,6 +513,25 @@ export class StyleBar {
     this.fillGroup = makeRowGroup(fillSep, this.fillLabel, fillSwatch.button);
     styleBar.append(this.fillGroup);
 
+    // Blur group (selected rect/oval only), no tool default, like Callout.
+    const blurSep = makeSep();
+    this.blurScale = new Gtk.Scale({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      adjustment: new Gtk.Adjustment({
+        lower: 0,
+        upper: 100,
+        step_increment: 1,
+        page_increment: 10,
+      }),
+      draw_value: false,
+      width_request: 120,
+      valign: Gtk.Align.CENTER,
+    });
+    this.blurScale.connect('value-changed', () => this.onBlurPicked());
+    this.blurLabel = new Gtk.Label({label: _('Blur'), css_classes: ['caption']});
+    this.blurGroup = makeStackGroup(blurSep, this.blurLabel, this.blurScale);
+    styleBar.append(this.blurGroup);
+
     // Width group
     const widthSep = makeSep();
     this.widthSpin = new Gtk.SpinButton({
@@ -751,6 +784,7 @@ export class StyleBar {
       {group: this.borderGroup, sep: borderSep},
       {group: this.colorGroup, sep: colorSep},
       {group: this.fillGroup, sep: fillSep},
+      {group: this.blurGroup, sep: blurSep},
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
       {group: this.cornerGroup, sep: cornerSep},
@@ -775,6 +809,7 @@ export class StyleBar {
     setLabelledBy(this.cornerSpin, this.cornerLabel);
     setLabelledBy(this.opacitySpin, this.opacityLabel);
     setLabelledBy(this.borderSwitch, this.borderLabel);
+    setLabelledBy(this.blurScale, this.blurLabel);
     setLabelledBy(this.tailSwitch, this.tailLabel);
     setLabelledBy(this.tailWidthSpin, this.tailWidthLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);
@@ -1134,6 +1169,15 @@ export class StyleBar {
       this.fillLabel,
       _('Fill'),
       this.selectionMixed((a) => a.getFill())
+    );
+
+    const blur = this.styleTargetBlur();
+    this.blurGroup.set_visible(blur !== null);
+    if (blur !== null) this.blurScale.set_value(this.blurPosition(blur));
+    setCaption(
+      this.blurLabel,
+      _('Blur'),
+      this.selectionMixed((a) => a.getBlur())
     );
 
     const width = this.styleTargetWidth();
@@ -1637,6 +1681,13 @@ export class StyleBar {
     return this.selectionSummary((a) => a.getTail()).value;
   }
 
+  // The selected box shapes' blur, or null to hide the slider. Select-mode
+  // only, like Callout.
+  private styleTargetBlur(): number | null {
+    if (this.editor.isActive() || this.canvas.getTool() !== 'select') return null;
+    return this.selectionSummary((a) => a.getBlur()).value;
+  }
+
   // Tail base width to display, or null to hide the control. Select-mode only,
   // like the Callout switch.
   private styleTargetTailWidth(): number | null {
@@ -1735,6 +1786,25 @@ export class StyleBar {
     if (this.updatingPicker || !this.borderSwitch) return;
     if (this.canvas.getTool() !== 'select') return;
     this.canvas.replaceSelectedBorder(this.borderSwitch.get_active());
+  }
+
+  private onBlurPicked(): void {
+    if (this.updatingPicker || !this.blurScale) return;
+    if (this.canvas.getTool() !== 'select') return;
+    const t = this.blurScale.get_value() / 100;
+    this.canvas.replaceSelectedBlur(this.blurSliderMax() * t * t);
+  }
+
+  // The blur slider position (0..100) showing `sigma`.
+  private blurPosition(sigma: number): number {
+    return Math.min(100, 100 * Math.sqrt(sigma / this.blurSliderMax()));
+  }
+
+  // The standard deviation, in image px, at the blur slider's far right.
+  private blurSliderMax(): number {
+    const dims = this.canvas.getImageDimensions();
+    const longer = dims ? Math.max(dims.w, dims.h) : 0;
+    return Math.max(BLUR_SLIDER_FRACTION * longer, BLUR_SLIDER_FLOOR);
   }
 
   private onTailPicked(): void {

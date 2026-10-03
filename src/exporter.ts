@@ -5,6 +5,7 @@ import GdkPixbuf from 'gi://GdkPixbuf?version=2.0';
 import Cairo from 'cairo';
 
 import type {Action, ColorRGBA} from './actions.js';
+import {BlurCache, paintBlur} from './blur.js';
 import {scaleSurface} from './image_transforms.js';
 
 export type ImageFormat = 'png' | 'jpeg';
@@ -42,7 +43,7 @@ export function formatFromPath(path: string): ImageFormat {
 // Composite source image + every action onto a fresh ARGB32 surface at the
 // source image's native resolution. This is what gets saved or copied. Image
 // items are cut off at the canvas edge, and a shrunk one is resampled with
-// scaleSurface.
+// scaleSurface. A blurring shape blurs what's beneath it before it's drawn.
 export function renderToSurface(
   srcSurface: Cairo.ImageSurface,
   actions: ReadonlyArray<Action>
@@ -53,8 +54,10 @@ export function renderToSurface(
   const cr = new Cairo.Context(out);
   cr.setSourceSurface(srcSurface, 0, 0);
   cr.paint();
-  for (const action of actions) {
-    action.draw(cr, 1, scaleSurface);
+  const blurs = new BlurCache();
+  for (let i = 0; i < actions.length; i++) {
+    paintBlur(cr, srcSurface, actions, i, blurs, null);
+    actions[i].draw(cr, 1, scaleSurface);
   }
   out.flush();
   return out;

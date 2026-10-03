@@ -377,16 +377,19 @@ function sanitizeSegment(raw: Record<string, unknown>, type: 'line' | 'arrow'): 
   };
 }
 
-// Rect and oval share the box fields; only the rect has a corner radius.
+// Rect and oval share the box fields; only the rect has a corner radius. The
+// blur is optional like the tail: a missing or malformed value means none.
 function sanitizeBox(raw: Record<string, unknown>, type: 'rect' | 'oval'): SerializedAction {
   const text = sanitizeShapeText(raw.text);
   const tail = sanitizeTail(raw.tail);
+  const blur = asClampedNumber(raw.blur, 0, STORED_SIZE_MAX) ?? 0;
   const box = {
     ...sanitizeEndpoints(raw, type),
     fill: asColor(raw.fill) ?? TRANSPARENT_FILL,
     rotation: asAngle(raw.rotation),
     ...(text ? {text} : {}),
     ...(tail ? {tail} : {}),
+    ...(blur > 0 ? {blur} : {}),
   };
   if (type === 'oval') return {type, ...box};
   return {type, ...box, cornerRadius: asClampedNumber(raw.cornerRadius, 0, STORED_SIZE_MAX) ?? 0};
