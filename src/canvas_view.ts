@@ -2104,12 +2104,14 @@ export const CanvasView = GObject.registerClass(
       if (index < 0 || index >= cur.length) return;
       const survivors = renumberStamps(cur.filter((_a, i) => i !== index));
       this.collapseEmptyPlacementGroup(survivors);
+      // Deselect before pushState so its notification refreshes the style bar
+      // against the empty selection.
+      if (this.editingActionIndex === index) this.editingActionIndex = -1;
+      this.selectedIndices.clear();
       this.pushState({
         surface: this.state.surface,
         actions: survivors,
       });
-      if (this.editingActionIndex === index) this.editingActionIndex = -1;
-      this.selectedIndices.clear();
       // Removal shifted every index above it; re-derive the cached hover
       // candidate or it would outline (and Space-select) whichever action now
       // has the old index (see reorderSelected).
@@ -2127,11 +2129,11 @@ export const CanvasView = GObject.registerClass(
       const survivors = renumberStamps(cur.filter((_a, i) => !sel.has(i)));
       this.collapseEmptyPlacementGroup(survivors);
       const removed = cur.length - survivors.length;
+      this.selectedIndices.clear();
       this.pushState({
         surface: this.state.surface,
         actions: survivors,
       });
-      this.selectedIndices.clear();
       // Deletion shifted the indices above the removed actions; re-derive the
       // cached hover candidate (see reorderSelected).
       this.refreshHoverCandidate();
@@ -2248,14 +2250,14 @@ export const CanvasView = GObject.registerClass(
       const s = this.state.surface;
       if (!rect || !s) return false;
       const fill = this.getToolFill('resize') ?? TRANSPARENT_FILL;
-      this.pushState({
-        surface: resizeSurface(s, rect.x, rect.y, rect.w, rect.h, fill),
-        actions: this.state.actions.map((a) => a.translate(-rect.x, -rect.y)),
-      });
       this.resizeRegion = null;
       this.liveStroke = null;
       this.selectedIndices.clear();
       this.editingActionIndex = -1;
+      this.pushState({
+        surface: resizeSurface(s, rect.x, rect.y, rect.w, rect.h, fill),
+        actions: this.state.actions.map((a) => a.translate(-rect.x, -rect.y)),
+      });
       this.queue_draw();
       return true;
     }
@@ -2272,13 +2274,13 @@ export const CanvasView = GObject.registerClass(
       if (!s) return;
       const oldW = s.getWidth();
       const oldH = s.getHeight();
+      this.liveStroke = null;
+      this.selectedIndices.clear();
+      this.editingActionIndex = -1;
       this.pushState({
         surface: rotateSurface(s, direction),
         actions: this.state.actions.map((a) => a.rotateOnImage(direction, oldW, oldH)),
       });
-      this.liveStroke = null;
-      this.selectedIndices.clear();
-      this.editingActionIndex = -1;
       // The actions moved with the image, so the cached candidate index now
       // points at a different on-screen spot than the (motionless) pointer.
       // Re-derive it from what's actually under the cursor in the rotated
@@ -2299,13 +2301,13 @@ export const CanvasView = GObject.registerClass(
       const w = Math.max(1, Math.round(s.getWidth() * factor));
       const h = Math.max(1, Math.round(s.getHeight() * factor));
       if (w === s.getWidth() && h === s.getHeight()) return;
+      this.liveStroke = null;
+      this.selectedIndices.clear();
+      this.editingActionIndex = -1;
       this.pushState({
         surface: scaleSurface(s, w, h),
         actions: this.state.actions.map((a) => a.scaleOnImage(factor)),
       });
-      this.liveStroke = null;
-      this.selectedIndices.clear();
-      this.editingActionIndex = -1;
       // The actions moved with the image, so the cached candidate index refers
       // to a different position on screen than the (motionless) pointer.
       this.refreshHoverCandidate();
