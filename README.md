@@ -35,7 +35,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Image items**: place more images on the canvas, for example two screenshots side by side for a before/after comparison, and annotate them together. Paste with Ctrl+Shift+V, drop image files on the window, or choose Insert image file from the primary menu. An item keeps its proportions when resized (hold Shift to stretch it), can be rotated and made translucent, and keeps its full resolution however small it is drawn. Parts of an item outside the canvas are left out of the exported image.
 
-- **Callouts**: turn on the Callout switch for a selected rectangle or oval to add a pointer tail to its border, then drag the tail's tip to point it at whatever the box is describing. Combined with a text label, the shape becomes a speech bubble; the tail follows the shape's fill, line style, and rotation.
+- **Callouts**: turn on the Callout switch for a selected rectangle or oval to add a pointer tail to its border, then drag the tail's tip to point it at whatever the box is describing. The round handle beside the base moves where the tail joins the border, and Tail width sets how wide it is there. Combined with a text label, the shape becomes a speech bubble; the tail follows the shape's fill, line style, and rotation.
 
 - **Number stamps**: numbered or lettered per group. Pick or reassign a stamp's group from the style bar, start a new group, and select a stamp to quickly identify all others in the group (if multiple groups exist). Start sets the number of the group's first stamp, shown as a number or as the matching letter when the group uses the letter variant. Letters repeat after Z, so a group of more than 26 runs A, B, C ... Z, A, B again.
 

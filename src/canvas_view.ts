@@ -213,19 +213,26 @@ const HISTORY_CAP = 100;
 const HANDLE_HIT_PX = 8;
 
 // Widget-space radius within which a dragged curve handle snaps to the straight
-// position, so a bend can be undone by hand. The action's own collapse
-// threshold is a fraction of an image pixel — exact, but far too small to hit
-// on screen, and smaller still the further out you zoom. Alt bypasses this:
-// on a long segment an apex offset of a few widget px is a real, shallow arc
-// rather than jitter, so there has to be a way to keep one.
+// position, so a bend can be undone by hand, and a dragged tail-base handle to
+// the automatic position. The actions' own thresholds are a fraction of an
+// image pixel — exact, but far too small to hit on screen, and smaller still
+// the further out you zoom. Alt bypasses this: on a long segment an apex
+// offset of a few widget px is a real, shallow arc rather than jitter, so
+// there has to be a way to keep one.
 //
 // Sized for perceptibility rather than precision. The snap gives no feedback
 // before it happens, so the only cue is the bow collapsing as the zone is
 // entered — which has to be a visible jump, not a couple of pixels
 // straightening out. Matched to the handle's own hit region (HANDLE_HIT_PX), so
-// the zone that snaps the handle straight is the same size as the zone that
-// selects it.
-const CURVE_DETENT_PX = 8;
+// the zone that snaps the handle is the same size as the zone that selects it.
+const HANDLE_DETENT_PX = 8;
+
+// Widget-space distance from the outline to a callout tail's base handle,
+// along the line from the box center. On the outline it would cover the
+// edge-midpoint resize handles; at this distance its hit region overlaps theirs
+// by a sliver the handle order gives to the resize handle, and it stays clear
+// of the rotate gizmo's when the base is at the top.
+const TAIL_BASE_HANDLE_PX = 12;
 
 // A line/arrow shorter than this on screen (widget px) hides its curve handle.
 // Each handle's hit region is 2 × HANDLE_HIT_PX wide, so on a short segment the
@@ -355,17 +362,19 @@ function handleBaseAngle(id: HandleId): number {
     case 'tr':
       return -Math.PI / 4;
     default:
-      return 0; // p1/p2/curve/tail — handled by the caller before this is reached
+      return 0; // p1/p2/curve/tail/tailBase — handled by the caller before this is reached
   }
 }
 
 // Cursor for a per-action resize handle on a box rotated by `rotation`. Box
 // handles map to one of the four directional resize cursors, snapped to the
 // handle's actual (rotated) outward direction so a tilted box gets matching
-// cursors; endpoints, the curve control point and the callout tail tip aren't
-// directional (free drag) → crosshair.
+// cursors; endpoints, the curve control point and the callout tail's tip and
+// base aren't directional (free drag) → crosshair.
 function cursorForHandle(id: HandleId, rotation: number): string {
-  if (id === 'p1' || id === 'p2' || id === 'curve' || id === 'tail') return 'crosshair';
+  if (id === 'p1' || id === 'p2' || id === 'curve' || id === 'tail' || id === 'tailBase') {
+    return 'crosshair';
+  }
   if (rotation === 0) return cursorForResizeGrab(id);
   let a = handleBaseAngle(id) + rotation;
   a = ((a % Math.PI) + Math.PI) % Math.PI; // reduce to [0, π); resize cursors are symmetric
@@ -1862,6 +1871,18 @@ export const CanvasView = GObject.registerClass(
       );
     }
 
+    // The tail base width is per-shape geometry like the tail itself, so
+    // there's no tool default to write.
+    replaceSelectedTailWidth(width: number): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getTailWidth(),
+        (a, v) => a.withTailWidth(v),
+        width,
+        'tailWidth',
+        () => {}
+      );
+    }
+
     // Opacity belongs only to image items, which no tool places, so there's no
     // tool default to write.
     replaceSelectedOpacity(opacity: number): boolean {
@@ -3122,7 +3143,7 @@ export const CanvasView = GObject.registerClass(
           if (i < 0) return;
           const action = this.state.actions[i];
           const [wxi, wyi] = this.widgetToImage(wx, wy);
-          const [ix, iy] = this.curveDetent(action, wxi, wyi, bypassDetent);
+          const [ix, iy] = this.handleDetent(action, wxi, wyi, bypassDetent);
           this.actionPreview = action.resizeByHandle(this.actionGrab, ix, iy, constrain);
           this.queue_draw();
           return;
@@ -3432,20 +3453,26 @@ export const CanvasView = GObject.registerClass(
       return null;
     }
 
-    // Snap a dragged curve handle to the straight position when the cursor is
-    // within CURVE_DETENT_PX of it, giving the drag a detent that collapses the
-    // bend; any other handle, or a held Alt, passes the cursor through
-    // unchanged. The target is read from the straightened action rather than
-    // recomputed from the endpoints, so the straight apex position is defined
-    // in exactly one place.
-    private curveDetent(action: Action, ix: number, iy: number, bypass: boolean): [number, number] {
-      if (bypass || this.actionGrab !== 'curve') return [ix, iy];
-      const target = action
-        .withCurve(false)
-        .getResizeHandles()
-        ?.find((h) => h.id === 'curve');
+    // Snap a dragged curve handle to the straight position, or a tail-base
+    // handle to the automatic one, when the cursor is within HANDLE_DETENT_PX
+    // of it, giving the drag a detent that collapses the bend or clears the
+    // set base; any other handle, or a held Alt, passes the cursor through
+    // unchanged. The target is read from the straightened or automatic action
+    // rather than recomputed here, so that position is defined in exactly one
+    // place.
+    private handleDetent(
+      action: Action,
+      ix: number,
+      iy: number,
+      bypass: boolean
+    ): [number, number] {
+      const id = this.actionGrab;
+      if (bypass || (id !== 'curve' && id !== 'tailBase')) return [ix, iy];
+      const rest = id === 'curve' ? action.withCurve(false) : action.withAutoTailBase();
+      const scale = this.currentTransform().scale;
+      const target = displayedHandles(rest, scale)?.find((h) => h.id === id);
       if (!target) return [ix, iy];
-      const tol = CURVE_DETENT_PX / this.currentTransform().scale;
+      const tol = HANDLE_DETENT_PX / scale;
       if (Math.abs(ix - target.x) > tol || Math.abs(iy - target.y) > tol) return [ix, iy];
       return [target.x, target.y];
     }
@@ -3750,7 +3777,9 @@ export const CanvasView = GObject.registerClass(
         this.actionGrab && this.actionPreview ? this.actionPreview : this.state.actions[i];
       const handles = displayedHandles(action, scale);
       if (!handles) return;
-      for (const h of handles) drawResizeHandle(cr, h.x, h.y, scale, h.id === 'curve');
+      for (const h of handles) {
+        drawResizeHandle(cr, h.x, h.y, scale, h.id === 'curve' || h.id === 'tailBase');
+      }
     }
 
     // The rotate gizmo (a connector line + round handle) for the lone selected
@@ -4093,15 +4122,28 @@ function drawSelectionBox(
 
 // The resize handles of `action` shown at `scale`: all of them, except a
 // line/arrow's curve handle when the segment is shorter on screen than
-// CURVE_HANDLE_MIN_CHORD_PX.
+// CURVE_HANDLE_MIN_CHORD_PX, with a callout tail's base handle moved
+// TAIL_BASE_HANDLE_PX out from the outline. It moves along the line from the
+// box center, which keeps the angle the action reads from the cursor, so
+// grabbing it doesn't shift the base.
 function displayedHandles(action: Action, scale: number): ResizeHandle[] | null {
   const handles = action.getResizeHandles();
   if (!handles) return null;
   const p1 = handles.find((h) => h.id === 'p1');
   const p2 = handles.find((h) => h.id === 'p2');
-  if (!p1 || !p2) return handles;
-  if (Math.hypot(p2.x - p1.x, p2.y - p1.y) * scale >= CURVE_HANDLE_MIN_CHORD_PX) return handles;
-  return handles.filter((h) => h.id !== 'curve');
+  if (p1 && p2) {
+    if (Math.hypot(p2.x - p1.x, p2.y - p1.y) * scale >= CURVE_HANDLE_MIN_CHORD_PX) return handles;
+    return handles.filter((h) => h.id !== 'curve');
+  }
+  const ob = action.getOrientedBounds();
+  if (!ob) return handles;
+  return handles.map((h) => {
+    if (h.id !== 'tailBase') return h;
+    const len = Math.hypot(h.x - ob.cx, h.y - ob.cy);
+    if (len === 0) return h;
+    const k = TAIL_BASE_HANDLE_PX / scale / len;
+    return {id: h.id, x: h.x + (h.x - ob.cx) * k, y: h.y + (h.y - ob.cy) * k};
+  });
 }
 
 // A per-action resize handle: a small white square with a blue border (same

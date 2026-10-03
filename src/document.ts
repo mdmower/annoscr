@@ -260,12 +260,20 @@ function sanitizeShapeText(v: unknown): SerializedShapeText | undefined {
 }
 
 // A box shape's callout tail is optional content on the shape, like its text:
-// malformed input drops to "no tail" rather than rejecting the shape.
+// malformed input drops to "no tail" rather than rejecting the shape. A
+// malformed base position or width drops to the automatic one.
 function sanitizeTail(v: unknown): TailOffset | undefined {
   if (!isRecord(v)) return undefined;
   if (typeof v.dx !== 'number' || !Number.isFinite(v.dx)) return undefined;
   if (typeof v.dy !== 'number' || !Number.isFinite(v.dy)) return undefined;
-  return {dx: v.dx, dy: v.dy};
+  const baseAt = typeof v.baseAt === 'number' && Number.isFinite(v.baseAt) ? v.baseAt : undefined;
+  const baseWidth = asClampedNumber(v.baseWidth, STORED_SIZE_MIN, STORED_SIZE_MAX);
+  return {
+    dx: v.dx,
+    dy: v.dy,
+    ...(baseAt !== undefined ? {baseAt} : {}),
+    ...(baseWidth !== undefined ? {baseWidth} : {}),
+  };
 }
 
 // A segment's bend is optional content like the callout tail: malformed input

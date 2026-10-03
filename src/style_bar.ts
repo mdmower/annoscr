@@ -26,6 +26,8 @@ import {
   STAMP_START_MAX,
   STAMP_START_MIN,
   StampVariant,
+  TAIL_WIDTH_MAX,
+  TAIL_WIDTH_MIN,
   TextAlign,
   WIDTH_MAX,
   WIDTH_MIN,
@@ -228,6 +230,10 @@ export class StyleBar {
   private tailGroup!: Gtk.Box;
   private tailLabel!: Gtk.Label;
   private tailSwitch!: Gtk.Switch;
+  // Callout tail base width (selected rect/oval with a tail only), image px.
+  private tailWidthGroup!: Gtk.Box;
+  private tailWidthLabel!: Gtk.Label;
+  private tailWidthSpin!: Gtk.SpinButton;
   // Group selector for the number stamp: choose the placement group (number
   // tool) or reassign the selected stamps (select tool). The model is rebuilt
   // each refresh from the canvas's live group list, with a trailing "+ New
@@ -544,6 +550,28 @@ export class StyleBar {
     this.tailGroup = makeRowGroup(tailSep, this.tailLabel, this.tailSwitch);
     styleBar.append(this.tailGroup);
 
+    // Tail width group (selected callouts only, no tool default, like the
+    // switch).
+    const tailWidthSep = makeSep();
+    this.tailWidthSpin = new Gtk.SpinButton({
+      adjustment: new Gtk.Adjustment({
+        lower: TAIL_WIDTH_MIN,
+        upper: TAIL_WIDTH_MAX,
+        step_increment: 1,
+        page_increment: 10,
+      }),
+      // One decimal, for the same reason as the width control.
+      digits: 1,
+      width_request: 76,
+      valign: Gtk.Align.CENTER,
+      xalign: 1,
+    });
+    trimSpinDisplay(this.tailWidthSpin);
+    this.tailWidthSpin.connect('value-changed', () => this.onTailWidthPicked());
+    this.tailWidthLabel = new Gtk.Label({label: _('Tail width'), css_classes: ['caption']});
+    this.tailWidthGroup = makeRowGroup(tailWidthSep, this.tailWidthLabel, this.tailWidthSpin);
+    styleBar.append(this.tailWidthGroup);
+
     // Arrow ends (arrow only) — selector index maps to an ArrowEnd via
     // ARROW_END_ORDER. Head is the end the arrow was dragged to.
     const arrowEndRows = (): string[] => [_('None'), _('Wings'), _('Filled')];
@@ -709,6 +737,7 @@ export class StyleBar {
       {group: this.cornerGroup, sep: cornerSep},
       {group: this.opacityGroup, sep: opacitySep},
       {group: this.tailGroup, sep: tailSep},
+      {group: this.tailWidthGroup, sep: tailWidthSep},
       {group: this.arrowHeadGroup, sep: arrowHeadSep},
       {group: this.arrowTailGroup, sep: arrowTailSep},
       {group: this.groupGroup, sep: groupSep},
@@ -728,6 +757,7 @@ export class StyleBar {
     setLabelledBy(this.cornerSpin, this.cornerLabel);
     setLabelledBy(this.opacitySpin, this.opacityLabel);
     setLabelledBy(this.tailSwitch, this.tailLabel);
+    setLabelledBy(this.tailWidthSpin, this.tailWidthLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);
     setLabelledBy(this.arrowHeadDropdown, this.arrowHeadLabel);
     setLabelledBy(this.arrowTailDropdown, this.arrowTailLabel);
@@ -1152,6 +1182,18 @@ export class StyleBar {
       this.selectionMixed((a) => a.getTail())
     );
 
+    const tailWidth = this.styleTargetTailWidth();
+    this.tailWidthGroup.set_visible(tailWidth !== null);
+    // Shown at the spin button's precision: an automatic width is unrounded,
+    // and GTK re-parses the displayed text on focus-out and commits it when it
+    // differs from the value, which would fix the width without an edit.
+    if (tailWidth !== null) this.tailWidthSpin.set_value(Math.round(tailWidth * 10) / 10);
+    setCaption(
+      this.tailWidthLabel,
+      _('Tail width'),
+      this.selectionMixed((a) => a.getTailWidth())
+    );
+
     this.refreshStampControls();
     this.refreshTextControls();
 
@@ -1560,6 +1602,13 @@ export class StyleBar {
     return this.selectionSummary((a) => a.getTail()).value;
   }
 
+  // Tail base width to display, or null to hide the control. Select-mode only,
+  // like the Callout switch.
+  private styleTargetTailWidth(): number | null {
+    if (this.editor.isActive() || this.canvas.getTool() !== 'select') return null;
+    return this.selectionSummary((a) => a.getTailWidth()).value;
+  }
+
   // The arrow end to display, or null when there's no applicable target (text
   // edit, or a tool/selection with no arrowhead).
   private styleTargetArrowHead(): ArrowEnd | null {
@@ -1651,6 +1700,12 @@ export class StyleBar {
     if (this.updatingPicker || !this.tailSwitch) return;
     if (this.canvas.getTool() !== 'select') return;
     this.canvas.replaceSelectedTail(this.tailSwitch.get_active());
+  }
+
+  private onTailWidthPicked(): void {
+    if (this.updatingPicker || !this.tailWidthSpin) return;
+    if (this.canvas.getTool() !== 'select') return;
+    this.canvas.replaceSelectedTailWidth(this.tailWidthSpin.get_value());
   }
 
   // Called from the color swatch's dialog on OK (with the chosen color); see

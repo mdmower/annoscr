@@ -49,11 +49,11 @@ export type RotateDirection = 'cw' | 'ccw';
 // Handle ids for per-action resize (select tool). Box handles — corners (tl/tr/
 // bl/br) and edge midpoints (t/b/l/r) — cover rect/oval/number-stamp; endpoint
 // handles (p1/p2) cover line/arrow, which also expose 'curve' to bend the
-// segment; 'tail' drags a callout tail's tip on a box shape. Free-rotate uses
-// its own gizmo on the same grab/preview code path rather than extending this
-// set.
+// segment; 'tail' drags a callout tail's tip on a box shape and 'tailBase' the
+// center of its base along the outline. Free-rotate uses its own gizmo on the
+// same grab/preview code path rather than extending this set.
 export type HandleId =
-  'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2' | 'curve' | 'tail';
+  'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | 'p1' | 'p2' | 'curve' | 'tail' | 'tailBase';
 
 // A single resize handle in image space, ready for the canvas to draw and
 // hit-test.
@@ -150,6 +150,15 @@ export interface Action {
   // this channel, and there's no per-tool default — new shapes start plain.
   getTail(): boolean | null;
   withTail(on: boolean): Action;
+  // The callout tail's base width in image px (the set width, or the automatic
+  // one for the current box size), or null without a tail. Setting it fixes the
+  // width; like the tail itself it has no per-tool default.
+  getTailWidth(): number | null;
+  withTailWidth(width: number): Action;
+  // This action with its callout tail's base back at the automatic position
+  // (centered where the line from the box center to the tip crosses the
+  // outline), or unchanged when there's no tail or the base already is.
+  withAutoTailBase(): Action;
   // Whether the segment is bent into a curve, or null for actions that can't be
   // (only line / arrow can). Like the callout tail this is presence-only: the
   // bend itself is geometry dragged via the 'curve' handle, with no per-tool
@@ -418,11 +427,17 @@ const EMPTY_SHAPE_TEXT: ShapeText = {markup: '', style: SHAPE_TEXT_STYLE};
 // Optional callout tail stored on a box shape (rect / oval): the tip's offset
 // from the box center, stored in the box's LOCAL (unrotated) frame so the tail
 // rotates with the shape and keeps its offset when the box moves or resizes.
-// Only the tip is stored — the visible triangle (base chord on the outline) is
-// derived from the box extents at draw time. Null = plain box.
+// The visible triangle (base chord on the outline) is derived from the box
+// extents at draw time. The base is automatic unless set: `baseAt` is the angle
+// its center is at in the box's normalized frame (local coordinates divided by
+// the half-extents), so a resize keeps it at the same relative place on the
+// outline and dragging the tip leaves it there; `baseWidth` is its width in
+// image px. Null = plain box.
 export interface TailOffset {
   dx: number;
   dy: number;
+  baseAt?: number;
+  baseWidth?: number;
 }
 
 // Optional bend stored on a line / arrow: the offset of the curve's own
@@ -547,20 +562,68 @@ function quadCurveTo(
 
 // The derived tail triangle in the box's local frame: the stored tip plus the
 // two base points where the tail meets the outline. Null when the tip sits
-// inside the shape (nothing to point at) — the box then draws plain, but the
-// stored tip (and its handle) is kept so the user can drag it back out.
+// inside the shape (nothing to point at) or behind the base (see
+// tipBeyondBase) — the box then draws plain, but the stored tip (and its
+// handle) is kept so the user can drag it back out.
 interface TailTriangle {
   tip: [number, number];
   b1: [number, number];
   b2: [number, number];
 }
 
-// Tail base half-width relative to the smaller box half-extent: proportional so
-// the tail looks like a pointer on any box size.
+// Automatic tail base half-width relative to the smaller box half-extent:
+// proportional so the tail looks like a pointer on any box size.
 const TAIL_BASE_RATIO = 0.3;
 
-function tailBaseHalfWidth(hW: number, hH: number): number {
-  return TAIL_BASE_RATIO * Math.min(hW, hH);
+function tailBaseHalfWidth(hW: number, hH: number, tail: TailOffset): number {
+  return tail.baseWidth !== undefined ? tail.baseWidth / 2 : TAIL_BASE_RATIO * Math.min(hW, hH);
+}
+
+// The normalized-frame angle the base is centered at: the set one, or the
+// tip's, which puts an automatic base where the line from the box center to
+// the tip crosses the outline.
+function tailBaseAngle(hW: number, hH: number, tail: TailOffset): number {
+  return tail.baseAt ?? Math.atan2(tail.dy / hH, tail.dx / hW);
+}
+
+function withoutBaseAt(tail: TailOffset): TailOffset {
+  const {baseAt: _baseAt, ...rest} = tail;
+  return rest;
+}
+
+// A dragged base whose center is within this distance (image px) of the
+// automatic position becomes automatic again, so the canvas's snap can return
+// it there (as CURVE_STRAIGHT_EPS does for a bend).
+const TAIL_BASE_AUTO_EPS = 0.5;
+
+// Shift-constraint step for dragging the base, in the normalized frame: the
+// multiples of 45° are the edge midpoints and (on a sharp rect) the corners.
+const TAIL_BASE_SNAP = Math.PI / 4;
+
+// Range of the tail-width control (image px). The outline clamps a base wider
+// than a quarter of its length, so the maximum only has to reach that on a
+// large shape.
+export const TAIL_WIDTH_MIN = 1;
+export const TAIL_WIDTH_MAX = 2000;
+
+// Whether the tip lies beyond the base chord b1-b2, on the side away from the
+// box center (the local origin). Behind it the tail's sides would cross the
+// box. A base centered on the center-to-tip line always passes.
+function tipBeyondBase(tail: TailOffset, b1: [number, number], b2: [number, number]): boolean {
+  const ex = b2[0] - b1[0];
+  const ey = b2[1] - b1[1];
+  const tipSide = ex * (tail.dy - b1[1]) - ey * (tail.dx - b1[0]);
+  const centerSide = ex * -b1[1] - ey * -b1[0];
+  return tipSide * centerSide < 0;
+}
+
+function scaleTail(tail: TailOffset, factor: number): TailOffset {
+  return {
+    ...tail,
+    dx: tail.dx * factor,
+    dy: tail.dy * factor,
+    ...(tail.baseWidth !== undefined ? {baseWidth: tail.baseWidth * factor} : {}),
+  };
 }
 
 // Default tip for a newly enabled tail: down-left of the box, past the outline
@@ -929,6 +992,15 @@ abstract class BaseAction implements Action {
     return null;
   }
   withTail(_on: boolean): Action {
+    return this;
+  }
+  getTailWidth(): number | null {
+    return null;
+  }
+  withTailWidth(_width: number): Action {
+    return this;
+  }
+  withAutoTailBase(): Action {
     return this;
   }
   getCurve(): boolean | null {
@@ -2445,6 +2517,10 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   // own outline (straight edge span vs ellipse arc).
   protected abstract tailTriangle(): TailTriangle | null;
 
+  // The center of `tail`'s base on the outline, in the local frame, whether or
+  // not the triangle is drawable.
+  protected abstract tailBaseCenter(tail: TailOffset): [number, number];
+
   // Construct a new instance of the concrete type with all state.
   protected abstract make(
     x1: number,
@@ -2526,7 +2602,7 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       this.fill,
       this.rotation,
       {...this.text, style: {...this.text.style, size: this.text.style.size * factor}},
-      this.tail && {dx: this.tail.dx * factor, dy: this.tail.dy * factor}
+      this.tail && scaleTail(this.tail, factor)
     );
   }
 
@@ -2667,7 +2743,26 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
   withTail(on: boolean): Action {
     if (on === (this.tail !== null)) return this;
     const [hW, hH] = this.halfExtents();
-    const tail = on ? defaultTail(hW, hH) : null;
+    return this.withTailOffset(on ? defaultTail(hW, hH) : null);
+  }
+
+  getTailWidth(): number | null {
+    if (!this.tail) return null;
+    const [hW, hH] = this.halfExtents();
+    return 2 * tailBaseHalfWidth(hW, hH, this.tail);
+  }
+
+  withTailWidth(width: number): Action {
+    if (!this.tail) return this;
+    return this.withTailOffset({...this.tail, baseWidth: width});
+  }
+
+  withAutoTailBase(): Action {
+    if (this.tail?.baseAt === undefined) return this;
+    return this.withTailOffset(withoutBaseAt(this.tail));
+  }
+
+  private withTailOffset(tail: TailOffset | null): Action {
     return this.make(
       this.x1,
       this.y1,
@@ -2771,7 +2866,12 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
     const [cx, cy] = this.center();
     // The tail handle is at the STORED tip (not the drawable triangle), so a
     // tip moved inside the shape by a box resize can still be dragged back out.
-    if (this.tail) local.push({id: 'tail', x: cx + this.tail.dx, y: cy + this.tail.dy});
+    // The base handle is on the outline; the canvas draws it a little outside.
+    if (this.tail) {
+      local.push({id: 'tail', x: cx + this.tail.dx, y: cy + this.tail.dy});
+      const [bx, by] = this.tailBaseCenter(this.tail);
+      local.push({id: 'tailBase', x: cx + bx, y: cy + by});
+    }
     if (this.rotation === 0) return local;
     return local.map((h) => {
       const [rx, ry] = rotateAboutPoint(h.x, h.y, cx, cy, this.rotation);
@@ -2787,17 +2887,22 @@ abstract class RotatableBoxAction extends TwoEndpointAction {
       // center, matching the line/arrow endpoint constraint.
       const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
       const [nx, ny] = constrain ? constrainAngle(cx, cy, lx, ly, ANGLE_SNAP) : [lx, ly];
-      return this.make(
-        this.x1,
-        this.y1,
-        this.x2,
-        this.y2,
-        this.style,
-        this.fill,
-        this.rotation,
-        this.text,
-        {dx: nx - cx, dy: ny - cy}
-      );
+      return this.withTailOffset({...this.tail, dx: nx - cx, dy: ny - cy});
+    }
+    if (handle === 'tailBase') {
+      const [hW, hH] = this.halfExtents();
+      if (!this.tail || hW <= 0 || hH <= 0) return this;
+      const [cx, cy] = this.center();
+      // The cursor's normalized-frame angle about the center, so the base
+      // follows the cursor around the outline.
+      const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
+      let at = Math.atan2((ly - cy) / hH, (lx - cx) / hW);
+      if (constrain) at = Math.round(at / TAIL_BASE_SNAP) * TAIL_BASE_SNAP;
+      const auto = withoutBaseAt(this.tail);
+      const placed = {...auto, baseAt: at};
+      const [ax, ay] = this.tailBaseCenter(auto);
+      const [px, py] = this.tailBaseCenter(placed);
+      return this.withTailOffset(Math.hypot(px - ax, py - ay) < TAIL_BASE_AUTO_EPS ? auto : placed);
     }
     const [x1, y1, x2, y2] = resizeOrientedBox(
       this.x1,
@@ -2929,9 +3034,10 @@ function perimeterPointAt(pieces: PerimeterPiece[], total: number, s: number): [
   return piecePointAt(pieces[0], 0);
 }
 
-// Where the center→tip ray crosses a corner arc, as an arc length within that
-// piece's range: the far intersection of the ray with the corner circle,
-// clamped onto the arc's angular span (float safety at the span boundaries).
+// Where the ray from the center along (dx, dy) crosses a corner arc, as an arc
+// length within that piece's range: the far intersection of the ray with the
+// corner circle, clamped onto the arc's angular span (float safety at the span
+// boundaries).
 function arcExitLength(p: PerimeterArc, dx: number, dy: number): number {
   const a = dx * dx + dy * dy;
   const b = -2 * (dx * p.cx + dy * p.cy);
@@ -2944,11 +3050,12 @@ function arcExitLength(p: PerimeterArc, dx: number, dy: number): number {
   return (theta - p.a1) * p.r;
 }
 
-// Arc length at which the center→tip ray exits the outline. The dominant
-// normalized component picks the AABB edge the ray leaves through; a crossing
-// beyond that edge's straight span lies on the adjacent corner arc instead
-// (unreachable when r = 0, since the span then covers the whole edge). The
-// outline is star-shaped from the center, so the crossing is unique.
+// Arc length at which the ray from the center along (dx, dy) exits the
+// outline. The dominant normalized component picks the AABB edge the ray
+// leaves through; a crossing beyond that edge's straight span lies on the
+// adjacent corner arc instead (unreachable when r = 0, since the span then
+// covers the whole edge). The outline is star-shaped from the center, so the
+// crossing is unique.
 function rayExitLength(
   pieces: PerimeterPiece[],
   starts: number[],
@@ -2979,15 +3086,45 @@ function rayExitLength(
   return atArc(xc > 0 ? 0 : 6);
 }
 
-// The tail's attachment on a rect outline: the perimeter pieces plus the exit
-// arc length and base half-width, from which the two base anchors are
-// sExit ± base. Null only when the tip is inside the shape (no orientation to
-// attach at) — any outline position is attachable, including corner arcs.
-interface RectTailAnchors {
+// The tail's base on a rect outline: the perimeter pieces plus the arc length
+// of the base center and the base half-width, from which the two base anchors
+// are sBase ± base. Any outline position is attachable, including corner arcs.
+interface RectTailBase {
   pieces: PerimeterPiece[];
   total: number;
-  sExit: number;
+  sBase: number;
   base: number;
+}
+
+function rectTailBase(
+  hW: number,
+  hH: number,
+  cornerRadius: number,
+  tail: TailOffset
+): RectTailBase {
+  const r = Math.max(0, Math.min(cornerRadius, hW, hH));
+  const pieces = roundedRectPerimeter(hW, hH, r);
+  const starts: number[] = [];
+  let total = 0;
+  for (const p of pieces) {
+    starts.push(total);
+    total += p.len;
+  }
+  // The ray at the normalized angle; for an automatic base this is the
+  // center-to-tip direction.
+  const a = tailBaseAngle(hW, hH, tail);
+  const sBase = rayExitLength(pieces, starts, hW, hH, r, hW * Math.cos(a), hH * Math.sin(a));
+  // The total/8 clamp stops an extreme aspect ratio or a wide set base from
+  // wrapping the anchors past halfway, where the outline walk would reverse.
+  const base = Math.min(tailBaseHalfWidth(hW, hH, tail), total / 8);
+  return {pieces, total, sBase, base};
+}
+
+// The drawable tail on a rect outline: its base and the two anchors, or null
+// when the tip is inside the shape or behind the base (see TailTriangle).
+interface RectTailAnchors extends RectTailBase {
+  b1: [number, number];
+  b2: [number, number];
 }
 
 function rectTailAnchors(
@@ -2996,21 +3133,12 @@ function rectTailAnchors(
   cornerRadius: number,
   tail: TailOffset
 ): RectTailAnchors | null {
-  const {dx, dy} = tail;
   const r = Math.max(0, Math.min(cornerRadius, hW, hH));
-  if (insideRoundedRect(dx, dy, hW, hH, r)) return null;
-  const pieces = roundedRectPerimeter(hW, hH, r);
-  const starts: number[] = [];
-  let total = 0;
-  for (const p of pieces) {
-    starts.push(total);
-    total += p.len;
-  }
-  const sExit = rayExitLength(pieces, starts, hW, hH, r, dx, dy);
-  // The proportional base always fits a normal outline; the total/8 clamp only
-  // stops extreme aspect ratios from wrapping the anchors past halfway.
-  const base = Math.min(tailBaseHalfWidth(hW, hH), total / 8);
-  return {pieces, total, sExit, base};
+  if (insideRoundedRect(tail.dx, tail.dy, hW, hH, r)) return null;
+  const tb = rectTailBase(hW, hH, cornerRadius, tail);
+  const b1 = perimeterPointAt(tb.pieces, tb.total, tb.sBase - tb.base);
+  const b2 = perimeterPointAt(tb.pieces, tb.total, tb.sBase + tb.base);
+  return tipBeyondBase(tail, b1, b2) ? {...tb, b1, b2} : null;
 }
 
 // Append the outline from arc length s, walking `dist` clockwise, starting
@@ -3057,23 +3185,35 @@ function emitPerimeterWalk(
 // around to the other, then out to the tip and back. One closed path, so fill
 // and (dashed) stroke treat box + tail as a single outline with clean joins.
 function calloutRectPath(cr: Cairo.Context, an: RectTailAnchors, tail: TailOffset): void {
-  emitPerimeterWalk(cr, an.pieces, an.total, an.sExit + an.base, an.total - 2 * an.base);
+  emitPerimeterWalk(cr, an.pieces, an.total, an.sBase + an.base, an.total - 2 * an.base);
   cr.lineTo(tail.dx, tail.dy);
   cr.closePath();
 }
 
 // The parameter angles of an oval tail's base chord on the unit circle (of the
-// scaled parametrization (hW·cos t, hH·sin t)), or null when the tip is inside
-// the ellipse. The chord half-angle approximates the shared base width via the
-// parametrization's local speed, clamped to stay a modest arc.
+// scaled parametrization (hW·cos t, hH·sin t)), centered on the base angle,
+// which is that parameter. The chord half-angle approximates the base width
+// via the parametrization's local speed. An automatic width is clamped to stay
+// a modest arc; a set one only to a quarter of the outline, like the rect's.
+function ovalTailSpan(hW: number, hH: number, tail: TailOffset): {t1: number; t2: number} {
+  const tc = tailBaseAngle(hW, hH, tail);
+  const speed = Math.hypot(hW * Math.sin(tc), hH * Math.cos(tc));
+  const w = tailBaseHalfWidth(hW, hH, tail) / speed;
+  const half =
+    tail.baseWidth === undefined ? Math.min(Math.max(w, 0.08), 0.6) : Math.min(w, Math.PI / 4);
+  return {t1: tc - half, t2: tc + half};
+}
+
+// The drawable chord, or null when the tip is inside the ellipse or behind the
+// base (see TailTriangle).
 function ovalTailChord(hW: number, hH: number, tail: TailOffset): {t1: number; t2: number} | null {
   const nx = tail.dx / hW;
   const ny = tail.dy / hH;
   if (nx * nx + ny * ny <= 1) return null;
-  const tc = Math.atan2(ny, nx);
-  const speed = Math.hypot(hW * Math.sin(tc), hH * Math.cos(tc));
-  const half = Math.min(Math.max(tailBaseHalfWidth(hW, hH) / speed, 0.08), 0.6);
-  return {t1: tc - half, t2: tc + half};
+  const span = ovalTailSpan(hW, hH, tail);
+  const b1: [number, number] = [hW * Math.cos(span.t1), hH * Math.sin(span.t1)];
+  const b2: [number, number] = [hW * Math.cos(span.t2), hH * Math.sin(span.t2)];
+  return tipBeyondBase(tail, b1, b2) ? span : null;
 }
 
 class RectAction extends RotatableBoxAction {
@@ -3107,11 +3247,13 @@ class RectAction extends RotatableBoxAction {
     const [hW, hH] = this.halfExtents();
     const an = rectTailAnchors(hW, hH, this.cornerRadius, this.tail);
     if (!an) return null;
-    return {
-      tip: [this.tail.dx, this.tail.dy],
-      b1: perimeterPointAt(an.pieces, an.total, an.sExit - an.base),
-      b2: perimeterPointAt(an.pieces, an.total, an.sExit + an.base),
-    };
+    return {tip: [this.tail.dx, this.tail.dy], b1: an.b1, b2: an.b2};
+  }
+
+  protected tailBaseCenter(tail: TailOffset): [number, number] {
+    const [hW, hH] = this.halfExtents();
+    const tb = rectTailBase(hW, hH, this.cornerRadius, tail);
+    return perimeterPointAt(tb.pieces, tb.total, tb.sBase);
   }
 
   // Pass cornerRadius through make so every base edit that rebuilds the box
@@ -3244,6 +3386,12 @@ class OvalAction extends RotatableBoxAction {
       b1: [hW * Math.cos(chord.t1), hH * Math.sin(chord.t1)],
       b2: [hW * Math.cos(chord.t2), hH * Math.sin(chord.t2)],
     };
+  }
+
+  protected tailBaseCenter(tail: TailOffset): [number, number] {
+    const [hW, hH] = this.halfExtents();
+    const t = tailBaseAngle(hW, hH, tail);
+    return [hW * Math.cos(t), hH * Math.sin(t)];
   }
 
   protected make(
