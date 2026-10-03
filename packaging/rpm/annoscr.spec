@@ -1,5 +1,5 @@
 Name:           annoscr
-Version:        2.3.0
+Version:        2.4.0
 Release:        1%{?dist}
 Summary:        Lightweight screenshot annotation tool for GNOME
 
@@ -83,6 +83,12 @@ npm install --no-audit --no-fund
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Fri Oct 02 2026 Matt Mower <mdmower@cmphys.com> - 2.4.0-1
+- A Blur slider for a selected rectangle or oval blurs everything beneath the shape, inside its outline. The far left is no blur. Scale image scales the blur with the image, and exported images match the canvas.
+- A Border switch for a selected image item adds a border outside the image, so it hides no pixels; Color, Width, and Corners then style it. Opacity fades only the image. Turning the switch on reuses the last border set.
+- A callout tail's base can be moved: drag the round handle beside it to change where the tail joins the shape. A moved base stays put when the tip is dragged; drag the handle back to its starting position to make it follow the tip again. Tail width sets how wide the base is. The tail is hidden while its tip is behind the base.
+- Shift+click the screenshot button, or press Ctrl+Shift+P, to take a screenshot without hiding the Annoscr window, so the window itself can be captured. On the command line, add --disable-hiding to --screenshot.
+- After rotating, cropping or expanding, or scaling the image, or deleting the selection, the style bar no longer keeps showing controls for annotations that are no longer selected.
 * Sun Sep 27 2026 Matt Mower <mdmower@cmphys.com> - 2.3.0-1
 - In Preferences, the "Confirm before discarding unsaved changes" switch is replaced by Unsaved changes, with three choices: Ask, Save annotation file, or Discard. It applies when the window closes and when opening, pasting, capturing, or creating a canvas replaces the current one. The switch's setting is kept: on becomes Ask, and off becomes Discard.
 - With Save annotation file, the changes are saved over the annotation file that was opened or last saved, or else to a new file in the default save folder, named after the opened image. Exporting an image or copying to the clipboard does not count as this save. If the save fails, an error is shown, followed by the "Discard changes?" dialog.

@@ -1,3 +1,26 @@
+annoscr (2.4.0) unstable; urgency=medium
+
+  * A Blur slider for a selected rectangle or oval blurs everything beneath
+    the shape, inside its outline. The far left is no blur. Scale image
+    scales the blur with the image, and exported images match the canvas.
+  * A Border switch for a selected image item adds a border outside the
+    image, so it hides no pixels; Color, Width, and Corners then style it.
+    Opacity fades only the image. Turning the switch on reuses the last
+    border set.
+  * A callout tail's base can be moved: drag the round handle beside it to
+    change where the tail joins the shape. A moved base stays put when the
+    tip is dragged; drag the handle back to its starting position to make it
+    follow the tip again. Tail width sets how wide the base is. The tail is
+    hidden while its tip is behind the base.
+  * Shift+click the screenshot button, or press Ctrl+Shift+P, to take a
+    screenshot without hiding the Annoscr window, so the window itself can
+    be captured. On the command line, add --disable-hiding to --screenshot.
+  * After rotating, cropping or expanding, or scaling the image, or deleting
+    the selection, the style bar no longer keeps showing controls for
+    annotations that are no longer selected.
+
+ -- Matt Mower <mdmower@cmphys.com>  Fri, 02 Oct 2026 21:10:00 -0700
+
 annoscr (2.3.0) unstable; urgency=medium
 
   * In Preferences, the "Confirm before discarding unsaved changes" switch
