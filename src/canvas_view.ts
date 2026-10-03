@@ -18,6 +18,7 @@ import {
   DEFAULT_ARROW_HEAD,
   DEFAULT_ARROW_TAIL,
   DEFAULT_DASH,
+  DEFAULT_IMAGE_BORDER,
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_START,
   DEFAULT_STAMP_VARIANT,
@@ -63,7 +64,14 @@ import {
 } from './actions.js';
 import {resizeSurface, rotateSurface, scaleSurface} from './image_transforms.js';
 import {renderToSurface, sampleSurfacePixel} from './exporter.js';
-import type {EditorSize, ImageAsset, RotateDirection, TextAlign, TextStyle} from './actions.js';
+import type {
+  EditorSize,
+  ImageAsset,
+  ImageBorder,
+  RotateDirection,
+  TextAlign,
+  TextStyle,
+} from './actions.js';
 import {ResampleCache} from './resample_cache.js';
 import type {ToolStyleEntry, ToolStylesSnapshot} from './settings.js';
 import {announce, setAccessibleDescription, setAccessibleLabel} from './a11y.js';
@@ -598,6 +606,12 @@ export const CanvasView = GObject.registerClass(
     // placement inherits the size), read at placement. Not a "width", so
     // it has its own map rather than reusing toolWidths.
     private toolStampRadii: Map<ToolId, number> = new Map();
+
+    // The border an image gets when its Border switch is turned on: the last
+    // Color/Width/Corners set on an image border, or null before any (the
+    // default).
+    // Kept outside the per-tool maps because no tool places images.
+    private imageBorder: ImageBorder | null = null;
 
     // Pixel-memory budget (bytes) for the distinct surfaces history retains;
     // null = unbounded. Annotation edits share their surface by reference, but
@@ -1449,6 +1463,7 @@ export const CanvasView = GObject.registerClass(
       const snap: ToolStylesSnapshot = {tools};
       if (this.defaultStampVariant !== DEFAULT_STAMP_VARIANT)
         snap.stampVariant = this.defaultStampVariant;
+      if (this.imageBorder) snap.imageBorder = this.imageBorder;
       return snap;
     }
 
@@ -1471,6 +1486,7 @@ export const CanvasView = GObject.registerClass(
         if (e.stampRadius !== undefined) this.toolStampRadii.set(toolId, e.stampRadius);
       }
       if (snap.stampVariant) this.defaultStampVariant = snap.stampVariant;
+      if (snap.imageBorder) this.imageBorder = snap.imageBorder;
     }
 
     // Every currently-selected action, in selection (insertion) order. The
@@ -1693,7 +1709,9 @@ export const CanvasView = GObject.registerClass(
       // stepping a spin button); each discrete choice (line style, arrowhead,
       // alignment, a switch) is its own entry.
       key: string | null,
-      setToolDefault: (toolId: ToolId, v: T) => void
+      setToolDefault: (toolId: ToolId, v: T) => void,
+      // Remembers the edit for image items, which have no tool.
+      setImageDefault?: (v: T) => void
     ): boolean {
       const cur = this.state.actions;
       if (this.selectedIndices.size === 0) return false;
@@ -1705,6 +1723,7 @@ export const CanvasView = GObject.registerClass(
       // The tools of the edited action types, so the edit can be remembered as
       // each one's default.
       const tools = new Set<ToolId>();
+      let images = false;
       const next = cur.map((a, j) => {
         if (!this.selectedIndices.has(j)) return a;
         const current = get(a);
@@ -1712,6 +1731,7 @@ export const CanvasView = GObject.registerClass(
         applicable = true;
         const tid = actionToolId(a);
         if (tid) tools.add(tid);
+        else if (actionType(a) === 'image') images = true;
         // Re-picking the value an action already has would push a content-
         // identical (new-reference) state — an undo step that does nothing
         // visible. Skip those actions.
@@ -1728,6 +1748,7 @@ export const CanvasView = GObject.registerClass(
       // Written even when nothing changed (every selected item already had the
       // value), since the user still explicitly chose it.
       for (const tid of tools) setToolDefault(tid, value);
+      if (images) setImageDefault?.(value);
       // Applicable but every selected action already had the value: handled,
       // but nothing to push.
       if (!changed) return true;
@@ -1750,7 +1771,8 @@ export const CanvasView = GObject.registerClass(
         (a, v) => a.withColor(v),
         color,
         'color',
-        (tid, v) => this.setToolColor(tid, v)
+        (tid, v) => this.setToolColor(tid, v),
+        (v) => (this.imageBorder = {...this.getImageBorder(), color: v})
       );
     }
 
@@ -1770,7 +1792,8 @@ export const CanvasView = GObject.registerClass(
         (a, v) => a.withWidth(v),
         width,
         'width',
-        (tid, v) => this.setToolWidth(tid, v)
+        (tid, v) => this.setToolWidth(tid, v),
+        (v) => (this.imageBorder = {...this.getImageBorder(), width: v})
       );
     }
 
@@ -1820,7 +1843,8 @@ export const CanvasView = GObject.registerClass(
         (a, v) => a.withCornerRadius(v),
         radius,
         'cornerRadius',
-        (tid, v) => this.setToolCornerRadius(tid, v)
+        (tid, v) => this.setToolCornerRadius(tid, v),
+        (v) => (this.imageBorder = {...this.getImageBorder(), radius: v})
       );
     }
 
@@ -1881,6 +1905,23 @@ export const CanvasView = GObject.registerClass(
         'tailWidth',
         () => {}
       );
+    }
+
+    // Add or remove the selected images' borders. An added border is the last
+    // one set (getImageBorder); it isn't changed here, since the switch picks
+    // no style. No coalesce key, like the Callout switch.
+    replaceSelectedBorder(on: boolean): boolean {
+      return this.replaceSelectedProperty(
+        (a) => a.getBorder(),
+        (a, v) => a.withBorder(v ? this.getImageBorder() : null),
+        on,
+        null,
+        () => {}
+      );
+    }
+
+    private getImageBorder(): ImageBorder {
+      return this.imageBorder ?? DEFAULT_IMAGE_BORDER;
     }
 
     // Opacity belongs only to image items, which no tool places, so there's no

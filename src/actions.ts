@@ -185,6 +185,11 @@ export interface Action {
   // whose translucency is part of their colors. Only image items have one.
   getOpacity(): number | null;
   withOpacity(opacity: number): Action;
+  // Whether the action has a border, or null for actions that can't (only
+  // image items can). Its color and width are the Color and Width channels,
+  // which are null without one. `withBorder` sets it, or removes it with null.
+  getBorder(): boolean | null;
+  withBorder(border: ImageBorder | null): Action;
   // The pixel surface the action holds, or null. Only image items hold one;
   // undo history counts it against the undo-memory budget.
   getSurface(): Cairo.ImageSurface | null;
@@ -910,6 +915,7 @@ export interface SerializedImage {
   rotation: number;
   opacity: number;
   asset: string; // ImageAsset.id; the pixels are stored in their own chunk
+  border?: ImageBorder; // omitted when the image has no border
 }
 
 export type SerializedAction =
@@ -1031,6 +1037,12 @@ abstract class BaseAction implements Action {
     return null;
   }
   withOpacity(_opacity: number): Action {
+    return this;
+  }
+  getBorder(): boolean | null {
+    return null;
+  }
+  withBorder(_border: ImageBorder | null): Action {
     return this;
   }
   getSurface(): Cairo.ImageSurface | null {
@@ -3494,6 +3506,12 @@ export interface PaintImageOptions {
   aligned: boolean;
   opacity: number;
   resample?: ImageResampler;
+  // Replace the destination under the image instead of compositing over it:
+  // clear the painted area, then add the image. Clear and add share one clip,
+  // so a partly covered edge pixel gets exactly the complementary share of
+  // what was there; painting over a separately antialiased edge would let the
+  // background show through the seam. Only valid inside a group.
+  knockout?: boolean;
 }
 
 // Paint `src` stretched to fill the w × h box at the user-space origin. The
@@ -3507,7 +3525,7 @@ export function paintImage(
   src: Cairo.ImageSurface,
   w: number,
   h: number,
-  {scale, deviceScale, aligned, opacity, resample}: PaintImageOptions
+  {scale, deviceScale, aligned, opacity, resample, knockout}: PaintImageOptions
 ): void {
   const sw = src.getWidth();
   const sh = src.getHeight();
@@ -3538,6 +3556,11 @@ export function paintImage(
   }
   cr.rectangle(0, 0, image.getWidth(), image.getHeight());
   cr.clip();
+  if (knockout) {
+    cr.setOperator(Cairo.Operator.CLEAR);
+    cr.paint();
+    cr.setOperator(Cairo.Operator.ADD);
+  }
   cr.setSourceSurface(image, 0, 0);
   const pattern = cr.getSource() as Cairo.SurfacePattern;
   pattern.setFilter(filter);
@@ -3555,10 +3578,60 @@ function isQuarterTurn(rotation: number): boolean {
   return Math.abs(q - Math.round(q)) < 1e-9;
 }
 
+// A border around an image item, drawn outside its box so it hides no pixels.
+// Sizes are in image px. The radius rounds the outer corners; it has no effect
+// past the width, where rounding would start to cut into the image's corners.
+export interface ImageBorder {
+  color: ColorRGBA;
+  width: number;
+  radius: number;
+}
+
+// The border an image gets when its Border switch is turned on, until another
+// one is set.
+export const DEFAULT_IMAGE_BORDER: ImageBorder = {
+  color: DEFAULT_COLOR,
+  width: SHAPE_STYLE.width,
+  radius: 0,
+};
+
+// Clip to the device-pixel rectangle around a user-space rectangle, with a
+// pixel of margin, so a group pushed next is the size of what it holds and the
+// clip's edges don't antialias it.
+function clipToDeviceExtents(cr: Cairo.Context, x: number, y: number, w: number, h: number): void {
+  let x1 = Infinity,
+    y1 = Infinity,
+    x2 = -Infinity,
+    y2 = -Infinity;
+  for (const [ux, uy] of [
+    [x, y],
+    [x + w, y],
+    [x + w, y + h],
+    [x, y + h],
+  ]) {
+    const [dx, dy] = cr.userToDevice(ux, uy);
+    x1 = Math.min(x1, dx);
+    y1 = Math.min(y1, dy);
+    x2 = Math.max(x2, dx);
+    y2 = Math.max(y2, dy);
+  }
+  x1 = Math.floor(x1) - 1;
+  y1 = Math.floor(y1) - 1;
+  x2 = Math.ceil(x2) + 1;
+  y2 = Math.ceil(y2) + 1;
+  cr.moveTo(...cr.deviceToUser(x1, y1));
+  cr.lineTo(...cr.deviceToUser(x2, y1));
+  cr.lineTo(...cr.deviceToUser(x2, y2));
+  cr.lineTo(...cr.deviceToUser(x1, y2));
+  cr.closePath();
+  cr.clip();
+}
+
 // An image placed on the canvas: stretched to fill its (x1,y1)-(x2,y2) box,
 // which is stored normalized and unrotated, then rotated about its center. The
 // pixels stay at native resolution in the asset whatever the box size, so
-// resizing or scaling the item is lossless.
+// resizing or scaling the item is lossless. The optional border lies outside
+// the box; the selection box, handles, and hit area enclose it.
 class ImageAction extends BaseAction {
   constructor(
     private readonly x1: number,
@@ -3567,35 +3640,82 @@ class ImageAction extends BaseAction {
     private readonly y2: number,
     private readonly rotation: number,
     private readonly opacity: number,
-    private readonly asset: ImageAsset
+    private readonly asset: ImageAsset,
+    private readonly border: ImageBorder | null
   ) {
     super();
   }
 
   private make(x1: number, y1: number, x2: number, y2: number): ImageAction {
-    return new ImageAction(x1, y1, x2, y2, this.rotation, this.opacity, this.asset);
+    return new ImageAction(x1, y1, x2, y2, this.rotation, this.opacity, this.asset, this.border);
+  }
+
+  private copy(changes: {
+    rotation?: number;
+    opacity?: number;
+    border?: ImageBorder | null;
+  }): ImageAction {
+    return new ImageAction(
+      this.x1,
+      this.y1,
+      this.x2,
+      this.y2,
+      changes.rotation ?? this.rotation,
+      changes.opacity ?? this.opacity,
+      this.asset,
+      changes.border === undefined ? this.border : changes.border
+    );
+  }
+
+  // How far the border extends past the box on each side.
+  private borderPad(): number {
+    return this.border?.width ?? 0;
   }
 
   draw(cr: Cairo.Context, scale: number, resample?: ImageResampler, deviceScale = 1): void {
     const w = this.x2 - this.x1;
     const h = this.y2 - this.y1;
     if (w <= 0 || h <= 0) return;
-    cr.save();
-    cr.translate((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
-    if (this.rotation !== 0) cr.rotate(this.rotation);
-    cr.translate(-w / 2, -h / 2);
-    paintImage(cr, this.asset.surface, w, h, {
+    const options: PaintImageOptions = {
       scale,
       deviceScale,
       aligned: isQuarterTurn(this.rotation),
       opacity: this.opacity,
       resample,
-    });
+    };
+    cr.save();
+    cr.translate((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
+    if (this.rotation !== 0) cr.rotate(this.rotation);
+    cr.translate(-w / 2, -h / 2);
+    if (this.border) {
+      const b = this.border.width;
+      clipToDeviceExtents(cr, -b, -b, w + 2 * b, h + 2 * b);
+      cr.pushGroup();
+      const [r, g, bl, a] = this.border.color;
+      cr.setSourceRGBA(r, g, bl, a);
+      roundedRectPath(cr, -b, -b, w + 2 * b, h + 2 * b, Math.min(this.border.radius, b));
+      cr.fill();
+      // The image replaces the fill under it, so the border's inner edge is
+      // the image's painted edge (a resampled copy's can be a fraction of a
+      // pixel off the box) and the opacity fades only the image.
+      paintImage(cr, this.asset.surface, w, h, {...options, knockout: true});
+      cr.popGroupToSource();
+      cr.paint();
+    } else {
+      paintImage(cr, this.asset.surface, w, h, options);
+    }
     cr.restore();
   }
 
   getBounds(): Bounds {
-    return textBounds(this.x1, this.y1, this.x2 - this.x1, this.y2 - this.y1, this.rotation);
+    const b = this.borderPad();
+    return textBounds(
+      this.x1 - b,
+      this.y1 - b,
+      this.x2 - this.x1 + 2 * b,
+      this.y2 - this.y1 + 2 * b,
+      this.rotation
+    );
   }
 
   translate(dx: number, dy: number): Action {
@@ -3620,13 +3740,59 @@ class ImageAction extends BaseAction {
       cy + hH,
       normalizeAngle(this.rotation + dr),
       this.opacity,
-      this.asset
+      this.asset,
+      this.border
     );
   }
 
-  // Only the box scales; the pixels stay at native resolution.
+  // The box and the border's sizes scale; the pixels stay at native resolution.
   scaleOnImage(factor: number): Action {
-    return this.make(this.x1 * factor, this.y1 * factor, this.x2 * factor, this.y2 * factor);
+    return new ImageAction(
+      this.x1 * factor,
+      this.y1 * factor,
+      this.x2 * factor,
+      this.y2 * factor,
+      this.rotation,
+      this.opacity,
+      this.asset,
+      this.border && {
+        ...this.border,
+        width: this.border.width * factor,
+        radius: this.border.radius * factor,
+      }
+    );
+  }
+
+  getColor(): ColorRGBA | null {
+    return this.border?.color ?? null;
+  }
+
+  withColor(color: ColorRGBA): Action {
+    return this.border ? this.copy({border: {...this.border, color}}) : this;
+  }
+
+  getWidth(): number | null {
+    return this.border?.width ?? null;
+  }
+
+  withWidth(width: number): Action {
+    return this.border ? this.copy({border: {...this.border, width}}) : this;
+  }
+
+  getCornerRadius(): number | null {
+    return this.border?.radius ?? null;
+  }
+
+  withCornerRadius(radius: number): Action {
+    return this.border ? this.copy({border: {...this.border, radius}}) : this;
+  }
+
+  getBorder(): boolean {
+    return this.border !== null;
+  }
+
+  withBorder(border: ImageBorder | null): Action {
+    return this.copy({border});
   }
 
   getOpacity(): number {
@@ -3634,7 +3800,7 @@ class ImageAction extends BaseAction {
   }
 
   withOpacity(opacity: number): Action {
-    return new ImageAction(this.x1, this.y1, this.x2, this.y2, this.rotation, opacity, this.asset);
+    return this.copy({opacity});
   }
 
   getSurface(): Cairo.ImageSurface {
@@ -3650,23 +3816,16 @@ class ImageAction extends BaseAction {
   }
 
   withRotation(rotation: number): Action {
-    return new ImageAction(
-      this.x1,
-      this.y1,
-      this.x2,
-      this.y2,
-      normalizeAngle(rotation),
-      this.opacity,
-      this.asset
-    );
+    return this.copy({rotation: normalizeAngle(rotation)});
   }
 
   getOrientedBounds(): OrientedBounds {
+    const b = this.borderPad();
     return {
       cx: (this.x1 + this.x2) / 2,
       cy: (this.y1 + this.y2) / 2,
-      halfW: (this.x2 - this.x1) / 2,
-      halfH: (this.y2 - this.y1) / 2,
+      halfW: (this.x2 - this.x1) / 2 + b,
+      halfH: (this.y2 - this.y1) / 2 + b,
       angle: this.rotation,
     };
   }
@@ -3678,16 +3837,17 @@ class ImageAction extends BaseAction {
   }
 
   // Corners only: an edge handle would have to either distort the image or
-  // move both perpendicular edges.
+  // move both perpendicular edges. They sit on the border's outer corners.
   getResizeHandles(): ResizeHandle[] {
     const cx = (this.x1 + this.x2) / 2;
     const cy = (this.y1 + this.y2) / 2;
+    const b = this.borderPad();
     return (
       [
-        ['tl', this.x1, this.y1],
-        ['tr', this.x2, this.y1],
-        ['bl', this.x1, this.y2],
-        ['br', this.x2, this.y2],
+        ['tl', this.x1 - b, this.y1 - b],
+        ['tr', this.x2 + b, this.y1 - b],
+        ['bl', this.x1 - b, this.y2 + b],
+        ['br', this.x2 + b, this.y2 + b],
       ] as Array<[HandleId, number, number]>
     ).map(([id, x, y]) => {
       const [rx, ry] = rotateAboutPoint(x, y, cx, cy, this.rotation);
@@ -3697,24 +3857,27 @@ class ImageAction extends BaseAction {
 
   // Resize from a corner with the opposite corner anchored, keeping the box's
   // aspect ratio. `constrain` (Shift) frees the aspect ratio instead, the
-  // reverse of rect/oval, where Shift constrains to a square.
+  // reverse of rect/oval, where Shift constrains to a square. The handle is on
+  // the border's outer corner, so the box corner it drags is the cursor moved
+  // back in by the border width; the border width doesn't change.
   resizeByHandle(handle: HandleId, ix: number, iy: number, constrain: boolean): Action {
     if (handle !== 'tl' && handle !== 'tr' && handle !== 'bl' && handle !== 'br') return this;
     const w = this.x2 - this.x1;
     const h = this.y2 - this.y1;
     if (w <= 0 || h <= 0) return this;
-    let tx = ix;
-    let ty = iy;
+    const cx = (this.x1 + this.x2) / 2;
+    const cy = (this.y1 + this.y2) / 2;
+    const left = handle === 'tl' || handle === 'bl';
+    const top = handle === 'tl' || handle === 'tr';
+    const sx = left ? -1 : 1;
+    const sy = top ? -1 : 1;
+    const b = this.borderPad();
+    let [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
+    lx -= sx * b;
+    ly -= sy * b;
     if (!constrain) {
-      const cx = (this.x1 + this.x2) / 2;
-      const cy = (this.y1 + this.y2) / 2;
-      const [lx, ly] = rotateAboutPoint(ix, iy, cx, cy, -this.rotation);
-      const left = handle === 'tl' || handle === 'bl';
-      const top = handle === 'tl' || handle === 'tr';
       const ax = left ? this.x2 : this.x1;
       const ay = top ? this.y2 : this.y1;
-      const sx = left ? -1 : 1;
-      const sy = top ? -1 : 1;
       // The larger of the two axis ratios, so the corner covers the cursor like
       // a squared rect/oval does; the floor keeps the short side at the minimum
       // extent and stops the box inverting.
@@ -3723,8 +3886,10 @@ class ImageAction extends BaseAction {
         ((ly - ay) * sy) / h,
         SHAPE_MIN_EXTENT / Math.min(w, h)
       );
-      [tx, ty] = rotateAboutPoint(ax + sx * k * w, ay + sy * k * h, cx, cy, this.rotation);
+      lx = ax + sx * k * w;
+      ly = ay + sy * k * h;
     }
+    const [tx, ty] = rotateAboutPoint(lx, ly, cx, cy, this.rotation);
     const [x1, y1, x2, y2] = resizeOrientedBox(
       this.x1,
       this.y1,
@@ -3749,11 +3914,21 @@ class ImageAction extends BaseAction {
       rotation: this.rotation,
       opacity: this.opacity,
       asset: this.asset.id,
+      ...(this.border
+        ? {
+            border: {
+              color: this.border.color,
+              width: this.border.width,
+              radius: this.border.radius,
+            },
+          }
+        : {}),
     };
   }
 }
 
-// An unrotated, opaque image item filling the box at (x, y) of size w × h.
+// An unrotated, opaque, borderless image item filling the box at (x, y) of
+// size w × h.
 export function makeImageAction(
   asset: ImageAsset,
   x: number,
@@ -3761,7 +3936,7 @@ export function makeImageAction(
   w: number,
   h: number
 ): Action {
-  return new ImageAction(x, y, x + w, y + h, 0, 1, asset);
+  return new ImageAction(x, y, x + w, y + h, 0, 1, asset, null);
 }
 
 // Transparent default fill for rect/oval — outline-only on creation. The user
@@ -3925,7 +4100,8 @@ function deserializeAction(
         Math.max(data.y1, data.y2),
         normalizeAngle(data.rotation),
         data.opacity,
-        asset
+        asset,
+        data.border ?? null
       );
     }
     case 'pen':

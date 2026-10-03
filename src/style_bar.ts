@@ -217,7 +217,8 @@ export class StyleBar {
   private arrowTailGroup!: Gtk.Box;
   private arrowTailLabel!: Gtk.Label;
   private arrowTailDropdown!: Gtk.DropDown;
-  // Rectangle corner radius (rect only): 0 = sharp, image-space px.
+  // Corner radius (a rectangle, or a bordered image's outer corners): 0 =
+  // sharp, image-space px.
   private cornerGroup!: Gtk.Box;
   private cornerLabel!: Gtk.Label;
   private cornerSpin!: Gtk.SpinButton;
@@ -225,6 +226,11 @@ export class StyleBar {
   private opacityGroup!: Gtk.Box;
   private opacityLabel!: Gtk.Label;
   private opacitySpin!: Gtk.SpinButton;
+  // Border switch (selected image items only): adds or removes a border, whose
+  // style is then the Color, Width, and Corners controls.
+  private borderGroup!: Gtk.Box;
+  private borderLabel!: Gtk.Label;
+  private borderSwitch!: Gtk.Switch;
   // Callout-tail switch (selected rect/oval only): toggles a pointer tail
   // joined to the box outline; the tip is dragged by its own canvas handle.
   private tailGroup!: Gtk.Box;
@@ -451,6 +457,30 @@ export class StyleBar {
       : makeGroup(actionsSep, actionsMenu);
     styleBar.append(this.actionsGroup);
 
+    // Opacity group (selected image items only), ahead of the border's
+    // controls.
+    const opacitySep = makeSep();
+    this.opacitySpin = new Gtk.SpinButton({
+      adjustment: new Gtk.Adjustment({lower: 0, upper: 100, step_increment: 1, page_increment: 10}),
+      width_request: 76,
+      valign: Gtk.Align.CENTER,
+      xalign: 1,
+    });
+    this.opacitySpin.connect('value-changed', () => this.onOpacityPicked());
+    this.opacityLabel = new Gtk.Label({label: _('Opacity'), css_classes: ['caption']});
+    this.opacityGroup = makeRowGroup(opacitySep, this.opacityLabel, this.opacitySpin);
+    styleBar.append(this.opacityGroup);
+
+    // Border group (selected image items only, no tool default, like Opacity).
+    // Ahead of Color, since the border's color, width, and corners are the
+    // shared controls that follow.
+    const borderSep = makeSep();
+    this.borderSwitch = new Gtk.Switch({valign: Gtk.Align.CENTER});
+    this.borderSwitch.connect('notify::active', () => this.onBorderPicked());
+    this.borderLabel = new Gtk.Label({label: _('Border'), css_classes: ['caption']});
+    this.borderGroup = makeRowGroup(borderSep, this.borderLabel, this.borderSwitch);
+    styleBar.append(this.borderGroup);
+
     // Color group
     const colorSep = makeSep();
     const colorSwatch = this.makeSwatchButton((c) => this.onColorPicked(c));
@@ -506,7 +536,7 @@ export class StyleBar {
     this.dashGroup = makeRowGroup(dashSep, this.dashLabel, this.dashDropdown);
     styleBar.append(this.dashGroup);
 
-    // Corners group (rectangle only) — the corner radius in px.
+    // Corners group (rectangle or bordered image) — the corner radius in px.
     const cornerSep = makeSep();
     this.cornerSpin = new Gtk.SpinButton({
       adjustment: new Gtk.Adjustment({
@@ -526,19 +556,6 @@ export class StyleBar {
     this.cornerLabel = new Gtk.Label({label: _('Corners'), css_classes: ['caption']});
     this.cornerGroup = makeRowGroup(cornerSep, this.cornerLabel, this.cornerSpin);
     styleBar.append(this.cornerGroup);
-
-    // Opacity group (selected image items only).
-    const opacitySep = makeSep();
-    this.opacitySpin = new Gtk.SpinButton({
-      adjustment: new Gtk.Adjustment({lower: 0, upper: 100, step_increment: 1, page_increment: 10}),
-      width_request: 76,
-      valign: Gtk.Align.CENTER,
-      xalign: 1,
-    });
-    this.opacitySpin.connect('value-changed', () => this.onOpacityPicked());
-    this.opacityLabel = new Gtk.Label({label: _('Opacity'), css_classes: ['caption']});
-    this.opacityGroup = makeRowGroup(opacitySep, this.opacityLabel, this.opacitySpin);
-    styleBar.append(this.opacityGroup);
 
     // Callout group (selected rect/oval only) — a switch toggling the pointer
     // tail; there's deliberately no tool default (see replaceSelectedTail), so
@@ -730,12 +747,13 @@ export class StyleBar {
 
     this.styleGroupOrder = [
       {group: this.actionsGroup, sep: actionsSep},
+      {group: this.opacityGroup, sep: opacitySep},
+      {group: this.borderGroup, sep: borderSep},
       {group: this.colorGroup, sep: colorSep},
       {group: this.fillGroup, sep: fillSep},
       {group: this.widthGroup, sep: widthSep},
       {group: this.dashGroup, sep: dashSep},
       {group: this.cornerGroup, sep: cornerSep},
-      {group: this.opacityGroup, sep: opacitySep},
       {group: this.tailGroup, sep: tailSep},
       {group: this.tailWidthGroup, sep: tailWidthSep},
       {group: this.arrowHeadGroup, sep: arrowHeadSep},
@@ -756,6 +774,7 @@ export class StyleBar {
     setLabelledBy(this.widthSpin, this.widthLabel);
     setLabelledBy(this.cornerSpin, this.cornerLabel);
     setLabelledBy(this.opacitySpin, this.opacityLabel);
+    setLabelledBy(this.borderSwitch, this.borderLabel);
     setLabelledBy(this.tailSwitch, this.tailLabel);
     setLabelledBy(this.tailWidthSpin, this.tailWidthLabel);
     setLabelledBy(this.dashDropdown, this.dashLabel);
@@ -1151,6 +1170,15 @@ export class StyleBar {
       this.opacityLabel,
       _('Opacity'),
       this.selectionMixed((a) => a.getOpacity())
+    );
+
+    const border = this.styleTargetBorder();
+    this.borderGroup.set_visible(border !== null);
+    if (border !== null) this.borderSwitch.set_active(border);
+    setCaption(
+      this.borderLabel,
+      _('Border'),
+      this.selectionMixed((a) => a.getBorder())
     );
 
     const arrowHead = this.styleTargetArrowHead();
@@ -1592,6 +1620,13 @@ export class StyleBar {
     return this.selectionSummary((a) => a.getOpacity()).value;
   }
 
+  // Whether the selected images have a border, or null to hide the switch.
+  // Select-mode only, like Opacity.
+  private styleTargetBorder(): boolean | null {
+    if (this.editor.isActive() || this.canvas.getTool() !== 'select') return null;
+    return this.selectionSummary((a) => a.getBorder()).value;
+  }
+
   // Callout-tail state to display, or null when the control should hide (text
   // edit, non-select tool, or no selected box shape). Select-mode only: the
   // tail is per-shape geometry with no tool default. `false` is a real value —
@@ -1696,6 +1731,12 @@ export class StyleBar {
 
   // Select-mode only (the control is hidden otherwise); no tool default to
   // write — see replaceSelectedTail.
+  private onBorderPicked(): void {
+    if (this.updatingPicker || !this.borderSwitch) return;
+    if (this.canvas.getTool() !== 'select') return;
+    this.canvas.replaceSelectedBorder(this.borderSwitch.get_active());
+  }
+
   private onTailPicked(): void {
     if (this.updatingPicker || !this.tailSwitch) return;
     if (this.canvas.getTool() !== 'select') return;

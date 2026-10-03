@@ -9,11 +9,13 @@ import {
   DEFAULT_ARROW_HEAD,
   DEFAULT_ARROW_TAIL,
   DEFAULT_DASH,
+  DEFAULT_IMAGE_BORDER,
   DEFAULT_STAMP_RADIUS,
   DEFAULT_STAMP_START,
   DEFAULT_STAMP_VARIANT,
   EditorSize,
   ImageAsset,
+  ImageBorder,
   SHAPE_TEXT_STYLE,
   SerializedAction,
   SerializedShapeText,
@@ -390,11 +392,24 @@ function sanitizeBox(raw: Record<string, unknown>, type: 'rect' | 'oval'): Seria
   return {type, ...box, cornerRadius: asClampedNumber(raw.cornerRadius, 0, STORED_SIZE_MAX) ?? 0};
 }
 
-// An image item's box and asset reference are its content; opacity is style.
+// An image's border is optional like a callout tail: anything but an object
+// means no border, and a malformed color or width falls back to the default.
+function sanitizeImageBorder(v: unknown): ImageBorder | undefined {
+  if (!isRecord(v)) return undefined;
+  return {
+    color: asColor(v.color) ?? DEFAULT_IMAGE_BORDER.color,
+    width: asClampedNumber(v.width, STORED_SIZE_MIN, STORED_SIZE_MAX) ?? DEFAULT_IMAGE_BORDER.width,
+    radius: asClampedNumber(v.radius, 0, STORED_SIZE_MAX) ?? DEFAULT_IMAGE_BORDER.radius,
+  };
+}
+
+// An image item's box and asset reference are its content; opacity and border
+// are style.
 function sanitizeImage(raw: Record<string, unknown>): SerializedAction {
   if (typeof raw.asset !== 'string' || !ASSET_ID_PATTERN.test(raw.asset)) {
     throw new DocumentError('Image annotation has a malformed image reference');
   }
+  const border = sanitizeImageBorder(raw.border);
   return {
     type: 'image',
     x1: requireFinite(raw.x1, 'coordinate'),
@@ -404,6 +419,7 @@ function sanitizeImage(raw: Record<string, unknown>): SerializedAction {
     rotation: asAngle(raw.rotation),
     opacity: asClampedNumber(raw.opacity, 0, 1) ?? 1,
     asset: raw.asset,
+    ...(border ? {border} : {}),
   };
 }
 

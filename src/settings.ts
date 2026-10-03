@@ -5,6 +5,7 @@ import {
   ColorRGBA,
   DashStyle,
   DEFAULT_ARROW_HEAD,
+  ImageBorder,
   StampVariant,
   STORED_SIZE_MAX,
   STORED_SIZE_MIN,
@@ -82,6 +83,9 @@ export interface ToolStyleEntry {
 export interface ToolStylesSnapshot {
   tools: Record<string, ToolStyleEntry>;
   stampVariant?: StampVariant;
+  // The border an image's Border switch adds. Images have no tool, so it isn't
+  // a ToolStyleEntry.
+  imageBorder?: ImageBorder;
 }
 
 export interface AnnoscrSettings {
@@ -264,6 +268,12 @@ function asToolStyles(v: unknown): ToolStylesSnapshot | undefined {
   const snap: ToolStylesSnapshot = {tools};
   const stampVariant = asStampVariant(v.stampVariant);
   if (stampVariant) snap.stampVariant = stampVariant;
+  if (isRecord(v.imageBorder)) {
+    const color = asColor(v.imageBorder.color);
+    const width = asClampedNumber(v.imageBorder.width, STORED_SIZE_MIN, STORED_SIZE_MAX);
+    const radius = asClampedNumber(v.imageBorder.radius, 0, STORED_SIZE_MAX) ?? 0;
+    if (color && width !== undefined) snap.imageBorder = {color, width, radius};
+  }
   return snap;
 }
 
