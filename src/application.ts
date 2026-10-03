@@ -19,7 +19,7 @@ export const AnnoscrApplication = GObject.registerClass(
   {GTypeName: 'AnnoscrApplication'},
   class extends Adw.Application {
     private initialBlank: {w: number; h: number} | null = null;
-    private initialCapture = false;
+    private initialCapture: {hide: boolean} | null = null;
 
     constructor() {
       super({
@@ -70,6 +70,14 @@ export const AnnoscrApplication = GObject.registerClass(
         GLib.OptionFlags.NONE,
         GLib.OptionArg.NONE,
         _('Capture a screenshot via the desktop portal on startup'),
+        null
+      );
+      this.add_main_option(
+        'disable-hiding',
+        0,
+        GLib.OptionFlags.NONE,
+        GLib.OptionArg.NONE,
+        _('Keep Annoscr visible during screenshot capture (requires --screenshot)'),
         null
       );
       // GOptionContext only lists the flags by default; spell out the
@@ -165,12 +173,14 @@ export const AnnoscrApplication = GObject.registerClass(
         console.warn('annoscr: --width/--height require --new; ignoring.');
       }
       if (options.contains('screenshot')) {
-        this.initialCapture = true;
+        this.initialCapture = {hide: !options.contains('disable-hiding')};
         if (options.contains('new')) {
           console.warn(
             'annoscr: --new has no effect with --screenshot; the screenshot replaces the canvas.'
           );
         }
+      } else if (options.contains('disable-hiding')) {
+        console.warn('annoscr: --disable-hiding requires --screenshot; ignoring.');
       }
     }
 
@@ -222,10 +232,11 @@ export const AnnoscrApplication = GObject.registerClass(
         this.initialBlank = null;
       }
       if (this.initialCapture) {
-        this.initialCapture = false;
+        const {hide} = this.initialCapture;
+        this.initialCapture = null;
         // captureScreenshot presents the window itself once capture resolves,
         // so we skip the present() below to avoid flashing an empty window.
-        win.captureScreenshot(freshLaunch);
+        win.captureScreenshot({abandonOnCancel: freshLaunch, hide});
         return;
       }
       win.present();
@@ -239,7 +250,7 @@ export const AnnoscrApplication = GObject.registerClass(
       if (this.initialBlank || this.initialCapture) {
         console.warn('annoscr: --new/--screenshot are ignored when a file is opened.');
         this.initialBlank = null;
-        this.initialCapture = false;
+        this.initialCapture = null;
       }
       const win = (this.active_window ?? new AnnoscrWindow(this)) as InstanceType<
         typeof AnnoscrWindow

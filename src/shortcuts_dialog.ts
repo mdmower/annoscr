@@ -33,6 +33,7 @@ const SECTIONS: Section[] = [
       {keys: ['Ctrl', 'O'], desc: N_('Open image')},
       {keys: ['Insert'], desc: N_('Add to recent files without opening')},
       {keys: ['Ctrl', 'Shift', 'S'], desc: N_('Take screenshot')},
+      {keys: ['Ctrl', 'Shift', 'P'], desc: N_('Take screenshot without hiding Annoscr')},
       {keys: ['Ctrl', 'S'], desc: N_('Save image')},
       {keys: ['Ctrl', 'C'], desc: N_('Copy to clipboard')},
       {keys: ['Ctrl', 'V'], desc: N_('Paste image')},

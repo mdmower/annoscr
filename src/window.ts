@@ -78,7 +78,7 @@ import {
   setStripVisible,
 } from './recent_files.js';
 import {IMAGE_MIME_TYPES, TOOLS, installWindowCss} from './window_constants.js';
-import {labelFromTooltip} from './a11y.js';
+import {labelFromTooltip, setAccessibleDescription, setAccessibleLabel} from './a11y.js';
 import {_} from './i18n.js';
 
 // After closing the window with a notification (an auto-close export, or an
@@ -281,12 +281,21 @@ export const AnnoscrWindow = GObject.registerClass(
       labelFromTooltip(openButton);
       header.pack_start(openButton);
 
+      const captureLabel = _('Take screenshot… (Ctrl+Shift+S)');
+      const keepVisibleHint = _('Shift+click (or Ctrl+Shift+P) to keep this window visible');
       const captureButton = new Gtk.Button({
         icon_name: 'camera-photo-symbolic',
-        tooltip_text: _('Take screenshot… (Ctrl+Shift+S)'),
+        tooltip_text: `${captureLabel}\n${keepVisibleHint}`,
       });
-      captureButton.connect('clicked', () => this.captureScreenshot());
-      labelFromTooltip(captureButton);
+      // The keyboard's live modifier state, not the click's event: 'clicked'
+      // carries no event, and this also covers keyboard activation.
+      captureButton.connect('clicked', () => {
+        const keyboard = this.get_display().get_default_seat()?.get_keyboard();
+        const shift = ((keyboard?.get_modifier_state() ?? 0) & Gdk.ModifierType.SHIFT_MASK) !== 0;
+        this.captureScreenshot({hide: !shift});
+      });
+      setAccessibleLabel(captureButton, captureLabel);
+      setAccessibleDescription(captureButton, keepVisibleHint);
       header.pack_start(captureButton);
 
       this.saveButton = new Gtk.Button({
@@ -1041,12 +1050,9 @@ export const AnnoscrWindow = GObject.registerClass(
     // that case a cancelled or failed capture closes the never-shown window
     // rather than leaving an empty welcome window behind; when Annoscr was
     // already running, a cancel keeps the window and shows a toast instead.
-    captureScreenshot(abandonOnCancel = false): void {
-      // Unmap the window first so Annoscr isn't in the shot when the user picks
-      // a screen or full-screen region. The short delay gives the compositor
-      // time to actually hide it before the portal's capture UI appears.
-      this.set_visible(false);
-      GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+    // hide: false leaves the window mapped so it can be captured.
+    captureScreenshot({abandonOnCancel = false, hide = true} = {}): void {
+      const capture = () => {
         takeScreenshot()
           .then((uri) => {
             if (!uri && abandonOnCancel) {
@@ -1084,6 +1090,17 @@ export const AnnoscrWindow = GObject.registerClass(
             this.present();
             this.showToast(_('Screenshot cancelled'));
           });
+      };
+      if (!hide) {
+        capture();
+        return;
+      }
+      // Unmap the window first so Annoscr isn't in the shot when the user picks
+      // a screen or full-screen region. The short delay gives the compositor
+      // time to actually hide it before the portal's capture UI appears.
+      this.set_visible(false);
+      GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+        capture();
         return GLib.SOURCE_REMOVE;
       });
     }
@@ -1317,6 +1334,9 @@ export const AnnoscrWindow = GObject.registerClass(
       this.bindShortcut(controller, '<Control>n', () => this.newBlankCanvas());
       this.bindShortcut(controller, '<Control>o', () => this.openImageDialog());
       this.bindShortcut(controller, '<Control><Shift>s', () => this.captureScreenshot());
+      this.bindShortcut(controller, '<Control><Shift>p', () =>
+        this.captureScreenshot({hide: false})
+      );
       this.bindShortcut(controller, '<Control>v', () => this.pasteFromClipboard());
       // Paste as an image item, keeping the canvas. The editor is excluded so
       // the chord can't place an item behind an open text edit.

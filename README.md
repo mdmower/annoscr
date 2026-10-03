@@ -41,7 +41,7 @@ Annoscr is a lightweight screenshot annotation tool for GNOME.
 
 - **Transforms**: rotate the whole image, crop or expand the canvas, scale the image to new dimensions, or replace the background (the image under the annotations) with a color or another image. Scaling resamples the image and multiplies the annotations by the same factor, so they keep their place and re-render sharp at the new size. Both size commands are in the menu on the dimensions readout in the status bar; Replace background is in the primary menu. Replacing the background keeps the canvas size: an image of another size is cropped or padded to it, aligned by a 3x3 anchor you choose.
 
-- **Image I/O**: open a file, paste, start a blank canvas, or capture a screenshot through the desktop portal; export to PNG / JPEG or copy back to the clipboard. Dropping an image file on an empty window opens it; with an image already open, a dropped file is added as an image item.
+- **Image I/O**: open a file, paste, start a blank canvas, or capture a screenshot through the desktop portal (Annoscr hides itself during the capture; Shift+click the screenshot button or press Ctrl+Shift+P to keep it visible); export to PNG / JPEG or copy back to the clipboard. Dropping an image file on an empty window opens it; with an image already open, a dropped file is added as an image item.
 
 - **Recent files**: a strip of thumbnails below the status bar remembers the images and annotation files you open, so returning to an earlier screenshot is one click. Drop a selection of files onto the strip, or press Insert, to add files to it without opening any of them. Show or hide it from the status bar, right-click a thumbnail to reveal it in Files or forget it, and turn the feature off (which also clears the list) in Preferences.
 
@@ -200,6 +200,7 @@ Application Options:
   --width=PIXELS             Canvas width in pixels (default: 640, requires --new)
   --height=PIXELS            Canvas height in pixels (default: 480, requires --new)
   --screenshot               Capture a screenshot via the desktop portal on startup
+  --disable-hiding           Keep Annoscr visible during screenshot capture (requires --screenshot)
 ```
 
 ### Examples
@@ -211,6 +212,10 @@ Application Options:
 - Take a screenshot and annotate it
   ```sh
   annoscr --screenshot
+  ```
+- Take a screenshot without hiding an open Annoscr window, so the window itself can be captured
+  ```sh
+  annoscr --screenshot --disable-hiding
   ```
 - Annotate an existing screenshot
   ```sh
